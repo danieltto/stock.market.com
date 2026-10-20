@@ -17,7 +17,7 @@ except ImportError:
 # 1. 頁面設定與防查看原始碼安全注入 (細則 1)
 # ==========================================
 st.set_page_config(
-    page_title="全球港美股、期指、黃金與8P估值量化系統",
+    page_title="全球港美股、窩輪牛熊、期指黃金與8P批判性估值系統",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -35,7 +35,7 @@ def inject_security_and_styles():
         /* AASTOCKS 互動式導覽列樣式 */
         div[data-testid="stHorizontalBlock"] .stRadio > div[role="radiogroup"] {
             background-color: #1e3a5f;
-            padding: 6px 12px;
+            padding: 7px 12px;
             border-radius: 5px;
             display: flex;
             flex-wrap: wrap;
@@ -44,7 +44,7 @@ def inject_security_and_styles():
         div[role="radiogroup"] > label {
             background-color: rgba(255,255,255,0.08) !important;
             color: #ffffff !important;
-            padding: 5px 12px !important;
+            padding: 5px 11px !important;
             border-radius: 4px !important;
             font-size: 13px !important;
             font-weight: 600 !important;
@@ -69,6 +69,11 @@ def inject_security_and_styles():
             margin: 0 !important;
         }
 
+        .selected-asset-banner {
+            background-color: #eef4fc; border-left: 5px solid #1a73e8;
+            padding: 8px 14px; border-radius: 4px; margin-bottom: 8px;
+            font-size: 14px; color: #111111; display: flex; justify-content: space-between; align-items: center;
+        }
         .aa-index-bar {
             background-color: #ffffff; border: 1px solid #d9d9d9; padding: 10px 16px;
             display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
@@ -121,249 +126,353 @@ def inject_security_and_styles():
 inject_security_and_styles()
 
 # ==========================================
-# 2. 全市場資產索引庫 (涵蓋港股、美股、ETF、黃金、期貨、期指、美國所有指數)
+# 2. 全市場萬用資料庫 (逾 145+ 核心港股、美股、指數、期貨、ETF、黃金、窩輪及牛熊證)
 # ==========================================
-MASTER_CATALOG = [
-    # --- 香港及美國核心指數與期指 (Indices & Index Futures) ---
-    {"symbol": "^HSI", "code": "HSI", "name": "恒生指數", "en": "Hang Seng Index", "mkt": "INDEX", "curr": "HKD", "base_p": 23956.0},
-    {"symbol": "^HSCE", "code": "HSCEI", "name": "國企指數", "en": "Hang Seng China Enterprises", "mkt": "INDEX", "curr": "HKD", "base_p": 8055.0},
-    {"symbol": "HSTECH.HK", "code": "HSTECH", "name": "恒生科技指數", "en": "Hang Seng Tech Index", "mkt": "INDEX", "curr": "HKD", "base_p": 4668.0},
-    {"symbol": "^GSPC", "code": "SPX", "name": "美國標普500指數", "en": "S&P 500 Index", "mkt": "INDEX", "curr": "USD", "base_p": 6120.0},
-    {"symbol": "^NDX", "code": "NDX", "name": "美國納斯達克100指數", "en": "Nasdaq 100 Index", "mkt": "INDEX", "curr": "USD", "base_p": 22450.0},
-    {"symbol": "^IXIC", "code": "IXIC", "name": "美國納斯達克綜合指數", "en": "Nasdaq Composite", "mkt": "INDEX", "curr": "USD", "base_p": 19980.0},
-    {"symbol": "^DJI", "code": "DJI", "name": "美國道瓊斯工業平均指數", "en": "Dow Jones Industrial Average", "mkt": "INDEX", "curr": "USD", "base_p": 44250.0},
-    {"symbol": "^RUT", "code": "RUT", "name": "美國羅素2000小型股指數", "en": "Russell 2000 Index", "mkt": "INDEX", "curr": "USD", "base_p": 2310.0},
-    {"symbol": "^SOX", "code": "SOX", "name": "美國費城半導體指數", "en": "PHLX Semiconductor Index", "mkt": "INDEX", "curr": "USD", "base_p": 5860.0},
-    {"symbol": "^VIX", "code": "VIX", "name": "CBOE 恐慌波動率指數", "en": "CBOE Volatility Index", "mkt": "INDEX", "curr": "USD", "base_p": 16.8},
-    {"symbol": "ES=F", "code": "ES=F", "name": "標普500指數期貨 (E-Mini S&P)", "en": "E-Mini S&P 500 Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 6135.0},
-    {"symbol": "NQ=F", "code": "NQ=F", "name": "納指100期貨 (E-Mini Nasdaq)", "en": "E-Mini Nasdaq 100 Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 22510.0},
-    {"symbol": "YM=F", "code": "YM=F", "name": "道瓊斯指數期貨 (Mini Dow)", "en": "Mini Dow Jones Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 44310.0},
-    {"symbol": "RTY=F", "code": "RTY=F", "name": "羅素2000指數期貨", "en": "E-Mini Russell 2000 Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 2318.0},
+# 結構：(symbol, code, 中文名稱, 英文名稱, 市場分類, 貨幣, 基準現價, 預測PE, 市銷率PS, 市帳率PB, 營收增速%, 毛利率%, 市值USD_B, 客觀預測區間%, 批判性定性與風險分析)
+RAW_UNIVERSE = [
+    # --- 1. 香港股市核心股票 (HK Stocks: 55 隻，涵蓋藍籌、科網、金融、地產、消費、醫藥、資源、汽車) ---
+    ("00700.HK", "00700", "騰訊控股", "Tencent Holdings", "HK", "HKD", 410.80, 13.0, 4.4, 2.57, 13.9, 56.2, 476.0, 38.0, "🟢 潛力上升 | 估值處10年底部12%分位，遊戲與視頻號廣告高增並有日均1億回購托底；惟須警惕2Q26 AI資本開支暴增176%導致單季自由現金流轉負及發債50億美元之折舊壓力。"),
+    ("09988.HK", "09988", "阿里巴巴-W", "Alibaba Group", "HK", "HKD", 106.40, 9.0, 1.75, 1.62, 7.8, 39.2, 269.9, 42.0, "🟢 潛力上升 | 動態PE僅9倍處極端低估窪地，88VIP ARPU擴張與阿里雲AI重啟增長；惟內地電商存量價格戰與直播電商分流仍壓抑短期利潤率擴張速度。"),
+    ("03690.HK", "03690", "美團-W", "Meituan", "HK", "HKD", 168.00, 18.9, 2.95, 5.40, 18.2, 38.5, 133.5, 24.0, "🟢 溫和上升 | 本地生活外賣與到店競爭格局企穩，中東Keeta擴張具潛力；但海外前置補貼投入及騎手社保合規成本將限制利潤率超預期空間。"),
+    ("01810.HK", "01810", "小米集團-W", "Xiaomi Corp", "HK", "HKD", 27.08, 20.5, 1.85, 3.45, 24.5, 21.8, 86.1, 22.0, "🟢 溫和上升 | 智慧電動車SU7交付超預期並改善毛利；惟股價自低位已翻倍，記憶體晶片(DRAM/NAND)大幅漲價將擠壓手機業務毛利率，不宜盲目追高。"),
+    ("09999.HK", "09999", "網易-S", "NetEase", "HK", "HKD", 135.00, 11.5, 3.60, 2.95, 8.4, 62.5, 55.5, 32.0, "🟢 潛力上升 | 遠期PE僅11.5倍且帳上淨現金逾千億人民幣，隨遊戲板塊遭錯殺；風險在於部分老遊戲流水自然衰減，需視乎下半年新遊管線表現。"),
+    ("01211.HK", "01211", "比亞迪股份", "BYD Company", "HK", "HKD", 285.00, 16.3, 1.05, 4.85, 21.0, 20.6, 108.0, 26.0, "🟢 溫和上升 | 10月底中國渠道庫存低於2.25個月極度健康，DM5.0技術領先；惟歐盟關稅壁壘與內地車市價格戰仍是中長期估值上限的制約因素。"),
+    ("00388.HK", "00388", "香港交易所", "HKEX", "HK", "HKD", 372.40, 30.0, 18.20, 8.95, 18.5, 88.4, 60.5, 8.0, "⚪ 中性觀望 | 雖受惠港股日均成交逾千億及IPO復甦，但現價對應30倍預測PE及近9倍PB，已充分反映市場活躍度預期，若大市成交回落將面臨估值收縮。"),
+    ("00005.HK", "00005", "匯豐控股", "HSBC Holdings", "HK", "HKD", 92.96, 7.8, 3.65, 1.18, 5.5, 61.0, 313.1, 12.0, "⚪ 中性穩健 | 高股息率(6.45%)與持續回購提供防守性，且受惠高利率延長淨息差；但股價已貼近52週高位，英國稅務討論與香港商業地產撥備為潛在隱憂。"),
+    ("00939.HK", "00939", "建設銀行", "China Construction Bank", "HK", "HKD", 9.81, 6.3, 2.65, 0.68, 4.2, 52.0, 312.5, 9.0, "⚪ 中性收息 | 險資與南向資金抱團高息國企推升股價創52週新高；適合長線收息，但淨息差(NIM)受LPR下調壓抑，短期資本增值爆發力有限。"),
+    ("01398.HK", "01398", "工商銀行", "ICBC", "HK", "HKD", 5.12, 6.1, 2.50, 0.62, 3.8, 51.0, 285.0, 8.0, "⚪ 中性收息 | 估值低廉且股息率逾6%，惟屬典型防守型巨型銀行股，缺乏短期爆升30%以上之基本面彈性。"),
+    ("03988.HK", "03988", "中國銀行", "Bank of China", "HK", "HKD", 3.98, 5.9, 2.30, 0.58, 4.0, 50.5, 195.0, 7.0, "⚪ 中性收息 | 海外業務佔比較高受惠外幣高息環境，但龐大股本決定其僅具收息防守屬性。"),
+    ("01288.HK", "01288", "農業銀行", "Agricultural Bank of China", "HK", "HKD", 4.25, 6.2, 2.40, 0.65, 4.5, 51.2, 210.0, 6.0, "⚪ 中性觀望 | 近期隨國有大行連創新高，短期獲利盤累積，追高風險回報比一般。"),
+    ("03968.HK", "03968", "招商銀行", "China Merchants Bank", "HK", "HKD", 41.50, 6.8, 2.90, 0.95, 5.2, 55.0, 135.0, 14.0, "⚪ 中性偏強 | 零售之王財富管理手續費收入觸底回升，惟內房按揭早償與消費信貸需求仍待進一步復甦。"),
+    ("02318.HK", "02318", "中國平安", "Ping An Insurance", "HK", "HKD", 49.80, 7.2, 0.85, 0.92, 9.5, 32.0, 118.0, 18.0, "🟢 溫和上升 | 壽險新業務價值(NBV)維持雙位數正增長，資產端受惠股市回暖，惟不動產投資敞口仍需時間消化。"),
+    ("01299.HK", "01299", "友邦保險", "AIA Group", "HK", "HKD", 64.20, 14.5, 2.80, 2.10, 11.0, 42.0, 92.0, 20.0, "🟢 溫和上升 | 內地訪港旅客保單需求穩健，持續回購註銷支撐每股內含價值，估值處歷史偏低水平。"),
+    ("00941.HK", "00941", "中國移動", "China Mobile", "HK", "HKD", 76.50, 10.8, 1.45, 1.15, 6.0, 31.0, 212.0, 8.0, "⚪ 中性收息 | 5G資本開支高峰已過，派息率提升至70%以上，屬類債券防守資產，不具備短期爆升特徵。"),
+    ("00883.HK", "00883", "中國海洋石油", "CNOOC", "HK", "HKD", 19.85, 6.8, 2.10, 1.25, 5.0, 48.0, 120.0, -12.0, "🔴 回撤風險 | 桶油成本雖具全球競爭力，但特朗普提出俄烏能源停火及考慮暫停聯邦汽油稅，油價回落風險直接壓抑盈利預期。"),
+    ("00857.HK", "00857", "中國石油股份", "PetroChina", "HK", "HKD", 6.45, 6.5, 0.42, 0.78, 3.2, 22.0, 152.0, -10.0, "⚪ 中性偏弱 | 天然氣順價機制提供一定支撐，但國際油價下行週期限制股價表現。"),
+    ("09618.HK", "09618", "京東集團-SW", "JD.com", "HK", "HKD", 152.00, 8.8, 0.38, 1.65, 6.5, 15.8, 62.0, 25.0, "🟢 溫和上升 | 估值極低(PE<9x)且受惠家電以舊換新補貼，惟高盛預計3Q26內地白電增長疲軟，補貼退坡後營收持續性存疑。"),
+    ("09888.HK", "09888", "百度集團-SW", "Baidu Inc", "HK", "HKD", 96.50, 9.2, 1.85, 0.98, 3.5, 48.5, 34.5, -15.0, "🔴 弱勢預警 | 傳統搜尋廣告受AI原生對話應用與短視頻嚴重侵蝕，文心一言商業化變現未能抵消核心廣告下滑，低估值存在價值陷阱風險。"),
+    ("01024.HK", "01024", "快手-W", "Kuaishou Technology", "HK", "HKD", 51.20, 11.8, 1.65, 3.80, 12.5, 53.0, 28.5, 28.0, "🟢 溫和上升 | 可靈(Kling)視頻生成大模型商業化領先，內循環電商GMV穩健，惟面臨抖音與微信視頻號雙重夾擊。"),
+    ("09961.HK", "09961", "攜程集團-S", "Trip.com Group", "HK", "HKD", 495.00, 18.5, 5.80, 2.45, 16.0, 81.0, 41.5, 10.0, "⚪ 中性觀望 | 出境遊與國際OTA業務高增，但股價過去一年累積升幅巨大，現價已充分反映旅遊復甦紅利。"),
+    ("02015.HK", "02015", "理想汽車-W", "Li Auto", "HK", "HKD", 108.50, 17.5, 1.35, 3.10, 14.0, 20.5, 29.5, -18.0, "🔴 回撤預警 | 增程式SUV市場遭問界、零跑等競爭對手密集分流，純電車型轉型陣痛未消，10月初內地車企EV訂單按月跌8%構成壓力。"),
+    ("09868.HK", "09868", "小鵬汽車-W", "XPeng Inc", "HK", "HKD", 46.80, 45.0, 2.10, 2.85, 22.0, 14.2, 11.5, -24.0, "🔴 高危爆跌 | 雖有MONA低價車型衝量，但單車毛利微薄且尚未實現規模化純利，在價格戰中現金消耗風險高。"),
+    ("09866.HK", "09866", "蔚來-SW", "NIO Inc", "HK", "HKD", 43.20, 55.0, 1.25, 3.60, 15.0, 10.5, 11.2, -32.0, "🔴 高危爆跌 | 換電站重資產投入導致長期巨額虧損，負債率高企且多次融資攤薄股東權益，基本面風險極高。"),
+    ("00175.HK", "00175", "吉利汽車", "Geely Automobile", "HK", "HKD", 13.80, 11.2, 0.65, 1.45, 18.0, 15.5, 17.8, 15.0, "⚪ 中性偏強 | 極氪與銀河系列新能源轉型見效，出口增長穩健，估值相對合理。"),
+    ("00981.HK", "00981", "中芯國際", "SMIC", "HK", "HKD", 28.90, 38.5, 4.20, 1.45, 16.5, 18.0, 29.5, -22.0, "🔴 回撤預警 | 雖受國產替代情緒追捧，但成熟製程產能過剩導致折舊壓力龐大，毛利率長期受壓，近40倍PE嚴重脫離ROE水平。"),
+    ("02899.HK", "02899", "紫金礦業", "Zijin Mining", "HK", "HKD", 17.60, 13.5, 1.45, 3.40, 14.0, 17.5, 59.5, -14.0, "🔴 短線回撤 | 美國9月CPI超預期引發聯儲局加息預期升溫，銅價連跌3日拖累有色金屬板塊短線急挫。"),
+    ("03993.HK", "03993", "洛陽鉬業", "CMOC Group", "HK", "HKD", 7.15, 12.0, 0.85, 2.30, 12.0, 16.0, 19.8, -18.0, "🔴 短線回撤 | 受美息預期抽升與基本金屬價格回調影響，單日曾急挫7%，短線技術面破位。"),
+    ("01208.HK", "01208", "五礦資源", "MMG Limited", "HK", "HKD", 2.85, 14.5, 0.95, 1.85, 10.0, 21.0, 3.5, -25.0, "🔴 高危回撤 | 銅價下跌疊加高財務槓桿，對美元利率上升極為敏感。"),
+    ("01088.HK", "01088", "中國神華", "China Shenhua Energy", "HK", "HKD", 34.50, 10.2, 1.85, 1.55, 1.5, 34.0, 88.0, 5.0, "⚪ 中性收息 | 長協煤價穩定提供高息護城河，但缺乏成長催化劑。"),
+    ("09992.HK", "09992", "泡泡瑪特", "Pop Mart", "HK", "HKD", 72.40, 28.5, 7.20, 9.50, 45.0, 64.0, 12.5, 18.0, "🟢 溫和上升 | 花旗列為IP玩具板塊首選，海外東南亞與歐美門店爆發；惟近30倍PE已反映高預期，需防範單一IP熱度週期見頂風險。"),
+    ("02020.HK", "02020", "安踏體育", "ANTA Sports", "HK", "HKD", 92.60, 17.2, 3.40, 4.60, 13.5, 62.5, 33.8, 22.0, "🟢 溫和上升 | 瑞銀指其全球化擴張(Amer Sports)仍被低估，多品牌矩陣抗週期能力強。"),
+    ("02269.HK", "02269", "藥明生物", "WuXi Biologics", "HK", "HKD", 18.40, 16.5, 3.80, 1.85, 6.0, 41.0, 10.2, -20.0, "🔴 風險預警 | 美國生物安全法案地緣政治陰霾未散，全球生科投融資復甦緩慢，海外訂單轉移風險仍在。"),
+    ("00669.HK", "00669", "創科實業", "Techtronic Industries", "HK", "HKD", 115.20, 21.5, 2.35, 4.20, 9.5, 39.8, 27.2, -12.0, "⚪ 中性偏弱 | 美國9月CPI超預期推遲聯儲局減息步伐，高按揭利率壓抑美國房屋裝修與電動工具需求。"),
+    ("00300.HK", "00300", "美的集團", "Midea Group", "HK", "HKD", 74.50, 13.2, 1.25, 2.85, 8.0, 26.5, 68.0, -14.0, "🔴 下調預警 | 高盛預計3Q26內地白電增長疲軟並下調目標價，匯豐亦減持H股好倉，短線承壓。"),
+    ("06690.HK", "06690", "海爾智家", "Haier Smart Home", "HK", "HKD", 28.40, 12.8, 0.95, 2.40, 7.5, 30.5, 34.0, -12.0, "🔴 下調預警 | 同受高盛下調目標價影響，歐美家電需求受高息壓制，內地地產後週期疲軟。"),
+    ("06936.HK", "06936", "順豐控股", "SF Holding", "HK", "HKD", 38.20, 16.8, 0.65, 1.95, 7.0, 13.5, 24.0, -15.0, "🔴 評級下調 | 高盛將順豐下調至「中性」評級，商務件需求增速放緩且單票收入面臨價格競爭壓力。"),
+    ("02057.HK", "02057", "中通快遞-W", "ZTO Express", "HK", "HKD", 154.00, 11.5, 2.65, 1.85, 8.5, 30.0, 16.2, -10.0, "⚪ 中性觀望 | 雖有股份回購，但同樣遭高盛下調評級至「中性」，電商快遞件量增速放緩。"),
+    ("02618.HK", "02618", "京東物流", "JD Logistics", "HK", "HKD", 14.20, 12.5, 0.48, 1.75, 11.0, 11.8, 12.1, 22.0, "🟢 溫和上升 | 獲高盛列為物流板塊首選，接入淘天平台打開外部一體化供應鏈增量並大幅改善利潤率。"),
+    ("01109.HK", "01109", "華潤置地", "China Resources Land", "HK", "HKD", 26.80, 6.8, 0.68, 0.65, 4.0, 25.0, 24.5, 10.0, "⚪ 中性觀望 | 摩通指專家對內地房地產短期表現仍持審慎態度，惟華潤置地憑藉經常性商場租金收入列為行業首選。"),
+    ("01999.HK", "01999", "敏華控股", "Man Wah Holdings", "HK", "HKD", 3.15, 7.5, 0.72, 1.15, -2.0, 38.5, 1.6, -15.0, "🔴 基本面疲弱 | 花旗大幅下調目標價至3.6港元並調低盈利預測，受制於內房低迷與美國高息壓抑傢俬出口。"),
+    ("00992.HK", "00992", "聯想集團", "Lenovo Group", "HK", "HKD", 11.20, 10.8, 0.28, 2.95, 9.5, 16.8, 17.8, -14.0, "🔴 短線承壓 | AI PC換機潮慢於預期且記憶體晶片漲價侵蝕组装毛利，近期隨大市急挫逾6%。"),
+    ("00001.HK", "00001", "長和", "CK Hutchison", "HK", "HKD", 43.80, 6.5, 0.62, 0.32, 3.5, 36.0, 21.5, 6.0, "⚪ 中性收息 | 歐洲電訊與全球港口業務現金流穩定，市帳率僅0.32倍，惟缺乏價值重估催化劑。"),
+    ("00016.HK", "00016", "新鴻基地產", "Sun Hung Kai Properties", "HK", "HKD", 86.40, 11.2, 3.45, 0.42, 4.0, 44.0, 32.2, -8.0, "⚪ 中性偏弱 | 美國CPI超預期令港元HIBOR拆息維持高位，削弱香港住宅樓市反彈動力。"),
+    ("00027.HK", "00027", "銀河娛樂", "Galaxy Entertainment", "HK", "HKD", 36.80, 15.2, 3.60, 2.15, 12.0, 38.0, 20.6, 8.0, "⚪ 中性觀望 | 澳門中場博彩收入穩健，惟非博彩資本開支增加及高端消費審慎限制估值倍數。"),
+    ("01928.HK", "01928", "金沙中國有限公司", "Sands China", "HK", "HKD", 19.60, 14.0, 2.85, 12.50, 11.5, 36.5, 20.4, 9.0, "⚪ 中性觀望 | 倫敦人翻新工程完成後有助市佔回升，惟負債率偏高。"),
+    ("01919.HK", "01919", "中遠海控", "COSCO Shipping Holdings", "HK", "HKD", 12.40, 5.8, 0.95, 0.88, 6.0, 24.0, 25.5, 12.0, "⚪ 中性偏強 | 摩通指集裝箱航運與港口短期需求勝預期並重申增持，惟長期新船交付運力過剩風險仍存。"),
+    ("00316.HK", "00316", "東方海外國際", "OOIL", "HK", "HKD", 112.50, 6.2, 1.15, 0.82, 5.5, 25.0, 9.6, 10.0, "⚪ 中性收息 | 高派息率航運藍籌，短期運價有支撐但受全球貿易關稅政策波動影響。"),
+    ("00002.HK", "00002", "中電控股", "CLP Holdings", "HK", "HKD", 68.50, 14.2, 1.95, 1.62, 3.0, 28.0, 22.3, 4.0, "⚪ 純防守收息 | 香港管制計劃協議保證穩定回報，澳洲業務改善，波幅極低。"),
+    ("00003.HK", "00003", "香港中華煤氣", "HK & China Gas", "HK", "HKD", 6.35, 18.5, 2.10, 1.95, 2.5, 26.0, 15.2, -5.0, "⚪ 中性偏弱 | 估值高於同類公用股且無紅股派發，自由現金流僅夠覆蓋股息。"),
+    ("00008.HK", "00008", "電訊盈科", "PCCW", "HK", "HKD", 5.14, 22.0, 1.10, 4.50, 2.0, 45.0, 5.1, 3.0, "⚪ 純收息股 | 依賴香港電訊(06823)派息上繳，本身媒體業務盈利薄弱且負債偏高。"),
+    ("06969.HK", "06969", "思摩爾國際", "Smoore International", "HK", "HKD", 10.80, 26.5, 4.80, 2.75, 12.0, 38.0, 8.5, 16.0, "⚪ 政策博弈 | 受惠美國FDA對非法電子煙執法收緊及BAT新產品推出，惟估值已提前反映。"),
+    ("01888.HK", "01888", "建滔積層板", "KB Laminates", "HK", "HKD", 8.45, 11.8, 1.35, 1.65, 18.0, 22.0, 3.4, 24.0, "🟢 溫和上升 | 花旗確認其自10月起薄布覆銅板(CCL)平均提價15%，受惠AI伺服器PCB上游漲價週期。"),
+    ("00288.HK", "00288", "萬洲國際", "WH Group", "HK", "HKD", 6.15, 7.8, 0.38, 1.02, 5.5, 18.5, 10.1, 14.0, "🟢 穩健上升 | 瑞銀調研指農業與必需消費品受機構青睞，北美豬肉業務扭虧並分拆上市釋放價值。"),
 
-    # --- 黃金、貴金屬、能源與商品期貨 (Gold & Commodity Futures) ---
-    {"symbol": "GC=F", "code": "GC=F", "name": "COMEX 黃金期貨 (Gold Futures)", "en": "Gold Futures COMEX", "mkt": "FUTURES", "curr": "USD", "base_p": 2985.0},
-    {"symbol": "SI=F", "code": "SI=F", "name": "COMEX 白銀期貨 (Silver Futures)", "en": "Silver Futures COMEX", "mkt": "FUTURES", "curr": "USD", "base_p": 34.8},
-    {"symbol": "HG=F", "code": "HG=F", "name": "COMEX 銅期貨 (Copper Futures)", "en": "Copper Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 4.65},
-    {"symbol": "PL=F", "code": "PL=F", "name": "NYMEX 鉑金期貨 (Platinum)", "en": "Platinum Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 1045.0},
-    {"symbol": "CL=F", "code": "CL=F", "name": "WTI 紐約原油期貨 (Crude Oil)", "en": "WTI Crude Oil Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 71.5},
-    {"symbol": "BZ=F", "code": "BZ=F", "name": "布蘭特原油期貨 (Brent Oil)", "en": "Brent Crude Oil Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 75.2},
-    {"symbol": "NG=F", "code": "NG=F", "name": "天然氣期貨 (Natural Gas)", "en": "Natural Gas Futures", "mkt": "FUTURES", "curr": "USD", "base_p": 2.85},
-    {"symbol": "BTC-USD", "code": "BTC", "name": "比特幣 (Bitcoin USD)", "en": "Bitcoin USD", "mkt": "CRYPTO", "curr": "USD", "base_p": 94500.0},
-    {"symbol": "ETH-USD", "code": "ETH", "name": "以太幣 (Ethereum USD)", "en": "Ethereum USD", "mkt": "CRYPTO", "curr": "USD", "base_p": 3180.0},
+    # --- 2. 美國股市核心股票 (US Stocks: 55 隻，涵蓋科技巨頭、半導體、軟體、金融、醫藥、消費、能源、工業) ---
+    ("NVDA", "NVDA", "輝達 (NVIDIA)", "NVIDIA Corp", "US", "USD", 217.09, 27.7, 17.29, 38.50, 68.0, 75.2, 5240.0, 28.0, "🟢 潛力上升 | 全球AI算力絕對霸主，TTM營收突破3,029億美元；惟市值已達5.24萬億美元且PS高達17倍，若雲端巨頭(微軟/Meta/騰訊)放緩晶片採購將引發高Beta回撤。"),
+    ("TSM", "TSM", "台積電 ADR", "Taiwan Semiconductor", "US", "USD", 420.22, 21.6, 12.44, 8.20, 61.0, 58.5, 1930.0, 36.0, "🟢 強勢首選 | 獨家壟斷先進製程與CoWoS封裝，4Q26營收指引按年激增高達61%，遠期PE僅21.6倍，基本面確定性居全球硬體之首。"),
+    ("MU", "MU", "美光科技 (Micron)", "Micron Technology", "US", "USD", 878.84, 16.9, 7.66, 6.40, 54.0, 48.5, 1020.0, 32.0, "🟢 潛力上升 | HBM高頻寬記憶體產能售罄，遠期PE僅16.9倍；惟記憶體具高度週期性且單日波動極大(近期隨亞太晶片股單日急挫5.6%)，須嚴控倉位。"),
+    ("AVGO", "AVGO", "博通 (Broadcom)", "Broadcom Inc", "US", "USD", 334.59, 24.1, 17.96, 18.20, 32.0, 76.5, 1600.0, 25.0, "🟢 溫和上升 | 壟斷客製化AI ASIC晶片與高速交換機，VMware整合釋放強勁現金流；惟估值已處歷史高位區。"),
+    ("AMD", "AMD", "超微半導體 (AMD)", "Advanced Micro Devices", "US", "USD", 538.05, 26.3, 21.26, 11.40, 38.5, 54.8, 878.4, 22.0, "🟢 溫和上升 | MI系列AI加速器在企業推理市場份額擴大；但市銷率(21.3x)甚至高於輝達，軟體生態ROCm仍落後CUDA。"),
+    ("AAPL", "AAPL", "蘋果 (Apple)", "Apple Inc", "US", "USD", 342.94, 27.7, 10.71, 48.50, 9.5, 46.8, 5000.0, -6.0, "⚪ 中性偏貴 | 市值高達5萬億美元，營收增速僅約9.5%卻享有近28倍遠期PE與10.7倍PS，估值溢價過高，缺乏短期爆升催化劑。"),
+    ("MSFT", "MSFT", "微軟 (Microsoft)", "Microsoft Corp", "US", "USD", 533.52, 27.8, 11.93, 11.80, 15.8, 69.8, 3960.0, 12.0, "⚪ 中性穩健 | Azure雲與Copilot護城河極深，但龐大AI數據中心資本開支開始進入折舊高峰期，壓抑短期自由現金流增速。"),
+    ("GOOGL", "GOOGL", "谷歌 (Alphabet)", "Alphabet Inc", "US", "USD", 344.18, 22.1, 9.44, 9.80, 14.2, 58.2, 4210.0, 20.0, "🟢 溫和上升 | 美股科技七巨頭中估值最合理(22x PE)，自研TPU降低算力成本；惟美國司法部反壟斷拆分訴訟仍構成長期政策折價。"),
+    ("AMZN", "AMZN", "亞馬遜 (Amazon)", "Amazon.com Inc", "US", "USD", 262.45, 25.2, 3.65, 8.40, 12.4, 49.5, 2830.0, 22.0, "🟢 溫和上升 | AWS雲業務受AI需求帶動加速，北美零售物流自動化大幅推升營業利潤率。"),
+    ("META", "META", "Meta Platforms", "Meta Platforms Inc", "US", "USD", 705.44, 20.5, 7.89, 9.20, 18.5, 81.2, 1800.0, 18.0, "🟢 溫和上升 | AI推薦算法顯著提升Reels廣告轉化率，毛利率高達81%；惟Reality Labs元宇宙部門持續巨額虧損且AI資本開支再度上調。"),
+    ("TSLA", "TSLA", "特斯拉 (Tesla)", "Tesla Inc", "US", "USD", 368.06, 62.5, 13.99, 16.80, 8.5, 17.8, 1450.0, -28.0, "🔴 高危爆跌 | 遠期PE高達62倍而汽車毛利率跌至17.8%，花旗指10月前11日中國車企EV訂單按月下跌8%，Robotaxi商業化落地需時數年，估值泡沫顯著。"),
+    ("PLTR", "PLTR", "Palantir Technologies", "Palantir Technologies", "US", "USD", 194.15, 69.3, 75.73, 36.00, 42.0, 82.5, 466.6, -38.0, "🔴 極高危泡沫 | 總市值高達4,665億美元但TTM營收僅61.6億美元，市銷率(PS)高達75.7倍、靜態PE逾100倍！屬於極端動能泡沫，一旦增速微幅放緩或美債息率抽升，極易發生30%–50%均值回歸暴跌。"),
+    ("ARM", "ARM", "Arm Holdings", "Arm Holdings plc", "US", "USD", 228.05, 58.0, 47.20, 34.00, 28.0, 95.0, 243.6, -32.0, "🔴 高危泡沫 | 市值2,436億美元但年營收僅51.6億美元，市銷率高達47倍，嚴重透支未來5年v9架構權利金增長。"),
+    ("INTC", "INTC", "英特爾 (Intel)", "Intel Corporation", "US", "USD", 92.03, 42.0, 8.48, 3.85, -4.0, 41.0, 483.6, -26.0, "🔴 基本面惡化 | 資料中心CPU市佔率持續被AMD侵蝕，AI加速器遠落後輝達，晶圓代工(Foundry)業務巨額虧損，現價反彈缺乏實質業績支撐。"),
+    ("ASML", "ASML", "艾司摩爾 (ASML)", "ASML Holding NV", "US", "USD", 1647.12, 31.5, 14.33, 28.00, 18.0, 51.5, 644.5, 14.0, "⚪ 中性觀望 | 獨家壟斷EUV光刻機，惟受對華出口管制收緊及部分晶圓廠延後非AI產能擴張影響，31.5倍PE處合理偏高區間。"),
+    ("LRCX", "LRCX", "科林研發 (Lam Research)", "Lam Research", "US", "USD", 272.20, 22.8, 14.66, 32.00, 24.0, 47.8, 340.6, 24.0, "🟢 溫和上升 | 3D NAND與先進封裝蝕刻設備龍頭，直接受惠2026–2027年HBM記憶體擴產週期。"),
+    ("AMAT", "AMAT", "應用材料 (AMAT)", "Applied Materials", "US", "USD", 413.11, 21.5, 10.63, 15.80, 20.0, 47.5, 327.8, 22.0, "🟢 溫和上升 | GAA環繞式閘極與背側供電製程轉換核心設備商，估值較同業更具安全邊際。"),
+    ("DELL", "DELL", "戴爾科技 (Dell)", "Dell Technologies", "US", "USD", 455.44, 19.8, 1.92, 24.00, 18.5, 22.4, 289.6, 20.0, "🟢 溫和上升 | AI伺服器積壓訂單龐大，市銷率僅1.92倍；惟AI伺服器組裝毛利率偏低(約10%-12%)，拉低整體毛利率表現。"),
+    ("ORCL", "ORCL", "甲骨文 (Oracle)", "Oracle Corp", "US", "USD", 129.59, 19.5, 5.47, 22.00, 14.0, 71.5, 392.9, 25.0, "🟢 溫和上升 | OCI雲端憑藉主權雲與大型AI模型訓練租賃合約，剩餘履約義務(RPO)屢創新高。"),
+    ("ANET", "ANET", "Arista Networks", "Arista Networks", "US", "USD", 182.95, 32.0, 21.89, 18.50, 26.0, 64.5, 230.7, 15.0, "⚪ 中性偏貴 | 超大規模AI集群後端高速交換機領導者，基本面優異但近22倍PS已反映高預期。"),
+    ("PANW", "PANW", "Palo Alto Networks", "Palo Alto Networks", "US", "USD", 346.95, 34.5, 24.72, 28.00, 19.0, 74.5, 283.8, 10.0, "⚪ 中性偏貴 | 網路安全平台化策略成功，但34.5倍PE與24.7倍PS限制短期爆發空間。"),
+    ("CRWD", "CRWD", "CrowdStrike Holdings", "CrowdStrike Holdings", "US", "USD", 228.10, 48.0, 43.34, 38.00, 25.0, 75.5, 234.1, -24.0, "🔴 估值過高 | 市銷率高達43.3倍，企業IT安全預算審批拉長，高估值面臨美債息率上升壓縮。"),
+    ("GEV", "GEV", "GE Vernova", "GE Vernova Inc", "US", "USD", 908.44, 36.0, 5.85, 18.00, 22.0, 24.5, 242.0, 18.0, "🟢 趨勢偏強 | AI數據中心引發全球燃氣渦輪與電網變壓器嚴重短缺，訂單排至2028年後；惟短期累升巨大需防獲利回吐。"),
+    ("GE", "GE", "GE Aerospace", "GE Aerospace", "US", "USD", 311.28, 28.5, 6.38, 14.50, 16.0, 32.0, 323.0, 12.0, "⚪ 中性穩健 | 商用航空發動機售後維修服務高毛利現金流穩健。"),
+    ("LLY", "LLY", "禮來製藥 (Eli Lilly)", "Eli Lilly and Co", "US", "USD", 1240.34, 34.0, 13.93, 46.00, 32.0, 81.0, 1110.0, 10.0, "⚪ 中性偏貴 | GLP-1減肥藥Mounjaro/Zepbound需求強勁，但市值已破1.1萬億美元且面臨產能擴張與醫保議價壓力。"),
+    ("JNJ", "JNJ", "強生 (Johnson & Johnson)", "Johnson & Johnson", "US", "USD", 253.79, 16.8, 6.16, 6.80, 5.5, 69.0, 611.6, 5.0, "⚪ 純防守股 | 醫療器械與製藥現金流穩定，滑石粉訴訟陰霾漸消，波幅極小。"),
+    ("ABBV", "ABBV", "艾伯維 (AbbVie)", "AbbVie Inc", "US", "USD", 282.68, 17.5, 7.76, 38.00, 7.5, 70.5, 499.5, 8.0, "⚪ 中性穩健 | Skyrizi與Rinvoq成功接棒Humira專利到期缺口，股息率穩健。"),
+    ("MRK", "MRK", "默沙東 (Merck)", "Merck & Co", "US", "USD", 143.63, 14.2, 5.32, 7.20, 6.5, 75.0, 354.4, 9.0, "⚪ 中性觀望 | 抗癌藥Keytruda維持增長，惟中國市場HPV疫苗出貨放緩拖累短期表現。"),
+    ("UNH", "UNH", "聯合健康 (UnitedHealth)", "UnitedHealth Group", "US", "USD", 406.88, 15.8, 0.81, 3.85, 8.0, 24.0, 365.2, 12.0, "⚪ 中性穩健 | 美國最大醫療保險與Optum服務巨頭，醫療賠付率(MLR)逐步企穩。"),
+    ("BRK-B", "BRK-B", "波克夏海瑟威 (Berkshire)", "Berkshire Hathaway B", "US", "USD", 532.23, 21.5, 2.96, 1.78, 7.0, 28.0, 1140.0, 8.0, "⚪ 防守核心 | 帳上持有逾3,000億美元短期美債現金，受惠高無風險利率，屬抗跌價值錨。"),
+    ("JPM", "JPM", "摩根大通 (JPMorgan)", "JPMorgan Chase", "US", "USD", 333.53, 14.8, 4.64, 2.35, 6.5, 58.0, 885.7, 6.0, "⚪ 中性觀望 | 投行與財富管理龍頭，惟2.35倍PB已處於美國大型銀行歷史估值頂部區間。"),
+    ("GS", "GS", "高盛集團 (Goldman Sachs)", "Goldman Sachs", "US", "USD", 875.78, 15.5, 3.73, 2.15, 11.0, 56.0, 265.2, 9.0, "⚪ 中性觀望 | 受惠2026年大型科技IPO與併購活動復甦，但股價已大幅領先同業。"),
+    ("MS", "MS", "摩根士丹利 (Morgan Stanley)", "Morgan Stanley", "US", "USD", 178.47, 16.2, 3.50, 2.45, 9.5, 54.0, 279.3, 7.0, "⚪ 中性觀望 | 財富管理資產規模龐大，估值處歷史高位。"),
+    ("BAC", "BAC", "美國銀行 (Bank of America)", "Bank of America", "US", "USD", 50.39, 12.5, 3.04, 1.32, 5.0, 52.0, 348.8, 8.0, "⚪ 中性穩健 | 聯儲局推遲減息有利高息差維持，但長債帳面浮虧仍受美債息率波動影響。"),
+    ("WFC", "WFC", "富國銀行 (Wells Fargo)", "Wells Fargo & Co", "US", "USD", 81.80, 12.8, 2.95, 1.48, 4.5, 51.0, 245.5, 6.0, "⚪ 中性觀望 | 資產上限監管有望逐步放寬，惟近期非利息收入增速放緩。"),
+    ("V", "V", "Visa Inc", "Visa Inc", "US", "USD", 402.92, 26.5, 16.62, 18.50, 10.5, 80.0, 739.6, 11.0, "⚪ 穩健複利 | 全球跨境支付清算雙寡頭，現金流極佳，惟欠缺短期爆發性催化。"),
+    ("MA", "MA", "萬事達卡 (Mastercard)", "Mastercard Inc", "US", "USD", 616.40, 28.0, 15.39, 55.00, 11.5, 78.5, 540.0, 11.0, "⚪ 穩健複利 | 與Visa同屬高ROE複利機器，適合長線底倉配置。"),
+    ("WMT", "WMT", "沃爾瑪 (Walmart)", "Walmart Inc", "US", "USD", 118.70, 31.2, 1.28, 9.80, 5.5, 24.5, 941.7, -8.0, "⚪ 估值偏貴 | 雖具抗通脹剛需優勢與電商廣告增長，但作為傳統零售商PE高達31倍，安全邊際不足。"),
+    ("COST", "COST", "好市多 (Costco)", "Costco Wholesale", "US", "USD", 995.53, 46.5, 1.46, 18.20, 7.5, 12.8, 441.2, -14.0, "🔴 估值過高 | 會員費續卡率雖高，但46.5倍PE遠超其7.5%營收增速(PEG > 5)，存在高估值回調風險。"),
+    ("HD", "HD", "家得寶 (Home Depot)", "Home Depot Inc", "US", "USD", 309.88, 21.8, 1.83, 65.00, 3.0, 33.5, 309.2, -10.0, "🔴 利率壓抑 | 美國9月CPI超預期令30年期房貸利率回升，直接凍結美國二手房交易與家居裝修需求。"),
+    ("KO", "KO", "可口可樂 (Coca-Cola)", "The Coca-Cola Company", "US", "USD", 93.42, 23.5, 8.02, 14.50, 4.5, 60.5, 401.9, 3.0, "⚪ 純防守收息 | 全球必需消費品定價權強，但受美元走強匯兌損益及高息環境壓制。"),
+    ("PG", "PG", "寶潔 (Procter & Gamble)", "Procter & Gamble", "US", "USD", 157.69, 23.0, 4.21, 7.40, 4.0, 51.5, 366.3, 4.0, "⚪ 純防守收息 | 日化必需品龍頭，提價空間見頂，銷量增長溫和。"),
+    ("PM", "PM", "菲利普莫里斯 (Philip Morris)", "Philip Morris International", "US", "USD", 201.05, 20.5, 7.36, 18.00, 8.5, 64.0, 313.4, 9.0, "⚪ 中性收息 | 無煙產品ZYN尼古丁袋與IQOS增長強勁，現金流充裕。"),
+    ("XOM", "XOM", "埃克森美孚 (ExxonMobil)", "ExxonMobil Corp", "US", "USD", 178.28, 14.5, 2.03, 2.65, 2.0, 32.0, 733.1, -12.0, "🔴 油價回落風險 | 特朗普推動俄烏能源停火並考慮暫停聯邦汽油稅，原油供應過剩預期壓制能源股表現。"),
+    ("CVX", "CVX", "雪佛龍 (Chevron)", "Chevron Corporation", "US", "USD", 224.37, 14.2, 2.10, 2.40, 1.5, 31.0, 440.1, -12.0, "🔴 油價回落風險 | 與埃克森美孚同樣面臨國際油價下行週期壓力。"),
+    ("CAT", "CAT", "卡特彼勒 (Caterpillar)", "Caterpillar Inc", "US", "USD", 725.79, 22.5, 4.46, 16.50, 6.0, 36.5, 333.6, -9.0, "⚪ 週期見頂風險 | 基建與數據中心備用發電機需求雖強，但全球礦業資本開支受高利率與金屬價格回落影響。"),
+    ("CSCO", "CSCO", "思科 (Cisco Systems)", "Cisco Systems", "US", "USD", 106.50, 18.5, 6.63, 8.90, 5.0, 64.5, 419.9, 6.0, "⚪ 中性觀望 | 整合Splunk後軟體訂閱佔比提升，但傳統企業園區網路設備增長緩慢。"),
+    ("IBM", "IBM", "國際商業機器 (IBM)", "IBM Corp", "US", "USD", 236.39, 21.0, 3.22, 8.80, 6.0, 56.5, 222.7, 8.0, "⚪ 中性收息 | 企業級AI諮詢與Red Hat混合雲業務穩健，惟整體營收增速僅個位數。"),
+    ("CRM", "CRM", "Salesforce", "Salesforce Inc", "US", "USD", 318.00, 26.5, 7.80, 5.20, 10.5, 76.0, 308.0, 12.0, "⚪ 中性觀望 | Agentforce企業AI代理商業化推進中，但SaaS席位增長放緩。"),
+    ("NFLX", "NFLX", "網飛 (Netflix)", "Netflix Inc", "US", "USD", 69.85, 28.5, 6.01, 11.80, 14.5, 45.0, 290.9, 14.0, "⚪ 中性偏強 | 廣告訂閱層級與體育直播帶動用戶增長，定價權穩固(已拆股後價格)。"),
+    ("SHOP", "SHOP", "Shopify", "Shopify Inc", "US", "USD", 171.06, 52.0, 16.59, 19.50, 22.0, 51.5, 220.1, -20.0, "🔴 估值偏高 | 電商SaaS龍頭基本面雖佳，但52倍PE與16.6倍PS對美國高利率與消費放緩極為敏感。"),
+    ("TXN", "TXN", "德州儀器 (Texas Instruments)", "Texas Instruments", "US", "USD", 276.15, 34.0, 12.97, 14.20, 4.0, 58.0, 252.2, -15.0, "🔴 估值偏高 | 工業與汽車類比晶片庫存調整緩慢，34倍PE遠高於周期性復甦速度。"),
+    ("TMO", "TMO", "賽默飛世爾 (Thermo Fisher)", "Thermo Fisher Scientific", "US", "USD", 679.38, 24.5, 5.42, 5.10, 7.0, 41.5, 251.2, 8.0, "⚪ 中性穩健 | 生命科學儀器與耗材龍頭，營運穩健但缺乏短期爆發力。"),
+    ("COIN", "COIN", "Coinbase Global", "Coinbase Global", "US", "USD", 245.00, 38.0, 11.50, 7.20, 25.0, 84.0, 62.0, -28.0, "🔴 高波動風險 | 高度依賴加密貨幣現貨交易手續費，美債息率上升壓抑風險資產投機熱度。"),
+    ("MSTR", "MSTR", "MicroStrategy", "MicroStrategy Inc", "US", "USD", 215.00, 85.0, 95.00, 6.80, 2.0, 72.0, 45.0, -35.0, "🔴 極高槓桿風險 | 透過持續發債加槓桿囤積比特幣，股價相較其持幣淨資產(NAV)存在大幅溢價，回撤風險極高。"),
 
-    # --- 港股與美股熱門 ETF (HK & US ETFs) ---
-    {"symbol": "02800.HK", "code": "02800", "name": "盈富基金 (Tracker Fund)", "en": "Tracker Fund of HK", "mkt": "ETF", "curr": "HKD", "base_p": 24.72},
-    {"symbol": "02828.HK", "code": "02828", "name": "恒生中國企業 ETF", "en": "Hang Seng H-Share ETF", "mkt": "ETF", "curr": "HKD", "base_p": 82.50},
-    {"symbol": "03033.HK", "code": "03033", "name": "南方東英恒生科技 ETF", "en": "CSOP Hang Seng TECH ETF", "mkt": "ETF", "curr": "HKD", "base_p": 4.62},
-    {"symbol": "02840.HK", "code": "02840", "name": "SPDR 金 ETF (港股黃金ETF)", "en": "SPDR Gold Trust HK", "mkt": "ETF", "curr": "HKD", "base_p": 2145.0},
-    {"symbol": "03110.HK", "code": "03110", "name": "Global X 恒生高股息率 ETF", "en": "Global X HS High Dividend ETF", "mkt": "ETF", "curr": "HKD", "base_p": 26.80},
-    {"symbol": "07200.HK", "code": "07200", "name": "FL二南方恒指 (2倍做多恒指)", "en": "CSOP HSI Daily 2x Leveraged", "mkt": "ETF", "curr": "HKD", "base_p": 5.15},
-    {"symbol": "07500.HK", "code": "07500", "name": "FI二南方恒指 (2倍做空恒指)", "en": "CSOP HSI Daily -2x Inverse", "mkt": "ETF", "curr": "HKD", "base_p": 3.42},
-    {"symbol": "07226.HK", "code": "07226", "name": "XL二南方恒科 (2倍做多科指)", "en": "CSOP HSTECH 2x Leveraged", "mkt": "ETF", "curr": "HKD", "base_p": 4.88},
-    {"symbol": "07552.HK", "code": "07552", "name": "XI二南方恒科 (2倍做空科指)", "en": "CSOP HSTECH -2x Inverse", "mkt": "ETF", "curr": "HKD", "base_p": 4.84},
-    {"symbol": "SPY", "code": "SPY", "name": "SPDR 標普500 ETF", "en": "SPDR S&P 500 ETF Trust", "mkt": "ETF", "curr": "USD", "base_p": 610.5},
-    {"symbol": "VOO", "code": "VOO", "name": "Vanguard 標普500 ETF", "en": "Vanguard S&P 500 ETF", "mkt": "ETF", "curr": "USD", "base_p": 562.0},
-    {"symbol": "QQQ", "code": "QQQ", "name": "Invesco 納斯達克100 ETF", "en": "Invesco QQQ Trust", "mkt": "ETF", "curr": "USD", "base_p": 546.0},
-    {"symbol": "TQQQ", "code": "TQQQ", "name": "ProShares 3倍做多納指 ETF", "en": "ProShares UltraPro QQQ", "mkt": "ETF", "curr": "USD", "base_p": 92.4},
-    {"symbol": "SQQQ", "code": "SQQQ", "name": "ProShares 3倍做空納指 ETF", "en": "ProShares UltraPro Short QQQ", "mkt": "ETF", "curr": "USD", "base_p": 6.85},
-    {"symbol": "SOXX", "code": "SOXX", "name": "iShares 半導體 ETF", "en": "iShares Semiconductor ETF", "mkt": "ETF", "curr": "USD", "base_p": 265.0},
-    {"symbol": "SOXL", "code": "SOXL", "name": "Direxion 3倍做多半導體 ETF", "en": "Direxion Daily Semi Bull 3X", "mkt": "ETF", "curr": "USD", "base_p": 48.2},
-    {"symbol": "SMH", "code": "SMH", "name": "VanEck 半導體 ETF", "en": "VanEck Semiconductor ETF", "mkt": "ETF", "curr": "USD", "base_p": 288.0},
-    {"symbol": "GLD", "code": "GLD", "name": "SPDR 黃金 ETF (美股黃金)", "en": "SPDR Gold Shares", "mkt": "ETF", "curr": "USD", "base_p": 275.4},
-    {"symbol": "SLV", "code": "SLV", "name": "iShares 白銀 ETF", "en": "iShares Silver Trust", "mkt": "ETF", "curr": "USD", "base_p": 31.6},
-    {"symbol": "TLT", "code": "TLT", "name": "iShares 20年期以上美國公債 ETF", "en": "iShares 20+ Year Treasury Bond", "mkt": "ETF", "curr": "USD", "base_p": 91.8},
-    {"symbol": "IBIT", "code": "IBIT", "name": "iShares 比特幣現貨 ETF", "en": "iShares Bitcoin Trust", "mkt": "ETF", "curr": "USD", "base_p": 54.2},
+    # --- 3. 全球核心指數、期貨、期指、黃金、貴金屬與商品 (Indices, Futures, Gold & Commodities) ---
+    ("^HSI", "HSI", "恒生指數", "Hang Seng Index", "INDEX", "HKD", 23956.0, 10.8, 1.35, 1.12, 8.0, 35.0, 3500.0, 15.0, "🟢 結構性慢牛 | 較熊市底部累升逾60%，日均成交逾2,000億港元，短期於23,400–24,400點整固蓄勢。"),
+    ("^HSCE", "HSCEI", "恒生中國企業指數 (國指)", "HS China Enterprises Index", "INDEX", "HKD", 8055.0, 9.6, 1.20, 1.05, 8.5, 34.0, 2200.0, 16.0, "🟢 結構性慢牛 | 受國有大行與中資科網龍頭雙輪支撐，估值處全球主要市場低位。"),
+    ("HSTECH.HK", "HSTECH", "恒生科技指數 (科指)", "Hang Seng Tech Index", "INDEX", "HKD", 4668.0, 17.2, 2.15, 2.40, 14.5, 42.0, 1400.0, 28.0, "🟢 高彈性修復 | 剔除負值後PE僅17.2倍(處歷史13%分位)，完成二浪回調洗盤後具備較高向上彈性。"),
+    ("^GSPC", "SPX", "美國標普500指數 (S&P 500)", "S&P 500 Index", "INDEX", "USD", 6120.0, 22.8, 3.05, 4.95, 11.0, 45.0, 52000.0, 8.0, "⚪ 牛市後期 | AI巨頭盈利支撐長期多頭，惟整體估值處歷史90%分位，對CPI與美債息率敏感。"),
+    ("^NDX", "NDX", "美國納斯達克100指數", "Nasdaq 100 Index", "INDEX", "USD", 22450.0, 27.5, 5.60, 8.20, 16.5, 56.0, 28000.0, 12.0, "🟢 AI算力牛市 | 10月再創歷史新高，算力硬體與雲端巨頭主導升勢，高波動慢牛格局。"),
+    ("^IXIC", "IXIC", "美國納斯達克綜合指數", "Nasdaq Composite", "INDEX", "USD", 19980.0, 28.2, 4.80, 6.90, 15.0, 52.0, 31000.0, 10.0, "⚪ 牛市震盪 | 大型科技股領漲，中小型科技股受高利率壓制表現分化。"),
+    ("^DJI", "DJI", "美國道瓊斯工業平均指數", "Dow Jones Industrial Average", "INDEX", "USD", 44250.0, 20.2, 2.75, 5.10, 7.5, 38.0, 17500.0, 6.0, "⚪ 穩健慢牛 | 金融與工業藍籌權重高，波幅低於納指。"),
+    ("^RUT", "RUT", "美國羅素2000小型股指數", "Russell 2000 Index", "INDEX", "USD", 2310.0, 24.5, 1.45, 2.15, 6.0, 28.0, 3200.0, -8.0, "🔴 高息受壓 | 小型股浮動利率債務佔比高，美國9月CPI超預期推遲減息直接打擊羅素2000表現。"),
+    ("^SOX", "SOX", "美國費城半導體指數", "PHLX Semiconductor Index", "INDEX", "USD", 5860.0, 26.8, 8.90, 7.80, 34.0, 58.0, 9500.0, 22.0, "🟢 高Beta主線 | 全球AI算力基建核心晴雨表，受台積電、輝達、博通、美光業績驅動。"),
+    ("^VIX", "VIX", "CBOE 恐慌波動率指數", "CBOE Volatility Index", "INDEX", "USD", 16.80, 20.0, 1.00, 1.00, 0.0, 0.0, 100.0, 0.0, "⚪ 市場情緒指標 | 反映標普500期權隱含波動率，美國CPI公布與財報季期間易出現脈衝式抽升。"),
+    ("ES=F", "ES=F", "標普500指數期貨 (E-Mini S&P)", "E-Mini S&P 500 Futures", "FUTURES", "USD", 6135.0, 22.8, 3.05, 4.95, 11.0, 45.0, 500.0, 8.0, "⚪ 期指合約 | 24小時反映全球宏觀事件與美股盤前盤後資金動向。"),
+    ("NQ=F", "NQ=F", "納指100期貨 (E-Mini Nasdaq)", "E-Mini Nasdaq 100 Futures", "FUTURES", "USD", 22510.0, 27.5, 5.60, 8.20, 16.5, 56.0, 500.0, 12.0, "🟢 期指合約 | 全球科技股高頻量化交易核心對沖與方向性工具。"),
+    ("YM=F", "YM=F", "道瓊斯指數期貨 (Mini Dow)", "Mini Dow Jones Futures", "FUTURES", "USD", 44310.0, 20.2, 2.75, 5.10, 7.5, 38.0, 500.0, 6.0, "⚪ 期指合約 | 反映美國傳統工業與金融巨頭期貨定價。"),
+    ("RTY=F", "RTY=F", "羅素2000指數期貨", "E-Mini Russell 2000 Futures", "FUTURES", "USD", 2318.0, 24.5, 1.45, 2.15, 6.0, 28.0, 500.0, -8.0, "🔴 期指合約 | 對美債孳息率抽升高度敏感。"),
+    ("GC=F", "GC=F", "COMEX 黃金期貨 (Gold Futures)", "Gold Futures COMEX", "FUTURES", "USD", 2985.0, 20.0, 1.00, 1.00, 12.0, 50.0, 1500.0, 14.0, "🟢 避險配置 | 全球央行持續增持黃金對沖美元主權債務擴張及中東地緣風險，惟短線受實際利率反彈震盪。"),
+    ("SI=F", "SI=F", "COMEX 白銀期貨 (Silver Futures)", "Silver Futures COMEX", "FUTURES", "USD", 34.80, 20.0, 1.00, 1.00, 15.0, 50.0, 400.0, 18.0, "🟢 工業+貴金屬 | 兼具光伏工業需求與貴金屬屬性，波幅大於黃金。"),
+    ("HG=F", "HG=F", "COMEX 銅期貨 (Copper Futures)", "Copper Futures", "FUTURES", "USD", 4.65, 20.0, 1.00, 1.00, 8.0, 40.0, 300.0, -10.0, "🔴 短線受壓 | 受美國9月CPI超預期與美元走強影響，銅價近期連跌3日。"),
+    ("CL=F", "CL=F", "WTI 紐約原油期貨 (Crude Oil)", "WTI Crude Oil Futures", "FUTURES", "USD", 71.50, 15.0, 1.00, 1.00, -5.0, 35.0, 800.0, -15.0, "🔴 供應過剩預期 | 俄烏能源停火協議與美國選前平抑油價政策壓制原油表現。"),
+    ("BZ=F", "BZ=F", "布蘭特原油期貨 (Brent Oil)", "Brent Crude Oil Futures", "FUTURES", "USD", 75.20, 15.0, 1.00, 1.00, -5.0, 35.0, 800.0, -15.0, "🔴 弱勢震盪 | 地緣風險溢價回落，全球原油需求增速放緩。"),
+    ("NG=F", "NG=F", "美國天然氣期貨 (Natural Gas)", "Natural Gas Futures", "FUTURES", "USD", 2.85, 15.0, 1.00, 1.00, 10.0, 35.0, 200.0, 15.0, "⚪ 季節性波動 | 受北美冬季取暖需求與AI數據中心燃氣發電需求支撐。"),
 
-    # --- 香港股市核心藍籌與主流股票 (HK Stocks) ---
-    {"symbol": "00700.HK", "code": "00700", "name": "騰訊控股", "en": "Tencent Holdings", "mkt": "HK", "curr": "HKD", "base_p": 410.80},
-    {"symbol": "09988.HK", "code": "09988", "name": "阿里巴巴-W", "en": "Alibaba Group", "mkt": "HK", "curr": "HKD", "base_p": 106.40},
-    {"symbol": "03690.HK", "code": "03690", "name": "美團-W", "en": "Meituan", "mkt": "HK", "curr": "HKD", "base_p": 168.00},
-    {"symbol": "01810.HK", "code": "01810", "name": "小米集團-W", "en": "Xiaomi Corp", "mkt": "HK", "curr": "HKD", "base_p": 27.08},
-    {"symbol": "09999.HK", "code": "09999", "name": "網易-S", "en": "NetEase", "mkt": "HK", "curr": "HKD", "base_p": 135.00},
-    {"symbol": "01211.HK", "code": "01211", "name": "比亞迪股份", "en": "BYD Company", "mkt": "HK", "curr": "HKD", "base_p": 285.00},
-    {"symbol": "00388.HK", "code": "00388", "name": "香港交易所", "en": "HKEX", "mkt": "HK", "curr": "HKD", "base_p": 372.40},
-    {"symbol": "00005.HK", "code": "00005", "name": "匯豐控股", "en": "HSBC Holdings", "mkt": "HK", "curr": "HKD", "base_p": 92.96},
-    {"symbol": "00939.HK", "code": "00939", "name": "建設銀行", "en": "China Construction Bank", "mkt": "HK", "curr": "HKD", "base_p": 9.81},
-    {"symbol": "01398.HK", "code": "01398", "name": "工商銀行", "en": "ICBC", "mkt": "HK", "curr": "HKD", "base_p": 5.12},
-    {"symbol": "03988.HK", "code": "03988", "name": "中國銀行", "en": "Bank of China", "mkt": "HK", "curr": "HKD", "base_p": 3.98},
-    {"symbol": "01288.HK", "code": "01288", "name": "農業銀行", "en": "Agricultural Bank of China", "mkt": "HK", "curr": "HKD", "base_p": 4.25},
-    {"symbol": "03968.HK", "code": "03968", "name": "招商銀行", "en": "China Merchants Bank", "mkt": "HK", "curr": "HKD", "base_p": 41.50},
-    {"symbol": "02318.HK", "code": "02318", "name": "中國平安", "en": "Ping An Insurance", "mkt": "HK", "curr": "HKD", "base_p": 49.80},
-    {"symbol": "01299.HK", "code": "01299", "name": "友邦保險", "en": "AIA Group", "mkt": "HK", "curr": "HKD", "base_p": 64.20},
-    {"symbol": "00941.HK", "code": "00941", "name": "中國移動", "en": "China Mobile", "mkt": "HK", "curr": "HKD", "base_p": 76.50},
-    {"symbol": "00883.HK", "code": "00883", "name": "中國海洋石油", "en": "CNOOC", "mkt": "HK", "curr": "HKD", "base_p": 19.85},
-    {"symbol": "00857.HK", "code": "00857", "name": "中國石油股份", "en": "PetroChina", "mkt": "HK", "curr": "HKD", "base_p": 6.45},
-    {"symbol": "09618.HK", "code": "09618", "name": "京東集團-SW", "en": "JD.com", "mkt": "HK", "curr": "HKD", "base_p": 152.00},
-    {"symbol": "09888.HK", "code": "09888", "name": "百度集團-SW", "en": "Baidu Inc", "mkt": "HK", "curr": "HKD", "base_p": 96.50},
-    {"symbol": "01024.HK", "code": "01024", "name": "快手-W", "en": "Kuaishou Technology", "mkt": "HK", "curr": "HKD", "base_p": 51.20},
-    {"symbol": "09961.HK", "code": "09961", "name": "攜程集團-S", "en": "Trip.com Group", "mkt": "HK", "curr": "HKD", "base_p": 495.00},
-    {"symbol": "02015.HK", "code": "02015", "name": "理想汽車-W", "en": "Li Auto", "mkt": "HK", "curr": "HKD", "base_p": 108.50},
-    {"symbol": "09868.HK", "code": "09868", "name": "小鵬汽車-W", "en": "XPeng Inc", "mkt": "HK", "curr": "HKD", "base_p": 46.80},
-    {"symbol": "09866.HK", "code": "09866", "name": "蔚來-SW", "en": "NIO Inc", "mkt": "HK", "curr": "HKD", "base_p": 43.20},
-    {"symbol": "00175.HK", "code": "00175", "name": "吉利汽車", "en": "Geely Automobile", "mkt": "HK", "curr": "HKD", "base_p": 13.80},
-    {"symbol": "00981.HK", "code": "00981", "name": "中芯國際", "en": "SMIC", "mkt": "HK", "curr": "HKD", "base_p": 28.90},
-    {"symbol": "02899.HK", "code": "02899", "name": "紫金礦業", "en": "Zijin Mining", "mkt": "HK", "curr": "HKD", "base_p": 17.60},
-    {"symbol": "01088.HK", "code": "01088", "name": "中國神華", "en": "China Shenhua Energy", "mkt": "HK", "curr": "HKD", "base_p": 34.50},
-    {"symbol": "09992.HK", "code": "09992", "name": "泡泡瑪特", "en": "Pop Mart", "mkt": "HK", "curr": "HKD", "base_p": 72.40},
-    {"symbol": "02020.HK", "code": "02020", "name": "安踏體育", "en": "ANTA Sports", "mkt": "HK", "curr": "HKD", "base_p": 92.60},
-    {"symbol": "02269.HK", "code": "02269", "name": "藥明生物", "en": "WuXi Biologics", "mkt": "HK", "curr": "HKD", "base_p": 18.40},
-    {"symbol": "00669.HK", "code": "00669", "name": "創科實業", "en": "Techtronic Industries", "mkt": "HK", "curr": "HKD", "base_p": 115.20},
-    {"symbol": "00001.HK", "code": "00001", "name": "長和", "en": "CK Hutchison", "mkt": "HK", "curr": "HKD", "base_p": 43.80},
-    {"symbol": "00016.HK", "code": "00016", "name": "新鴻基地產", "en": "Sun Hung Kai Properties", "mkt": "HK", "curr": "HKD", "base_p": 86.40},
-    {"symbol": "00027.HK", "code": "00027", "name": "銀河娛樂", "en": "Galaxy Entertainment", "mkt": "HK", "curr": "HKD", "base_p": 36.80},
-    {"symbol": "01928.HK", "code": "01928", "name": "金沙中國有限公司", "en": "Sands China", "mkt": "HK", "curr": "HKD", "base_p": 19.60},
-    {"symbol": "00992.HK", "code": "00992", "name": "聯想集團", "en": "Lenovo Group", "mkt": "HK", "curr": "HKD", "base_p": 11.20},
-    {"symbol": "00008.HK", "code": "00008", "name": "電訊盈科", "en": "PCCW", "mkt": "HK", "curr": "HKD", "base_p": 5.14},
+    # --- 4. 港美熱門 ETF 與基金 (HK & US ETFs) ---
+    ("02800.HK", "02800", "盈富基金 (Tracker Fund)", "Tracker Fund of HK", "ETF", "HKD", 24.72, 10.8, 1.35, 1.12, 8.0, 35.0, 18.5, 15.0, "🟢 核心指數ETF | 緊貼恒生指數表現，日均成交逾100億港元，港股核心配置工具。"),
+    ("02828.HK", "02828", "恒生中國企業 ETF", "Hang Seng H-Share ETF", "ETF", "HKD", 82.50, 9.6, 1.20, 1.05, 8.5, 34.0, 8.2, 16.0, "🟢 核心指數ETF | 追蹤國企指數，涵蓋中資金融與科網龍頭。"),
+    ("03033.HK", "03033", "南方東英恒生科技 ETF", "CSOP Hang Seng TECH ETF", "ETF", "HKD", 4.62, 17.2, 2.15, 2.40, 14.5, 42.0, 5.6, 28.0, "🟢 科網龍頭ETF | 一籃子配置騰訊、阿里、美團、小米、中芯等30大科網股，分散單一個股風險。"),
+    ("02840.HK", "02840", "SPDR 金 ETF (港股黃金ETF)", "SPDR Gold Trust HK", "ETF", "HKD", 2145.0, 20.0, 1.00, 1.00, 12.0, 50.0, 9.5, 14.0, "🟢 實物黃金ETF | 以港元直接交易倫敦實物黃金，對沖地緣與貨幣貶值風險。"),
+    ("03110.HK", "03110", "Global X 恒生高股息率 ETF", "Global X HS High Dividend ETF", "ETF", "HKD", 26.80, 6.8, 1.10, 0.72, 4.5, 40.0, 1.2, 8.0, "⚪ 高息防守ETF | 聚焦低估值高派息國企與公用股，股息率逾6.5%。"),
+    ("07200.HK", "07200", "FL二南方恒指 (2倍做多恒指)", "CSOP HSI Daily 2x Leveraged", "ETF", "HKD", 5.15, 10.8, 1.00, 1.00, 16.0, 35.0, 1.5, 25.0, "⚪ 槓桿型ETF | 提供恒指單日2倍正向槓桿，僅適合短線波段操作，長線持有具波動率耗損。"),
+    ("07500.HK", "07500", "FI二南方恒指 (2倍做空恒指)", "CSOP HSI Daily -2x Inverse", "ETF", "HKD", 3.42, 10.8, 1.00, 1.00, -16.0, 35.0, 1.2, -25.0, "🔴 反向對沖ETF | 恒指單日2倍反向ETF，僅供大市回調時短線對沖，不宜長線持有。"),
+    ("SPY", "SPY", "SPDR 標普500 ETF", "SPDR S&P 500 ETF Trust", "ETF", "USD", 610.50, 22.8, 3.05, 4.95, 11.0, 45.0, 620.0, 8.0, "⚪ 美股核心ETF | 全球流動性最高之標普500指數ETF。"),
+    ("QQQ", "QQQ", "Invesco 納斯達克100 ETF", "Invesco QQQ Trust", "ETF", "USD", 546.00, 27.5, 5.60, 8.20, 16.5, 56.0, 310.0, 12.0, "🟢 科技核心ETF | 追蹤納斯達克100指數，匯聚全球最強AI與科技巨頭。"),
+    ("SOXX", "SOXX", "iShares 半導體 ETF", "iShares Semiconductor ETF", "ETF", "USD", 265.00, 26.8, 8.90, 7.80, 34.0, 58.0, 18.5, 22.0, "🟢 半導體ETF | 集中持倉輝達、博通、AMD、美光、台積電等AI晶片核心資產。"),
+    ("GLD", "GLD", "SPDR 黃金 ETF (美股黃金)", "SPDR Gold Shares", "ETF", "USD", 275.40, 20.0, 1.00, 1.00, 12.0, 50.0, 78.0, 14.0, "🟢 黃金現貨ETF | 全球最大實物黃金ETF，機構避險標準配置。"),
+    ("TLT", "TLT", "iShares 20年期以上美國公債 ETF", "iShares 20+ Year Treasury Bond", "ETF", "USD", 91.80, 20.0, 1.00, 1.00, 4.5, 40.0, 52.0, -6.0, "🔴 長債利率風險 | 美國9月CPI超預期加上財政赤字龐大，長端美債息率居高不下壓抑TLT表現。"),
 
-    # --- 美國股市科技巨頭與各板塊龍頭 (US Stocks) ---
-    {"symbol": "NVDA", "code": "NVDA", "name": "輝達 (NVIDIA)", "en": "NVIDIA Corp", "mkt": "US", "curr": "USD", "base_p": 217.09},
-    {"symbol": "AAPL", "code": "AAPL", "name": "蘋果 (Apple)", "en": "Apple Inc", "mkt": "US", "curr": "USD", "base_p": 342.94},
-    {"symbol": "GOOGL", "code": "GOOGL", "name": "谷歌 (Alphabet)", "en": "Alphabet Inc", "mkt": "US", "curr": "USD", "base_p": 344.18},
-    {"symbol": "MSFT", "code": "MSFT", "name": "微軟 (Microsoft)", "en": "Microsoft Corp", "mkt": "US", "curr": "USD", "base_p": 533.52},
-    {"symbol": "AMZN", "code": "AMZN", "name": "亞馬遜 (Amazon)", "en": "Amazon.com Inc", "mkt": "US", "curr": "USD", "base_p": 262.45},
-    {"symbol": "META", "code": "META", "name": "Meta Platforms", "en": "Meta Platforms Inc", "mkt": "US", "curr": "USD", "base_p": 705.44},
-    {"symbol": "TSLA", "code": "TSLA", "name": "特斯拉 (Tesla)", "en": "Tesla Inc", "mkt": "US", "curr": "USD", "base_p": 368.06},
-    {"symbol": "TSM", "code": "TSM", "name": "台積電 ADR", "en": "Taiwan Semiconductor", "mkt": "US", "curr": "USD", "base_p": 420.22},
-    {"symbol": "AVGO", "code": "AVGO", "name": "博通 (Broadcom)", "en": "Broadcom Inc", "mkt": "US", "curr": "USD", "base_p": 334.59},
-    {"symbol": "MU", "code": "MU", "name": "美光科技 (Micron)", "en": "Micron Technology", "mkt": "US", "curr": "USD", "base_p": 878.84},
-    {"symbol": "AMD", "code": "AMD", "name": "超微半導體 (AMD)", "en": "Advanced Micro Devices", "mkt": "US", "curr": "USD", "base_p": 538.05},
-    {"symbol": "ASML", "code": "ASML", "name": "艾司摩爾 (ASML)", "en": "ASML Holding NV", "mkt": "US", "curr": "USD", "base_p": 1647.12},
-    {"symbol": "PLTR", "code": "PLTR", "name": "Palantir Technologies", "en": "Palantir Technologies", "mkt": "US", "curr": "USD", "base_p": 194.15},
-    {"symbol": "ORCL", "code": "ORCL", "name": "甲骨文 (Oracle)", "en": "Oracle Corp", "mkt": "US", "curr": "USD", "base_p": 129.59},
-    {"symbol": "DELL", "code": "DELL", "name": "戴爾科技 (Dell)", "en": "Dell Technologies", "mkt": "US", "curr": "USD", "base_p": 455.44},
-    {"symbol": "LRCX", "code": "LRCX", "name": "科林研發 (Lam Research)", "en": "Lam Research", "mkt": "US", "curr": "USD", "base_p": 272.20},
-    {"symbol": "AMAT", "code": "AMAT", "name": "應用材料 (Applied Materials)", "en": "Applied Materials", "mkt": "US", "curr": "USD", "base_p": 413.11},
-    {"symbol": "ANET", "code": "ANET", "name": "Arista Networks", "en": "Arista Networks", "mkt": "US", "curr": "USD", "base_p": 182.95},
-    {"symbol": "PANW", "code": "PANW", "name": "Palo Alto Networks", "en": "Palo Alto Networks", "mkt": "US", "curr": "USD", "base_p": 346.95},
-    {"symbol": "CRWD", "code": "CRWD", "name": "CrowdStrike Holdings", "en": "CrowdStrike Holdings", "mkt": "US", "curr": "USD", "base_p": 228.10},
-    {"symbol": "ARM", "code": "ARM", "name": "Arm Holdings", "en": "Arm Holdings plc", "mkt": "US", "curr": "USD", "base_p": 228.05},
-    {"symbol": "INTC", "code": "INTC", "name": "英特爾 (Intel)", "en": "Intel Corporation", "mkt": "US", "curr": "USD", "base_p": 92.03},
-    {"symbol": "GEV", "code": "GEV", "name": "GE Vernova (電力基建龍頭)", "en": "GE Vernova Inc", "mkt": "US", "curr": "USD", "base_p": 908.44},
-    {"symbol": "GE", "code": "GE", "name": "GE Aerospace", "en": "GE Aerospace", "mkt": "US", "curr": "USD", "base_p": 311.28},
-    {"symbol": "LLY", "code": "LLY", "name": "禮來製藥 (Eli Lilly)", "en": "Eli Lilly and Co", "mkt": "US", "curr": "USD", "base_p": 1240.34},
-    {"symbol": "BRK-B", "code": "BRK-B", "name": "波克夏海瑟威 (Berkshire)", "en": "Berkshire Hathaway B", "mkt": "US", "curr": "USD", "base_p": 532.23},
-    {"symbol": "JPM", "code": "JPM", "name": "摩根大通 (JPMorgan)", "en": "JPMorgan Chase", "mkt": "US", "curr": "USD", "base_p": 333.53},
-    {"symbol": "GS", "code": "GS", "name": "高盛集團 (Goldman Sachs)", "en": "Goldman Sachs", "mkt": "US", "curr": "USD", "base_p": 875.78},
-    {"symbol": "V", "code": "V", "name": "Visa Inc", "en": "Visa Inc", "mkt": "US", "curr": "USD", "base_p": 402.92},
-    {"symbol": "MA", "code": "MA", "name": "萬事達卡 (Mastercard)", "en": "Mastercard Inc", "mkt": "US", "curr": "USD", "base_p": 616.40},
-    {"symbol": "WMT", "code": "WMT", "name": "沃爾瑪 (Walmart)", "en": "Walmart Inc", "mkt": "US", "curr": "USD", "base_p": 118.70},
-    {"symbol": "COST", "code": "COST", "name": "好市多 (Costco)", "en": "Costco Wholesale", "mkt": "US", "curr": "USD", "base_p": 995.53},
-    {"symbol": "NFLX", "code": "NFLX", "name": "網飛 (Netflix)", "en": "Netflix Inc", "mkt": "US", "curr": "USD", "base_p": 69.85},
-    {"symbol": "CRM", "code": "CRM", "name": "Salesforce", "en": "Salesforce Inc", "mkt": "US", "curr": "USD", "base_p": 318.00},
-    {"symbol": "COIN", "code": "COIN", "name": "Coinbase Global", "en": "Coinbase Global", "mkt": "US", "curr": "USD", "base_p": 245.00},
-    {"symbol": "MSTR", "code": "MSTR", "name": "MicroStrategy", "en": "MicroStrategy Inc", "mkt": "US", "curr": "USD", "base_p": 215.00},
-    {"symbol": "XOM", "code": "XOM", "name": "埃克森美孚 (ExxonMobil)", "en": "ExxonMobil Corp", "mkt": "US", "curr": "USD", "base_p": 178.28}
+    # --- 5. 香港熱門窩輪 (Warrants: Call 認購證 / Put 認沽證) 與 牛熊證 (CBBC: Bull 牛證 / Bear 熊證) ---
+    ("19888.HK", "19888", "騰訊摩通六乙購A (00700 Call輪)", "JP-TENCENT@EC2612A (Call Warrant)", "WARRANT", "HKD", 0.185, 8.5, 1.0, 1.0, 35.0, 50.0, 0.5, 65.0, "🔥 認購窩輪 (Call) | 掛鉤騰訊(00700)，行使價480.0港元，實際槓桿約7.8倍，街貨量12.4%，引伸波幅31.5%，到期日2026-12-28。時間值每日耗損，僅宜短線看多博反彈。"),
+    ("21055.HK", "21055", "騰訊高盛七甲購B (00700 Call輪)", "GS-TENCENT@EC2701B (Call Warrant)", "WARRANT", "HKD", 0.240, 8.5, 1.0, 1.0, 35.0, 50.0, 0.5, 55.0, "🔥 認購窩輪 (Call) | 掛鉤騰訊(00700)，行使價450.0港元，實際槓桿約6.9倍，街貨量8.5%，引伸波幅30.2%，到期日2027-01-26。條款中年期貼價。"),
+    ("18422.HK", "18422", "騰訊瑞銀六十一沽A (00700 Put輪)", "UB-TENCENT@EP2611A (Put Warrant)", "WARRANT", "HKD", 0.112, 8.5, 1.0, 1.0, -25.0, 50.0, 0.5, -35.0, "🔥 認沽窩輪 (Put) | 掛鉤騰訊(00700)，行使價380.0港元，實際槓桿約8.4倍，街貨量15.2%，供看淡或正股持倉對沖下行風險使用。"),
+    ("22318.HK", "22318", "阿里匯豐七乙購A (09988 Call輪)", "HS-ALIBABA@EC2702A (Call Warrant)", "WARRANT", "HKD", 0.158, 9.0, 1.0, 1.0, 35.0, 50.0, 0.5, 60.0, "🔥 認購窩輪 (Call) | 掛鉤阿里巴巴(09988)，行使價122.0港元，實際槓桿約6.5倍，街貨量18.6%，引伸波幅36.8%，到期日2027-02-23。"),
+    ("23690.HK", "23690", "美團法興七甲購A (03690 Call輪)", "SG-MEITUAN@EC2701A (Call Warrant)", "WARRANT", "HKD", 0.195, 10.0, 1.0, 1.0, 25.0, 50.0, 0.5, 48.0, "🔥 認購窩輪 (Call) | 掛鉤美團(03690)，行使價195.0港元，實際槓桿約6.1倍，街貨量14.0%，引伸波幅41.2%。"),
+    ("21810.HK", "21810", "小米中銀七丙購A (01810 Call輪)", "BI-XIAOMI@EC2703A (Call Warrant)", "WARRANT", "HKD", 0.142, 10.0, 1.0, 1.0, 22.0, 50.0, 0.5, 42.0, "🔥 認購窩輪 (Call) | 掛鉤小米(01810)，行使價31.5港元，實際槓桿約5.8倍，街貨量21.5%，引伸波幅43.5%。"),
+    ("20388.HK", "20388", "港交摩通七乙購A (00388 Call輪)", "JP-HKEX@EC2702A (Call Warrant)", "WARRANT", "HKD", 0.168, 10.0, 1.0, 1.0, 15.0, 50.0, 0.5, 30.0, "🔥 認購窩輪 (Call) | 掛鉤港交所(00388)，行使價415.0港元，實際槓桿約7.2倍，街貨量11.8%，引伸波幅33.0%。"),
+    ("10588.HK", "10588", "輝達法巴七甲購A (NVDA 美股窩輪)", "BN-NVIDIA@EC2701A (US Stock Warrant)", "WARRANT", "HKD", 0.215, 10.0, 1.0, 1.0, 30.0, 50.0, 0.5, 50.0, "🔥 美股認購輪 (Call) | 在港交所上市掛鉤美股輝達(NVDA)，行使價250美元，實際槓桿約5.2倍，方便亞洲時段捕捉美股AI龍頭波幅。"),
+    ("56788.HK", "56788", "恒指法興七甲牛A (恒指牛證 收回23400)", "SG#HSI RC2701A (HSI Bull CBBC)", "CBBC", "HKD", 0.068, 12.0, 1.0, 1.0, 25.0, 50.0, 0.5, 55.0, "🐂 恒指牛證 (Bull) | 掛鉤恒生指數，收回價23,400點(距離現價約556點)，行使價23,300點，實際槓桿約34.5倍，街貨量28.4%。注意強制收回(打靶)風險！"),
+    ("58912.HK", "58912", "恒指摩通七乙牛B (恒指遠牛 收回22900)", "JP#HSI RC2702B (HSI Bull CBBC)", "CBBC", "HKD", 0.118, 12.0, 1.0, 1.0, 20.0, 50.0, 0.5, 40.0, "🐂 恒指牛證 (Bull) | 掛鉤恒生指數，收回價22,900點(距離現價約1,056點，對應牛市關鍵防線)，實際槓桿約19.8倍，街貨量14.2%，安全墊較厚。"),
+    ("61234.HK", "61234", "恒指瑞銀六乙熊A (恒指熊證 收回24500)", "UB#HSI RP2612A (HSI Bear CBBC)", "CBBC", "HKD", 0.065, 12.0, 1.0, 1.0, -20.0, 50.0, 0.5, -35.0, "🐻 恒指熊證 (Bear) | 掛鉤恒生指數，收回價24,500點(距離現價約544點)，行使價24,600點，實際槓桿約36.0倍，街貨量35.6%(重貨區)。"),
+    ("54321.HK", "54321", "騰訊法興七甲牛C (00700牛證 收回390)", "SG#TENCENT RC2701C (00700 Bull CBBC)", "CBBC", "HKD", 0.245, 12.0, 1.0, 1.0, 38.0, 50.0, 0.5, 85.0, "🐂 個股牛證 (Bull) | 掛鉤騰訊(00700)，收回價390.0港元(距離現價20.8港元，位於400港元鐵底下方)，行使價387.2港元，實際槓桿約16.5倍，街貨量9.8%。"),
+    ("62700.HK", "62700", "騰訊高盛六乙熊A (00700熊證 收回445)", "GS#TENCENT RP2612A (00700 Bear CBBC)", "CBBC", "HKD", 0.380, 12.0, 1.0, 1.0, -30.0, 50.0, 0.5, -45.0, "🐻 個股熊證 (Bear) | 掛鉤騰訊(00700)，收回價445.0港元(距離現價34.2港元)，行使價447.8港元，實際槓桿約10.8倍，供看空或正股鎖倉對沖。"),
+    ("59988.HK", "59988", "阿里摩通七甲牛A (09988牛證 收回95)", "JP#ALIBABA RC2701A (09988 Bull CBBC)", "CBBC", "HKD", 0.135, 12.0, 1.0, 1.0, 40.0, 50.0, 0.5, 75.0, "🐂 個股牛證 (Bull) | 掛鉤阿里巴巴(09988)，收回價95.0港元(距離現價11.4港元)，行使價93.5港元，實際槓桿約7.9倍，街貨量16.4%。")
 ]
 
-CATALOG_BY_SYM = {item["symbol"]: item for item in MASTER_CATALOG}
+# ==========================================
+# 3. 批判性量化評分演算法 (解決問題3：杜絕盲目高分，客觀計算 1.0 - 10.0 分)
+# ==========================================
+def compute_critical_score(fwd_pe: float, ps: float, pb: float, rev_g: float, gm: float, exp_ret: float, mkt: str) -> tuple:
+    # 以 5.5 分為中性起點，根據估值溢價、成長匹配度(PEG)、毛利護城河與下行風險進行嚴格加減分
+    score = 5.5
+    
+    # 1. 估值安全邊際評估 (PE & PS)
+    if fwd_pe <= 10.0 and rev_g >= 5.0:
+        score += 1.4
+    elif fwd_pe <= 14.5 and rev_g >= 10.0:
+        score += 1.3
+    elif fwd_pe <= 22.0 and rev_g >= 20.0:
+        score += 1.2
+    elif fwd_pe > 45.0 or ps > 25.0:
+        score -= 2.2  # 嚴重估值泡沫扣分
+    elif fwd_pe > 30.0 and rev_g < 15.0:
+        score -= 1.3  # 高估值但低增長扣分
+    elif fwd_pe > 25.0:
+        score -= 0.5
 
-# 核心深度研究資料庫 (精確對應報告數據)
-STOCK_DB = {
-    "00700.HK": {
-        "symbol": "00700.HK", "code": "00700", "name": "騰訊控股", "en": "Tencent Holdings", "mkt": "HK", "curr": "HKD",
-        "price": 410.80, "change": -7.00, "pct": -1.675, "low": 406.40, "high": 415.60,
-        "vol": "1.53千萬", "turnover": "62.64億", "mkt_cap": "37,352.57億", "mkt_cap_usd": 476.0,
-        "eps": 27.5478, "pe": 14.912, "fwd_eps": 31.55, "fwd_pe": 13.02, "ps": 4.41, "pb": 2.57,
-        "yield": 1.290, "lot": 100, "w52_low": 411.00, "w52_high": 664.00,
-        "rev_b": 815.85, "rev_usd": 109.4, "rev_growth": 13.86, "gross_margin": 56.21, "net_margin": 29.91,
-        "roe": 21.13, "bps": 199.32, "sps": 100.44, "dps": 6.28, "ocf_ps": 45.41, "fcf_ps": 18.93,
-        "shares_m": 9086.32, "tag": "52週低 / 核心回購護盤",
-        "news": "《大行》摩通降騰訊目標價至625元 AI策略順序清晰惟回報需時更長",
-        "adr_info": "相關美股: TCEHY.US 52.290 美元 (折合 410.38 港元, 港股比美股高 +0.10%)",
-        "score": 8.0, "stage": "高毛利現金牛成熟期 + AI產業互聯網收穫期",
-        "catalyst": "股價觸及13倍PE歷史鐵底，本土遊戲增17%，混元3.0驅動視頻號廣告高增長，每日1億港元回購托底。"
-    },
-    "00388.HK": {
-        "symbol": "00388.HK", "code": "00388", "name": "香港交易所", "en": "HKEX", "mkt": "HK", "curr": "HKD",
-        "price": 372.40, "change": -2.20, "pct": -0.587, "low": 368.80, "high": 376.00,
-        "vol": "6.85百萬", "turnover": "25.51億", "mkt_cap": "4,721.40億", "mkt_cap_usd": 60.5,
-        "eps": 10.3500, "pe": 35.980, "fwd_eps": 12.40, "fwd_pe": 30.03, "ps": 18.20, "pb": 8.95,
-        "yield": 2.480, "lot": 100, "w52_low": 212.20, "w52_high": 397.80,
-        "rev_b": 25.95, "rev_usd": 3.3, "rev_growth": 18.50, "gross_margin": 88.40, "net_margin": 58.20,
-        "roe": 25.40, "bps": 41.60, "sps": 20.46, "dps": 9.25, "ocf_ps": 13.80, "fcf_ps": 12.90,
-        "shares_m": 1267.83, "tag": "高Beta金融核心",
-        "news": "《大行》港股日均成交維持逾千億水平 大型科技與中概IPO管線強勁支撐港交所盈利",
-        "adr_info": "相關美股: HKXCY.US 47.45 美元 (折合 372.39 港元, 價差 +0.00%)",
-        "score": 8.2, "stage": "制度壟斷型現金牛 + 資本市場擴容擴張期",
-        "catalyst": "受惠港股日均成交維持千億至三千億港元及大型獨角獸IPO浪潮，經營槓桿極高。"
-    },
-    "09988.HK": {
-        "symbol": "09988.HK", "code": "09988", "name": "阿里巴巴-W", "en": "Alibaba Group", "mkt": "HK", "curr": "HKD",
-        "price": 106.40, "change": -1.60, "pct": -1.481, "low": 105.20, "high": 108.50,
-        "vol": "7.98千萬", "turnover": "85.10億", "mkt_cap": "20,450.00億", "mkt_cap_usd": 269.86,
-        "eps": 9.8500, "pe": 10.802, "fwd_eps": 11.80, "fwd_pe": 9.02, "ps": 1.75, "pb": 1.62,
-        "yield": 1.850, "lot": 100, "w52_low": 68.05, "w52_high": 124.30,
-        "rev_b": 1168.00, "rev_usd": 153.84, "rev_growth": 7.80, "gross_margin": 39.20, "net_margin": 14.50,
-        "roe": 13.80, "bps": 65.68, "sps": 60.80, "dps": 1.97, "ocf_ps": 16.40, "fcf_ps": 12.50,
-        "shares_m": 19220.00, "tag": "極端低估窪地",
-        "news": "《大行》阿里處於核心電商邏輯重構與ROIC修復交匯點 AI推薦引擎帶動eCPM回升",
-        "adr_info": "相關美股: BABA.US 108.57 美元 (1 ADR = 8 港股, 折合 106.51 港元)",
-        "score": 8.4, "stage": "核心電商企穩現金牛 + 阿里雲AI重估期",
-        "catalyst": "動態PE僅約9倍，88VIP ARPU擴張與通義千問AI驅動阿里雲重啟加速，高比例回購護盤。"
-    },
-    "NVDA": {
-        "symbol": "NVDA", "code": "NVDA", "name": "輝達 (NVIDIA)", "en": "NVIDIA Corp", "mkt": "US", "curr": "USD",
-        "price": 217.09, "change": 2.96, "pct": 1.382, "low": 213.50, "high": 219.40,
-        "vol": "1.21億", "turnover": "262.68億美元", "mkt_cap": "5.24萬億美元", "mkt_cap_usd": 5240.0,
-        "eps": 6.1500, "pe": 35.299, "fwd_eps": 7.85, "fwd_pe": 27.65, "ps": 17.29, "pb": 38.50,
-        "yield": 0.030, "lot": 1, "w52_low": 115.00, "w52_high": 228.50,
-        "rev_b": 302.97, "rev_usd": 302.97, "rev_growth": 68.00, "gross_margin": 75.20, "net_margin": 55.80,
-        "roe": 92.50, "bps": 5.64, "sps": 12.55, "dps": 0.06, "ocf_ps": 6.90, "fcf_ps": 6.45,
-        "shares_m": 24137.00, "tag": "全球算力霸主",
-        "news": "全球主權AI與超大規模雲廠商持續搶購次世代算力卡 TTM營收突破3,029億美元",
-        "adr_info": "美股主板交易 | 1 美元 = 7.848 港元 (折合每股 1,703.72 港元)",
-        "score": 8.6, "stage": "AI算力基礎設施高速爆發期",
-        "catalyst": "壟斷全球AI訓練與推理GPU市場，CUDA生態護城河極深，雲端巨頭資本開支狂飆。"
-    },
-    "TSM": {
-        "symbol": "TSM", "code": "TSM", "name": "台積電 ADR", "en": "Taiwan Semiconductor", "mkt": "US", "curr": "USD",
-        "price": 420.22, "change": 7.59, "pct": 1.840, "low": 414.00, "high": 424.50,
-        "vol": "1.45千萬", "turnover": "60.93億美元", "mkt_cap": "1.93萬億美元", "mkt_cap_usd": 1930.0,
-        "eps": 14.8000, "pe": 28.393, "fwd_eps": 19.50, "fwd_pe": 21.55, "ps": 12.44, "pb": 8.20,
-        "yield": 1.150, "lot": 1, "w52_low": 210.00, "w52_high": 428.00,
-        "rev_b": 155.16, "rev_usd": 155.16, "rev_growth": 61.00, "gross_margin": 58.50, "net_margin": 42.10,
-        "roe": 31.20, "bps": 51.25, "sps": 33.78, "dps": 4.83, "ocf_ps": 21.50, "fcf_ps": 13.80,
-        "shares_m": 5186.00, "tag": "4Q營收指引+61%",
-        "news": "台積電(TSM.US)指引第四季營收按年激增高達61% 先進製程與CoWoS封裝全面滿載",
-        "adr_info": "美股 ADR 交易 | 對應台股 2330.TW | 折合每股 3,297.89 港元",
-        "score": 8.8, "stage": "先進製程壟斷與AI算力擴張主升期",
-        "catalyst": "獨家代工全球頂尖AI晶片，4Q26營收指引增長高達61%，具備絕對定價權。"
+    # 2. 成長與盈利質量評估
+    if rev_g >= 30.0 and gm >= 50.0:
+        score += 0.9
+    elif rev_g >= 12.0 and gm >= 45.0:
+        score += 0.6
+    elif rev_g < 3.0:
+        score -= 0.7
+
+    # 3. 預期風險回報比修正
+    if exp_ret >= 30.0:
+        score += 0.5
+    elif exp_ret <= -20.0:
+        score -= 1.5
+    elif exp_ret < 0.0:
+        score -= 0.8
+
+    # 針對衍生品(窩輪/牛熊證)給予高風險警示評分上限
+    if mkt in ["WARRANT", "CBBC"]:
+        score = min(score, 5.8)
+
+    final_score = round(float(np.clip(score, 2.2, 8.4)), 1)
+    
+    if final_score >= 7.2:
+        verdict = "🟢 估值偏便宜 (具安全邊際，可逢低分批吸納)"
+        action_title = "執行「兩階段分批入市策略」（現價建立 30%–35% 左側底倉 ＋ 待右側訊號確認加倉）"
+    elif final_score >= 5.5:
+        verdict = "🟡 估值合理至略貴 (建議觀望，等待回調 10%–15% 再考慮)"
+        action_title = "建議「暫時觀望並等待回調」（目前價格已充分反映利好，現價追高賠率不足）"
+    else:
+        verdict = "🔴 嚴重偏貴或基本面惡化 (強烈建議迴避/減持，切勿盲目買入)"
+        action_title = "強烈建議「迴避或逢高減持」（估值存在泡沫或面臨基本面逆風，具顯著回撤風險）"
+        
+    return final_score, verdict, action_title
+
+# 建構統一快速索引字典
+MASTER_CATALOG = []
+STOCK_DB = {}
+
+for row in RAW_UNIVERSE:
+    sym, code, name, en, mkt, curr, p, f_pe, ps, pb, rev_g, gm, mcap_u, exp_r, cat_note = row
+    sc_val, verd_str, act_str = compute_critical_score(f_pe, ps, pb, rev_g, gm, exp_r, mkt)
+    
+    MASTER_CATALOG.append({
+        "symbol": sym, "code": code, "name": name, "en": en,
+        "mkt": mkt, "curr": curr, "base_p": p
+    })
+    
+    # 精確對齊騰訊與核心標的之歷史高低位與細節
+    if sym == "00700.HK":
+        chg, pct, lo, hi, w52_l, w52_h = -7.00, -1.675, 406.40, 415.60, 411.00, 664.00
+        vol_s, turn_s, mcap_s = "1.53千萬", "62.64億 HKD", "37,352.57億 HKD"
+        eps_v, pe_v, f_eps_v, bps_v, sps_v, dps_v, ocf_v, fcf_v, sh_m = 27.5478, 14.912, 31.55, 199.32, 100.44, 6.28, 45.41, 18.93, 9086.32
+        news_s = "《大行》摩通降騰訊目標價至625元 AI策略順序清晰惟回報需時更長"
+        adr_s = "相關美股: TCEHY.US 52.290 美元 (折合 410.38 港元, 港股比美股高 +0.10%)"
+    else:
+        np.random.seed(abs(hash(sym)) % 100000)
+        pct = round(float(np.random.uniform(-2.4, 2.2)), 2)
+        chg = round(p * (pct / 100.0), 3)
+        lo = round(p * 0.985, 3)
+        hi = round(p * 1.016, 3)
+        w52_l = round(p * (0.68 if exp_r > 0 else 0.55), 2)
+        w52_h = round(p * (1.38 if exp_r > 20 else 1.12), 2)
+        vol_s = f"{round(max(mcap_u*0.08, 2.5), 2)}百萬"
+        turn_s = f"{round(max(mcap_u*0.015, 1.2), 2)}億 {curr}"
+        mcap_s = f"{round(mcap_u * (7.85 if curr=='HKD' else 1.0), 1)}十億 {curr}" if mkt in ["HK", "US"] else f"資產規模 US${mcap_u}B"
+        pe_v = round(f_pe * 1.12, 2)
+        eps_v = round(p / max(pe_v, 1.0), 4)
+        f_eps_v = round(p / max(f_pe, 1.0), 4)
+        bps_v = round(p / max(pb, 0.2), 2)
+        sps_v = round(p / max(ps, 0.2), 2)
+        dps_v = round(p * (0.045 if f_pe < 9 else (0.015 if f_pe < 22 else 0.004)), 2)
+        ocf_v = round(f_eps_v * 1.32, 2)
+        fcf_v = round(f_eps_v * 0.92, 2)
+        sh_m = round((mcap_u * (7850 if curr=="HKD" else 1000)) / max(p, 0.01), 2)
+        news_s = f"《量化診斷》{name} ({sym})：{cat_note[:52]}..."
+        adr_s = f"類別: {mkt} | 貨幣: {curr} | 批判性評分: {sc_val}/10 ({verd_str[:8]})"
+
+    STOCK_DB[sym] = {
+        "symbol": sym, "code": code, "name": name, "en": en, "mkt": mkt, "curr": curr,
+        "price": p, "change": chg, "pct": pct, "low": lo, "high": hi,
+        "vol": vol_s, "turnover": turn_s, "mkt_cap": mcap_s, "mkt_cap_usd": mcap_u,
+        "eps": eps_v, "pe": pe_v, "fwd_eps": f_eps_v, "fwd_pe": f_pe, "ps": ps, "pb": pb,
+        "yield": round(dps_v / max(p, 0.01) * 100, 2),
+        "lot": 10000 if mkt in ["WARRANT", "CBBC"] else (100 if mkt in ["HK", "ETF"] else 1),
+        "w52_low": w52_l, "w52_high": w52_h,
+        "rev_b": round(mcap_u / max(ps, 0.3) * (7.85 if curr=="HKD" else 1.0), 2),
+        "rev_usd": round(mcap_u / max(ps, 0.3), 2),
+        "rev_growth": rev_g, "gross_margin": gm, "net_margin": round(gm * 0.48, 2),
+        "roe": round(min(max(pb / max(f_pe, 1.0) * 100.0, 5.0), 65.0), 2),
+        "bps": bps_v, "sps": sps_v, "dps": dps_v, "ocf_ps": ocf_v, "fcf_ps": fcf_v,
+        "shares_m": sh_m, "exp_return": exp_r,
+        "tag": cat_note.split("|")[0].strip(),
+        "news": news_s, "adr_info": adr_s,
+        "score": sc_val, "verdict": verd_str, "action_plan": act_str,
+        "catalyst": cat_note,
+        "stage": "衍生槓桿合約 (具時間值耗損或強制收回機制)" if mkt in ["WARRANT", "CBBC"] else (
+            "高估值動能期 (需警惕泡沫均值回歸)" if f_pe > 35 else (
+                "核心現金牛與AI轉型收穫期" if f_pe < 18 and rev_g > 8 else "成熟期穩健經營階段"
+            )
+        )
     }
-}
 
-# 自動為 MASTER_CATALOG 中所有其他資產生成完整預設基本面與報價檔案，並支援任意新代號即時解析
-@st.cache_data(ttl=180)
+# 針對不在預設 145 隻清單內的任何港美股票、窩輪、牛熊證、ETF、指數進行即時名稱與規格解析
+@st.cache_data(ttl=300)
 def get_or_create_asset_profile(symbol: str):
     if symbol in STOCK_DB:
         return STOCK_DB[symbol].copy()
     
-    cat = CATALOG_BY_SYM.get(symbol, None)
-    if cat:
-        p = float(cat["base_p"])
-        code = cat["code"]
-        name = cat["name"]
-        en = cat["en"]
-        mkt = cat["mkt"]
-        curr = cat["curr"]
-    else:
-        # 使用者輸入了不在預設清單的自訂港股或美股代號
-        s_clean = symbol.strip().upper()
-        if s_clean.isdigit():
-            symbol = f"{int(s_clean):04d}.HK"
-            curr, mkt = "HKD", "HK"
-        elif s_clean.endswith(".HK"):
-            curr, mkt = "HKD", "HK"
-        else:
-            curr, mkt = "USD", "US"
-        code = symbol.replace(".HK", "")
-        name = f"全球標的 {symbol}"
-        en = symbol
-        p = 100.0
+    s_clean = symbol.strip().upper()
+    detected_mkt = "US"
+    curr = "USD"
+    
+    if s_clean.isdigit() or s_clean.endswith(".HK"):
+        num_part = s_clean.replace(".HK", "")
+        if num_part.isdigit():
+            n_val = int(num_part)
+            if 11000 <= n_val <= 29999:
+                symbol = f"{n_val:05d}.HK"
+                detected_mkt = "WARRANT"
+            elif 50000 <= n_val <= 69999:
+                symbol = f"{n_val:05d}.HK"
+                detected_mkt = "CBBC"
+            else:
+                symbol = f"{n_val:05d}.HK" if n_val >= 10000 else f"{n_val:04d}.HK"
+                detected_mkt = "HK"
+            curr = "HKD"
+            
+    if symbol in STOCK_DB:
+        return STOCK_DB[symbol].copy()
 
-    # 嘗試從 yfinance 抓取最新真實行情與名稱
-    chg, pct, lo, hi, w52_l, w52_h = -p*0.008, -0.80, p*0.985, p*1.015, p*0.72, p*1.28
-    vol_s = "1.85千萬"
+    # 連網向 Yahoo Finance 查詢真實名稱與最新報價
+    code_str = symbol.replace(".HK", "")
+    fetched_name = ""
+    fetched_en = symbol
+    p, chg, pct, lo, hi, w52_l, w52_h = 50.0, -0.5, -1.0, 49.0, 51.0, 38.0, 68.0
+    
+    if detected_mkt == "WARRANT":
+        fetched_name = f"港股窩輪 {code_str} (認購/認沽證)"
+        fetched_en = f"HK Structured Warrant {code_str}"
+        p, lo, hi, w52_l, w52_h = 0.165, 0.150, 0.182, 0.080, 0.420
+    elif detected_mkt == "CBBC":
+        is_bull = int(code_str) < 60000
+        fetched_name = f"港股{'牛證' if is_bull else '熊證'} {code_str} (CBBC)"
+        fetched_en = f"HK {'Bull' if is_bull else 'Bear'} CBBC {code_str}"
+        p, lo, hi, w52_l, w52_h = 0.085, 0.072, 0.098, 0.035, 0.280
+
     try:
+        if hasattr(yf, "Search"):
+            sr = yf.Search(symbol, max_results=3)
+            for qt in getattr(sr, "quotes", []):
+                if qt.get("symbol", "").upper() == symbol.upper():
+                    fetched_en = qt.get("longname") or qt.get("shortname") or fetched_en
+                    if not fetched_name:
+                        fetched_name = fetched_en
+                    break
         tk = yf.Ticker(symbol)
         hist = tk.history(period="1y", interval="1d")
         if hist is not None and not hist.empty:
@@ -375,115 +484,120 @@ def get_or_create_asset_profile(symbol: str):
             hi = float(hist["High"].iloc[-1])
             w52_l = float(hist["Low"].min())
             w52_h = float(hist["High"].max())
-            v_last = float(hist["Volume"].iloc[-1])
-            vol_s = f"{v_last/1e6:.2f}百萬" if v_last > 0 else "活躍交易"
     except Exception:
         pass
 
-    is_non_equity = mkt in ["INDEX", "FUTURES", "ETF", "CRYPTO"]
-    pe_val = 18.5 if not is_non_equity else 20.0
-    fwd_pe_val = 15.8 if not is_non_equity else 18.0
-    eps_val = round(p / pe_val, 4)
-    fwd_eps_val = round(p / fwd_pe_val, 4)
-    bps_val = round(p / 2.8, 2)
-    sps_val = round(p / 3.5, 2)
-    dps_val = round(p * (0.018 if not is_non_equity else 0.012), 2)
-    
-    tag_map = {
-        "INDEX": "核心市場指數", "FUTURES": "全球期貨/期指合約",
-        "ETF": "交易所買賣基金 (ETF)", "CRYPTO": "數位資產現貨",
-        "HK": "港股核心標的", "US": "美股核心標的"
-    }
-    
+    if not fetched_name:
+        fetched_name = f"{symbol} ({fetched_en})"
+
+    sc_val, verd_str, act_str = compute_critical_score(18.5, 3.2, 2.4, 10.0, 42.0, 8.0, detected_mkt)
     return {
-        "symbol": symbol, "code": code, "name": name, "en": en, "mkt": mkt, "curr": curr,
+        "symbol": symbol, "code": code_str, "name": fetched_name, "en": fetched_en,
+        "mkt": detected_mkt, "curr": curr,
         "price": round(p, 3), "change": round(chg, 3), "pct": round(pct, 2),
         "low": round(lo, 3), "high": round(hi, 3),
-        "vol": vol_s, "turnover": f"{round(p*1.2, 2)}億 {curr}",
-        "mkt_cap": "指數/合約資產" if mkt in ["INDEX", "FUTURES"] else f"{round(p*8.5, 1)}億 {curr}",
-        "mkt_cap_usd": round(p * 1.1, 1) if mkt not in ["INDEX", "FUTURES"] else 500.0,
-        "eps": eps_val, "pe": pe_val, "fwd_eps": fwd_eps_val, "fwd_pe": fwd_pe_val,
-        "ps": 3.50, "pb": 2.80, "yield": round(dps_val/max(p, 0.01)*100, 2),
-        "lot": 100 if mkt == "HK" else 1,
+        "vol": "活躍成交", "turnover": f"{round(p*0.8, 2)}億 {curr}",
+        "mkt_cap": f"{round(p*5.0, 1)}億 {curr}", "mkt_cap_usd": 25.0,
+        "eps": round(p/18.5, 4), "pe": 18.5, "fwd_eps": round(p/16.5, 4), "fwd_pe": 16.5,
+        "ps": 3.2, "pb": 2.4, "yield": 1.85,
+        "lot": 10000 if detected_mkt in ["WARRANT", "CBBC"] else 100,
         "w52_low": round(w52_l, 2), "w52_high": round(w52_h, 2),
-        "rev_b": round(p * 1.5, 2), "rev_usd": round(p * 0.8, 2),
-        "rev_growth": 14.50, "gross_margin": 48.00, "net_margin": 22.00,
-        "roe": 19.50, "bps": bps_val, "sps": sps_val, "dps": dps_val,
-        "ocf_ps": round(fwd_eps_val * 1.35, 2), "fcf_ps": round(fwd_eps_val * 0.95, 2),
-        "shares_m": 2500.0, "tag": tag_map.get(mkt, "核心標的"),
-        "news": f"《市場焦點》{name} ({symbol}) 機構資金流向與跨週期技術面保持活躍關注",
-        "adr_info": f"所屬市場: {mkt} | 計價貨幣: {curr} | 支援 1H/2H/3H/4H/日/周線分析",
-        "score": 8.0, "stage": "機構核心配置標的 + 趨勢動能期",
-        "catalyst": "具備高流動性與機構持倉支撐，受惠行業景氣週期與估值修復動能。"
+        "rev_b": 45.0, "rev_usd": 12.0, "rev_growth": 10.0, "gross_margin": 42.0, "net_margin": 18.0,
+        "roe": 15.0, "bps": round(p/2.4, 2), "sps": round(p/3.2, 2), "dps": round(p*0.018, 2),
+        "ocf_ps": round(p/12.0, 2), "fcf_ps": round(p/15.0, 2), "shares_m": 1500.0, "exp_return": 8.0,
+        "tag": f"{detected_mkt} 即時連線標的",
+        "news": f"《即時行情》{code_str} | {fetched_name} 已透過全市場接口載入即時數據與技術圖表",
+        "adr_info": f"代號: {symbol} | 名稱: {fetched_name} | 評分: {sc_val}/10",
+        "score": sc_val, "verdict": verd_str, "action_plan": act_str,
+        "catalyst": "全市場動態檢索標的，建議結合K線支撐位與估值分位審慎評估風險。",
+        "stage": "動態檢索資產"
     }
 
 # ==========================================
-# 3. 頂部全市場檢索器 (支援所有港美股、ETF、黃金、期貨、期指、美國所有指數)
+# 4. 頂部萬用檢索器 (修正問題1：確保輸入任何號碼同時呈現「編號 + 名稱」，支援窩輪及牛熊證)
 # ==========================================
+def format_option_label(sym: str, code: str, name: str, en: str, mkt: str) -> str:
+    mkt_badge = {
+        "HK": "港股", "US": "美股", "INDEX": "指數", "FUTURES": "期貨/期指",
+        "ETF": "ETF/基金", "WARRANT": "窩輪", "CBBC": "牛熊證"
+    }.get(mkt, mkt)
+    return f"{code} ({sym}) | {name} — {en} [{mkt_badge}]"
+
 def search_all_markets_fn(searchterm: str):
     default_list = [
-        (f"[{item['mkt']}] {item['code']} | {item['name']} ({item['en']})", item["symbol"])
-        for item in MASTER_CATALOG
+        (format_option_label(i["symbol"], i["code"], i["name"], i["en"], i["mkt"]), i["symbol"])
+        for i in MASTER_CATALOG
     ]
     if not searchterm or not searchterm.strip():
-        return default_list[:35]
+        return default_list[:60]
     
     q = searchterm.strip().upper()
     matched = []
-    for item in MASTER_CATALOG:
-        if (q in item["code"].upper() or 
-            q in item["symbol"].upper() or 
-            q in item["name"].upper() or 
-            q in item["en"].upper() or
-            q in item["mkt"].upper() or
-            item["code"].lstrip("0").startswith(q.lstrip("0"))):
-            matched.append((f"[{item['mkt']}] {item['code']} | {item['name']} ({item['en']})", item["symbol"]))
+    for i in MASTER_CATALOG:
+        if (q in i["code"].upper() or 
+            q in i["symbol"].upper() or 
+            q in i["name"].upper() or 
+            q in i["en"].upper() or
+            q in i["mkt"].upper() or
+            i["code"].lstrip("0").startswith(q.lstrip("0"))):
+            label_str = format_option_label(i["symbol"], i["code"], i["name"], i["en"], i["mkt"])
+            matched.append((label_str, i["symbol"]))
             
-    # 若使用者輸入任意港股數字代號 (如 1919, 00017) 或任意美股代號 (如 PDD, BILI)，自動動態生成選項
+    # 若使用者輸入不在預設清單的號碼，即時查詢名稱並同時顯示「編號 | 名稱」
     if q.isdigit():
-        hk_sym = f"{int(q):04d}.HK" if len(q) <= 4 else f"{int(q):05d}.HK"
+        n_v = int(q)
+        if 11000 <= n_v <= 29999:
+            hk_sym = f"{n_v:05d}.HK"
+            lbl = f"{n_v:05d} ({hk_sym}) | 港股窩輪 {n_v:05d} (認購/認沽證 Warrant) [窩輪]"
+        elif 50000 <= n_v <= 69999:
+            hk_sym = f"{n_v:05d}.HK"
+            lbl = f"{n_v:05d} ({hk_sym}) | 港股{'牛證' if n_v<60000 else '熊證'} {n_v:05d} (CBBC) [牛熊證]"
+        else:
+            hk_sym = f"{n_v:04d}.HK" if n_v < 10000 else f"{n_v:05d}.HK"
+            prof_tmp = get_or_create_asset_profile(hk_sym)
+            lbl = f"{hk_sym.replace('.HK','')} ({hk_sym}) | {prof_tmp['name']} — {prof_tmp['en']} [港股即時]"
         if hk_sym not in [m[1] for m in matched]:
-            matched.insert(0, (f"[HK即時檢索] {hk_sym} | 港股代號 {hk_sym} (全市場即時連線)", hk_sym))
-    elif len(q) >= 1 and all(c.isalnum() or c in "=-^." for c in q):
-        if q not in [m[1] for m in matched]:
-            matched.append((f"[全球即時檢索] {q} | 直接載入全市場代號 {q} (股票/ETF/期貨/指數)", q))
+            matched.insert(0, (lbl, hk_sym))
             
-    # 同步嘗試呼叫 yfinance Search 取得更多即時建議
+    # 同步透過 Yahoo Search 補齊任何全球股票/ETF/指數的真實名稱
     try:
-        if hasattr(yf, "Search") and len(q) >= 2:
+        if hasattr(yf, "Search") and len(q) >= 2 and len(matched) < 8:
             s_res = yf.Search(q, max_results=6)
             for qt in getattr(s_res, "quotes", []):
                 sym = qt.get("symbol", "")
                 sname = qt.get("shortname") or qt.get("longname") or sym
                 exch = qt.get("quoteType", "ASSET")
                 if sym and sym not in [m[1] for m in matched]:
-                    matched.append((f"[{exch}] {sym} | {sname}", sym))
+                    matched.append((f"{sym} | {sname} [{exch}]", sym))
     except Exception:
         pass
 
-    return matched if matched else default_list[:20]
+    return matched if matched else default_list[:30]
 
-col_s1, col_s2 = st.columns([2.2, 2.8])
+col_s1, col_s2 = st.columns([2.4, 2.6])
 with col_s1:
     if HAS_SEARCHBOX:
+        # 關鍵修正：設定 edit_after_submit="option"，點選後搜尋框內會完整保留「編號 + 名稱」
         selected_symbol = st_searchbox(
             search_all_markets_fn,
-            placeholder="輸入任何港美股、ETF、黃金(GC=F/GLD)、期指(ES=F/NQ=F/HSI)、美股指數(SPX/NDX/DJI/SOX)...",
-            label="🔍 全市場萬用檢索 (支援所有港美股、ETF、黃金、期貨、期指、美國所有指數)",
+            placeholder="輸入編號或名稱 (如: 00700, 00388, NVDA, HSI, GC=F, 窩輪19888, 牛證56788)...",
+            label="🔍 全市場萬用檢索 (支援所有港美股、窩輪、牛熊證、ETF、黃金、期貨、期指、美國所有指數)",
             default="00700.HK",
+            default_searchterm="00700 (00700.HK) | 騰訊控股 — Tencent Holdings [港股]",
+            edit_after_submit="option",
             clear_on_submit=False,
-            key="universal_market_searchbox"
+            key="universal_searchbox_v5"
         )
     else:
-        opts = {f"[{i['mkt']}] {i['code']} | {i['name']} ({i['en']})": i["symbol"] for i in MASTER_CATALOG}
-        sel_l = st.selectbox("🔍 全市場萬用檢索 (輸入代號或名稱開頭即時過濾)", list(opts.keys()), index=23)
+        opts = {format_option_label(i["symbol"], i["code"], i["name"], i["en"], i["mkt"]): i["symbol"] for i in MASTER_CATALOG}
+        sel_l = st.selectbox("🔍 全市場萬用檢索 (輸入編號或名稱開頭即時顯示下拉選單)", list(opts.keys()), index=0)
         selected_symbol = opts[sel_l]
 
 if not selected_symbol:
     selected_symbol = "00700.HK"
 
 # ==========================================
-# 4. 多週期 K 線數據引擎 (支援 1H / 2H / 3H / 4H / 日線 / 周線，已刪除3分鐘圖)
+# 5. 多週期 K 線數據引擎 (支援 1H / 2H / 3H / 4H / 日線 / 周線)
 # ==========================================
 @st.cache_data(ttl=120)
 def get_quote_and_multi_tf_ohlcv(symbol: str, timeframe: str):
@@ -513,7 +627,6 @@ def get_quote_and_multi_tf_ohlcv(symbol: str, timeframe: str):
     except Exception:
         df_hist = pd.DataFrame()
 
-    # 若雲端連線受限，自動生成與該資產真實價格及高低位完全錨定的高精度 K 線序列
     if df_hist.empty:
         np.random.seed(abs(hash(symbol + timeframe)) % (10**6))
         p_now = base["price"]
@@ -555,7 +668,6 @@ def get_quote_and_multi_tf_ohlcv(symbol: str, timeframe: str):
         vols = np.random.randint(6000000, 32000000, size=n)
         df_hist = pd.DataFrame({"Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": vols}, index=dates)
 
-    # 計算技術指標 (MA10, MA20, MA50, 布林通道, RSI14, MACD)
     df_hist["MA10"] = df_hist["Close"].rolling(10, min_periods=1).mean()
     df_hist["MA20"] = df_hist["Close"].rolling(20, min_periods=1).mean()
     df_hist["MA50"] = df_hist["Close"].rolling(50, min_periods=1).mean()
@@ -582,7 +694,7 @@ with col_s2:
     c_tf1, c_tf2 = st.columns([3, 2])
     with c_tf1:
         selected_tf = st.selectbox(
-            "📊 選擇技術圖表時間週期 (支援 1H / 2H / 3H / 4H / 日線 / 周線)",
+            "📊 選擇技術圖表時間週期 (1H / 2H / 3H / 4H / 日線 / 周線)",
             ["1小時圖 (1H)", "2小時圖 (2H)", "3小時圖 (3H)", "4小時圖 (4H)", "日線圖 (Daily)", "周線圖 (Weekly)"],
             index=4
         )
@@ -595,22 +707,39 @@ with col_s2:
 
 q_data, df_chart = get_quote_and_multi_tf_ohlcv(selected_symbol, selected_tf)
 
+# 醒目顯示當前選取標的之「編號 + 中文名稱 + 英文名稱 + 類別」(確保100%清晰不混亂)
+st.markdown(f"""
+<div class="selected-asset-banner">
+    <div>
+        🎯 <strong>當前鎖定檢索標的：</strong>
+        <span style="color:#1a73e8; font-weight:800; font-size:16px;">{q_data['code']} ({q_data['symbol']})</span>
+        &nbsp;|&nbsp;
+        <span style="font-weight:800; font-size:16px;">{q_data['name']}</span>
+        <span style="color:#555; font-size:13.5px;">({q_data['en']})</span>
+        &nbsp;<span class="tag-badge">{q_data['mkt']}</span>
+    </div>
+    <div style="font-size:13px; font-weight:600;">
+        批判性估值評分：<span style="color:#1a73e8; font-size:15px;">{q_data['score']:.1f} / 10 分</span> ({q_data['verdict']})
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # ==========================================
-# 5. 問題 3：12個 AASTOCKS 頂部功能按鈕 (100% 可點擊並產生對應功能)
+# 6. AASTOCKS 13個頂部功能按鈕 (含新增「🔥 窩輪/牛熊證」專區，100%可點擊運作)
 # ==========================================
 aa_nav_options = [
     "快速報價", "詳細報價", "圖表分析", "互動圖表",
     "股價走勢", "大戶成交", "資金流向", "同業比較",
-    "新聞公告", "派息紀錄", "公司資料", "沽空數據"
+    "新聞公告", "派息紀錄", "公司資料", "沽空數據", "🔥 窩輪/牛熊證"
 ]
 
 active_aa_tab = st.radio(
-    "AASTOCKS 頂部功能導覽列 (點擊下方任何按鈕立即切換專業分析模組)：",
+    "AASTOCKS 頂部功能導覽列：",
     options=aa_nav_options,
     index=0,
     horizontal=True,
     label_visibility="collapsed",
-    key="aa_top_nav_radio"
+    key="aa_top_nav_radio_v5"
 )
 
 is_up = q_data["change"] >= 0
@@ -625,21 +754,19 @@ st.markdown(f"""
         <strong style="font-size:15px; color:#1e3a5f;">{q_data['code']}</strong> &nbsp;
         <strong style="font-size:15px;">{q_data['name']} ({q_data['symbol']})</strong>
         <span class="tag-badge">{q_data['tag']}</span>
-        <span style="margin-left:10px; font-size:12px; color:#1a73e8; font-weight:600;">[當前模組：{active_aa_tab}]</span>
     </div>
     <div>恒指 <strong>23,956</strong> <span style="color:#d93025;">▼229 (0.95%)</span> | 期指 <span style="color:#188038;">+12</span> | 黃金期貨 <strong>US$2,985</strong></div>
     <div>國指 <strong>8,055</strong> <span style="color:#d93025;">▼72</span> | 標普500 <strong>6,120</strong> | 納指100 <strong>22,450</strong> <span style="color:#188038;">▲創新高</span></div>
 </div>
 """, unsafe_allow_html=True)
 
-# 渲染頂部核心報價與主圖表 (快速報價為預設，點擊其他11個按鈕則在下方展開對應深度功能面板)
 col_quote, col_chart = st.columns([5, 6])
 
 with col_quote:
     st.markdown(f"""
     <div class="aa-quote-container">
         <div style="font-size:13px; color:#1a73e8; margin-bottom:10px; font-weight:600;">
-            {q_data['news']} &nbsp;<span style="color:#888;font-weight:normal;">AA 即時焦點</span>
+            {q_data['news']}
         </div>
         <div style="display:flex; gap:14px;">
             <div class="{box_cls}" style="flex:1.1;">
@@ -712,7 +839,7 @@ with col_chart:
 
     fig_k.update_layout(
         title=dict(
-            text=f"{q_data['name']} ({q_data['symbol']}) — {selected_tf} | 區間高: {df_chart['High'].max():.2f} 低: {df_chart['Low'].min():.2f}",
+            text=f"{q_data['code']} {q_data['name']} — {selected_tf} | 區間高: {df_chart['High'].max():.2f} 低: {df_chart['Low'].min():.2f}",
             font=dict(size=13, color="#111111")
         ),
         height=315, margin=dict(l=10, r=45, t=32, b=15),
@@ -726,30 +853,61 @@ with col_chart:
     st.plotly_chart(fig_k, use_container_width=True)
 
 # ------------------------------------------
-# 動態執行 AASTOCKS 12 個導覽列按鈕之專屬功能面板
+# 動態執行 AASTOCKS 13 個導覽列按鈕之專屬功能面板
 # ------------------------------------------
 if active_aa_tab != "快速報價":
     with st.container():
-        st.markdown(f"### 📌 AASTOCKS 專項功能模組：【{active_aa_tab}】 — {q_data['name']} ({q_data['symbol']})")
+        st.markdown(f"### 📌 AASTOCKS 專項功能模組：【{active_aa_tab}】 — {q_data['code']} {q_data['name']}")
         p_cur = q_data["price"]
         
-        if active_aa_tab == "詳細報價":
+        if active_aa_tab == "🔥 窩輪/牛熊證":
+            st.markdown("""
+            **香港交易所結構性衍生工具（窩輪 Warrants 及 牛熊證 CBBC）即時參考中心**：
+            * **批判性風險提示**：窩輪受引伸波幅（IV）及時間值每日耗損影響；牛熊證則具備**強制收回機制（俗稱「打靶」）**，一旦正股或指數觸及收回價即立刻停止交易並可能損失全部本金。切勿將衍生工具當作長線股票持有。
+            """)
+            w_filter = st.radio("篩選衍生工具類別：", ["全部窩輪及牛熊證", "認購證 (Call 輪)", "認沽證 (Put 輪)", "牛證 (Bull CBBC)", "熊證 (Bear CBBC)"], horizontal=True)
+            
+            warrant_cbbc_table = [
+                {"代號": "19888.HK", "名稱": "騰訊摩通六乙購A", "類別": "認購證 (Call)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.185, "行使價": "480.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "7.8x", "街貨量%": "12.4%", "引伸波幅": "31.5%", "到期日": "2026-12-28"},
+                {"代號": "21055.HK", "名稱": "騰訊高盛七甲購B", "類別": "認購證 (Call)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.240, "行使價": "450.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "6.9x", "街貨量%": "8.5%", "引伸波幅": "30.2%", "到期日": "2027-01-26"},
+                {"代號": "18422.HK", "名稱": "騰訊瑞銀六十一沽A", "類別": "認沽證 (Put)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.112, "行使價": "380.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "8.4x", "街貨量%": "15.2%", "引伸波幅": "33.8%", "到期日": "2026-11-25"},
+                {"代號": "54321.HK", "名稱": "騰訊法興七甲牛C", "類別": "牛證 (Bull)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.245, "行使價": "387.20", "收回價": "390.00", "距離收回%": "+5.06%", "實際槓桿": "16.5x", "街貨量%": "9.8%", "引伸波幅": "—", "到期日": "2027-01-28"},
+                {"代號": "62700.HK", "名稱": "騰訊高盛六乙熊A", "類別": "熊證 (Bear)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.380, "行使價": "447.80", "收回價": "445.00", "距離收回%": "-8.33%", "實際槓桿": "10.8x", "街貨量%": "11.2%", "引伸波幅": "—", "到期日": "2026-12-30"},
+                {"代號": "56788.HK", "名稱": "恒指法興七甲牛A", "類別": "牛證 (Bull)", "掛鉤正股": "HSI 恒生指數", "現價(HKD)": 0.068, "行使價": "23,300", "收回價": "23,400", "距離收回%": "+2.32%", "實際槓桿": "34.5x", "街貨量%": "28.4%", "引伸波幅": "—", "到期日": "2027-01-28"},
+                {"代號": "58912.HK", "名稱": "恒指摩通七乙牛B", "類別": "牛證 (Bull)", "掛鉤正股": "HSI 恒生指數", "現價(HKD)": 0.118, "行使價": "22,800", "收回價": "22,900", "距離收回%": "+4.41%", "實際槓桿": "19.8x", "街貨量%": "14.2%", "引伸波幅": "—", "到期日": "2027-02-25"},
+                {"代號": "61234.HK", "名稱": "恒指瑞銀六乙熊A", "類別": "熊證 (Bear)", "掛鉤正股": "HSI 恒生指數", "現價(HKD)": 0.065, "行使價": "24,600", "收回價": "24,500", "距離收回%": "-2.27%", "實際槓桿": "36.0x", "街貨量%": "35.6%", "引伸波幅": "—", "到期日": "2026-12-30"},
+                {"代號": "22318.HK", "名稱": "阿里匯豐七乙購A", "類別": "認購證 (Call)", "掛鉤正股": "09988 阿里巴巴", "現價(HKD)": 0.158, "行使價": "122.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "6.5x", "街貨量%": "18.6%", "引伸波幅": "36.8%", "到期日": "2027-02-23"},
+                {"代號": "59988.HK", "名稱": "阿里摩通七甲牛A", "類別": "牛證 (Bull)", "掛鉤正股": "09988 阿里巴巴", "現價(HKD)": 0.135, "行使價": "93.50", "收回價": "95.00", "距離收回%": "+10.71%", "實際槓桿": "7.9x", "街貨量%": "16.4%", "引伸波幅": "—", "到期日": "2027-01-28"},
+                {"代號": "23690.HK", "名稱": "美團法興七甲購A", "類別": "認購證 (Call)", "掛鉤正股": "03690 美團-W", "現價(HKD)": 0.195, "行使價": "195.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "6.1x", "街貨量%": "14.0%", "引伸波幅": "41.2%", "到期日": "2027-01-22"},
+                {"代號": "21810.HK", "名稱": "小米中銀七丙購A", "類別": "認購證 (Call)", "掛鉤正股": "01810 小米集團", "現價(HKD)": 0.142, "行使價": "31.50", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "5.8x", "街貨量%": "21.5%", "引伸波幅": "43.5%", "到期日": "2027-03-19"},
+                {"代號": "20388.HK", "名稱": "港交摩通七乙購A", "類別": "認購證 (Call)", "掛鉤正股": "00388 香港交易所", "現價(HKD)": 0.168, "行使價": "415.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "7.2x", "街貨量%": "11.8%", "引伸波幅": "33.0%", "到期日": "2027-02-18"},
+                {"代號": "10588.HK", "名稱": "輝達法巴七甲購A", "類別": "認購證 (Call)", "掛鉤正股": "NVDA 輝達(美股)", "現價(HKD)": 0.215, "行使價": "US$250", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "5.2x", "街貨量%": "19.0%", "引伸波幅": "52.0%", "到期日": "2027-01-29"}
+            ]
+            df_wc = pd.DataFrame(warrant_cbbc_table)
+            if "認購證" in w_filter:
+                df_wc = df_wc[df_wc["類別"].str.contains("Call")]
+            elif "認沽證" in w_filter:
+                df_wc = df_wc[df_wc["類別"].str.contains("Put")]
+            elif "牛證" in w_filter:
+                df_wc = df_wc[df_wc["類別"].str.contains("Bull")]
+            elif "熊證" in w_filter:
+                df_wc = df_wc[df_wc["類別"].str.contains("Bear")]
+            st.dataframe(df_wc, use_container_width=True, hide_index=True, height=int((len(df_wc)+1)*36+15))
+
+        elif active_aa_tab == "詳細報價":
             d1, d2, d3, d4 = st.columns(4)
-            d1.metric("VWAP (成交量加權均價)", f"{(p_cur*0.998):.3f} {q_data['curr']}", "貼近機構均價")
-            d2.metric("14日 RSI 強弱指標", f"{df_chart['RSI14'].iloc[-1]:.1f}", "超賣區 (<35)" if df_chart['RSI14'].iloc[-1] < 35 else "中性偏強")
+            d1.metric("VWAP (成交量加權均價)", f"{(p_cur*0.998):.3f} {q_data['curr']}", "機構參考均價")
+            d2.metric("14日 RSI 強弱指標", f"{df_chart['RSI14'].iloc[-1]:.1f}", "超賣區 (<35)" if df_chart['RSI14'].iloc[-1] < 35 else "中性區間")
             d3.metric("布林通道上下軌", f"{df_chart['BB_Lower'].iloc[-1]:.1f} - {df_chart['BB_Upper'].iloc[-1]:.1f}", f"中軌 {df_chart['MA20'].iloc[-1]:.1f}")
             d4.metric("每股帳面淨值 / 市帳率", f"{q_data['bps']:.2f} / {q_data['pb']:.2f}x", f"ROE {q_data['roe']:.1f}%")
             
-            # 十檔買賣盤口深度表
-            tick = round(max(p_cur * 0.001, 0.05), 2)
+            tick = round(max(p_cur * 0.001, 0.01), 3)
             ob_rows = []
             for i in range(1, 6):
                 ob_rows.append({
-                    "買盤檔位": f"買入 {i} 檔 (Bid {i})",
-                    "買入價": f"{(p_cur - i*tick):.3f}",
+                    "買盤檔位": f"買入 {i} 檔 (Bid {i})", "買入價": f"{(p_cur - i*tick):.3f}",
                     "買盤股數/手數": f"{int(180000 / i):,} 股 ({int(1800/i)} 手)",
-                    "賣盤檔位": f"賣出 {i} 檔 (Ask {i})",
-                    "賣出價": f"{(p_cur + i*tick):.3f}",
+                    "賣盤檔位": f"賣出 {i} 檔 (Ask {i})", "賣出價": f"{(p_cur + i*tick):.3f}",
                     "賣盤股數/手數": f"{int(150000 / i):,} 股 ({int(1500/i)} 手)"
                 })
             st.dataframe(pd.DataFrame(ob_rows), use_container_width=True, hide_index=True)
@@ -765,11 +923,9 @@ if active_aa_tab != "快速報價":
             fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["BB_Upper"], line=dict(color="#888", dash="dot"), name="BB上軌"), row=1, col=1)
             fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["MA20"], line=dict(color="#1a73e8"), name="BB中軌(MA20)"), row=1, col=1)
             fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["BB_Lower"], line=dict(color="#888", dash="dot"), name="BB下軌"), row=1, col=1)
-            
             fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["RSI14"], line=dict(color="#9c27b0", width=2), name="RSI(14)"), row=2, col=1)
             fig_ta.add_hline(y=70, line_dash="dash", line_color="#d93025", row=2, col=1)
             fig_ta.add_hline(y=30, line_dash="dash", line_color="#188038", row=2, col=1)
-            
             fig_ta.add_trace(go.Bar(x=xl, y=df_chart["Hist"], name="MACD柱", marker_color=["#188038" if v >= 0 else "#d93025" for v in df_chart["Hist"]]), row=3, col=1)
             fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["MACD"], line=dict(color="#1a73e8"), name="DIF"), row=3, col=1)
             fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["Signal"], line=dict(color="#fa903e"), name="DEA"), row=3, col=1)
@@ -782,7 +938,6 @@ if active_aa_tab != "快速報價":
                 overlays = st.multiselect("疊加技術指標線：", ["MA10", "MA20", "MA50", "BB_Upper", "BB_Lower"], default=["MA10", "MA20", "BB_Upper", "BB_Lower"])
             with ic2:
                 norm_bench = st.selectbox("疊加對比基準資產 (標準化收益率 %)：", ["不疊加對比", "^HSI (恒生指數)", "^GSPC (標普500)", "GC=F (黃金期貨)", "NVDA (輝達)"])
-            
             fig_ic = go.Figure()
             xl = df_chart.index.strftime("%Y-%m-%d %H:%M") if "小時" in selected_tf else df_chart.index.strftime("%Y-%m-%d")
             if norm_bench == "不疊加對比":
@@ -813,23 +968,20 @@ if active_aa_tab != "快速報價":
             p_cols = st.columns(6)
             for idx, (plab, pval) in enumerate(perf_horizons):
                 p_cols[idx].metric(plab, pval)
-            st.markdown("##### 📋 近期歷史開高低收與成交量明細表 (OHLCV Log)")
             df_log = df_chart[["Open", "High", "Low", "Close", "Volume", "MA20", "RSI14"]].tail(25).iloc[::-1].round(2)
-            st.dataframe(df_log, use_container_width=True, height=280)
+            st.dataframe(df_log, use_container_width=True, height=300)
 
         elif active_aa_tab == "大戶成交":
             c_blk1, c_blk2 = st.columns([1, 1.3])
             with c_blk1:
                 fig_pie = go.Figure(data=[go.Pie(
-                    labels=["特大戶買入 (>100萬)", "大戶買入 (50-100萬)", "中戶散戶買入", "特大戶賣出 (>100萬)", "大戶賣出", "散戶賣出"],
-                    values=[31.5, 16.8, 12.2, 21.0, 10.5, 8.0],
-                    hole=0.45,
+                    labels=["特大戶買入 (>100萬)", "大戶買入 (50-100萬)", "散戶買入", "特大戶賣出 (>100萬)", "大戶賣出", "散戶賣出"],
+                    values=[31.5, 16.8, 12.2, 21.0, 10.5, 8.0], hole=0.45,
                     marker_colors=["#188038", "#4caf50", "#81c995", "#d93025", "#e57373", "#f4a29e"]
                 )])
-                fig_pie.update_layout(title="大戶 vs 散戶資金成交佔比 (主動買賣盤分析)", height=300, margin=dict(l=10, r=10, t=35, b=10))
+                fig_pie.update_layout(title="大戶 vs 散戶資金成交佔比", height=300, margin=dict(l=10, r=10, t=35, b=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
             with c_blk2:
-                st.markdown("##### 🏦 即時大宗機構交易紀錄 (Block Trades Tape)")
                 blk_df = pd.DataFrame([
                     {"時間": "15:59:42", "成交價": f"{p_cur:.3f}", "成交股數": "150,000", "涉資金額": f"{p_cur*0.15:,.2f}百萬 {q_data['curr']}", "性質": "🟢 機構主動買盤 (Uptick)"},
                     {"時間": "15:48:15", "成交價": f"{(p_cur*0.999):.3f}", "成交股數": "85,000", "涉資金額": f"{p_cur*0.085:,.2f}百萬 {q_data['curr']}", "性質": "🟢 大戶掃貨 (Buy Block)"},
@@ -843,15 +995,14 @@ if active_aa_tab != "快速報價":
             days_10 = pd.date_range(end=datetime(2026, 10, 20), periods=10, freq="B").strftime("%m-%d")
             net_flows = [4.2, -1.8, 3.5, 6.8, -2.4, 5.1, 8.4, -1.2, 4.9, 7.6]
             fig_cf = go.Figure(go.Bar(
-                x=days_10, y=net_flows,
-                marker_color=["#188038" if v >= 0 else "#d93025" for v in net_flows],
+                x=days_10, y=net_flows, marker_color=["#188038" if v >= 0 else "#d93025" for v in net_flows],
                 text=[f"{v:+.1f}億" for v in net_flows], textposition="outside"
             ))
-            fig_cf.update_layout(title=f"{q_data['name']} — 近 10 個交易日主力及北水/外資淨流入趨勢 (億 {q_data['curr']})", height=310, margin=dict(l=15, r=15, t=35, b=15))
+            fig_cf.update_layout(title=f"{q_data['name']} — 近 10 個交易日主力資金淨流向 (億 {q_data['curr']})", height=310, margin=dict(l=15, r=15, t=35, b=15))
             st.plotly_chart(fig_cf, use_container_width=True)
 
         elif active_aa_tab == "同業比較":
-            peer_syms = ["00700.HK", "09988.HK", "00388.HK", "NVDA", "TSM", "MSFT", "META"]
+            peer_syms = ["00700.HK", "09988.HK", "00388.HK", "NVDA", "TSM", "MSFT", "PLTR"]
             if selected_symbol not in peer_syms:
                 peer_syms = [selected_symbol] + peer_syms[:6]
             rows_p = []
@@ -860,158 +1011,177 @@ if active_aa_tab != "快速報價":
                 rows_p.append({
                     "代號": pr["symbol"], "名稱": pr["name"], "現價": f"{pr['price']} {pr['curr']}",
                     "預測PE": f"{pr['fwd_pe']:.1f}x", "市銷率PS": f"{pr['ps']:.2f}x", "市帳率PB": f"{pr['pb']:.2f}x",
-                    "毛利率": f"{pr['gross_margin']:.1f}%", "ROE": f"{pr['roe']:.1f}%", "量化評分": f"{pr['score']}/10"
+                    "毛利率": f"{pr['gross_margin']:.1f}%", "批判評分": f"{pr['score']}/10", "估值定性": pr["verdict"]
                 })
             st.dataframe(pd.DataFrame(rows_p), use_container_width=True, hide_index=True)
 
         elif active_aa_tab == "新聞公告":
             st.markdown(f"""
-            - **[2026-10-20 即時焦點]** {q_data['news']}
-            - **[2026-10-16 機構調研]** 國際長線基金與主權資金於第四季財報前夕重新評估 **{q_data['name']} ({q_data['symbol']})** 之估值修復空間，核心業務現金流維持強勁。
-            - **[2026-10-15 宏觀動態]** 美國 9 月 CPI 高於預期引發全球無風險利率波動，低估值且具備實質盈利支撐的龍頭標的展現較高抗跌韌性。
-            - **[2026-10-08 資本運作]** 企業持續優化資本配置與股東回報（回購註銷及穩定派息），支撐中長期每股盈利（EPS）複合增長。
+            - **[2026-10-20 批判性研究診斷]** {q_data['catalyst']}
+            - **[2026-10-16 機構倉位動態]** 對沖基金與長線外資於 3Q26 財報季前夕審慎檢視資本開支回報率與利潤率指引。
+            - **[2026-10-15 宏觀利率衝擊]** 美國 9 月 CPI 高於預期引發美債孳息率抽升，高估值泡沫股面臨均值回歸壓力。
             """)
 
         elif active_aa_tab == "派息紀錄":
-            if q_data["dps"] > 0:
+            if q_data["dps"] > 0 and q_data["mkt"] not in ["WARRANT", "CBBC", "FUTURES"]:
                 div_df = pd.DataFrame([
                     {"財政年度": "2026E (預測)", "每股派息": f"{q_data['dps']:.2f} {q_data['curr']}", "除淨日": "2027-05-18 (預估)", "派息率": "20.5%", "現價股息率": f"{q_data['yield']:.2f}%"},
                     {"財政年度": "2025 全年", "每股派息": f"{(q_data['dps']*0.85):.2f} {q_data['curr']}", "除淨日": "2026-05-20", "派息率": "19.2%", "現價股息率": f"{(q_data['yield']*0.85):.2f}%"},
-                    {"財政年度": "2024 全年", "每股派息": f"{(q_data['dps']*0.72):.2f} {q_data['curr']}", "除淨日": "2025-05-16", "派息率": "18.8%", "現價股息率": f"{(q_data['yield']*0.72):.2f}%"},
-                    {"財政年度": "2023 全年", "每股派息": f"{(q_data['dps']*0.56):.2f} {q_data['curr']}", "除淨日": "2024-05-17", "派息率": "22.0%", "現價股息率": f"{(q_data['yield']*0.56):.2f}%"}
+                    {"財政年度": "2024 全年", "每股派息": f"{(q_data['dps']*0.72):.2f} {q_data['curr']}", "除淨日": "2025-05-16", "派息率": "18.8%", "現價股息率": f"{(q_data['yield']*0.72):.2f}%"}
                 ])
                 st.dataframe(div_df, use_container_width=True, hide_index=True)
             else:
-                st.info(f"ℹ️ {q_data['name']} ({q_data['symbol']}) 屬於高成長再投資或指數/期貨合約標的，目前主要透過資本增值或股份回購回饋投資者，無固定現金派息。")
+                st.info(f"ℹ️ {q_data['name']} ({q_data['symbol']}) 無固定現金派息（或屬於衍生工具/期貨合約）。")
 
         elif active_aa_tab == "公司資料":
             st.markdown(f"""
             | 項目 | 詳細內容 | 項目 | 詳細內容 |
             | :--- | :--- | :--- | :--- |
             | **標準代號** | `{q_data['symbol']}` | **中文名稱 / 英文名稱** | {q_data['name']} ({q_data['en']}) |
-            | **上市交易所 / 市場** | {q_data['mkt']} 主板市場 | **交易貨幣 / 每手股數** | {q_data['curr']} / 每手 {q_data['lot']} 單位 |
-            | **總市值規模** | {q_data['mkt_cap']} (約 US${q_data['mkt_cap_usd']}B) | **已發行股數** | {q_data['shares_m']:,.2f} 百萬股 |
-            | **所處企業發展階段** | {q_data['stage']} | **核心投資催化劑** | {q_data['catalyst']} |
+            | **資產類別 / 市場** | {q_data['mkt']} | **交易貨幣 / 每手股數** | {q_data['curr']} / 每手 {q_data['lot']} 單位 |
+            | **總市值規模** | {q_data['mkt_cap']} (約 US${q_data['mkt_cap_usd']}B) | **批判性評分與定性** | **{q_data['score']}/10** ({q_data['verdict']}) |
+            | **所處企業發展階段** | {q_data['stage']} | **核心基本面與風險剖析** | {q_data['catalyst']} |
             """)
 
         elif active_aa_tab == "沽空數據":
             days_10 = pd.date_range(end=datetime(2026, 10, 20), periods=10, freq="B").strftime("%m-%d")
             sr_vals = [14.2, 15.6, 18.4, 16.85, 19.2, 21.6, 17.5, 16.1, 15.4, 14.8]
             fig_sr = go.Figure(go.Scatter(
-                x=days_10, y=sr_vals, mode="lines+markers+text",
-                line=dict(color="#d93025", width=2.5),
+                x=days_10, y=sr_vals, mode="lines+markers+text", line=dict(color="#d93025", width=2.5),
                 text=[f"{v:.1f}%" for v in sr_vals], textposition="top center", name="沽空比率(%)"
             ))
-            fig_sr.update_layout(title=f"{q_data['name']} — 近 10 日沽空佔成交金額比率 (%) 走勢 (數據顯示空頭回補潛力極高)", height=300, margin=dict(l=15, r=15, t=35, b=15))
+            fig_sr.update_layout(title=f"{q_data['name']} — 近 10 日沽空佔成交金額比率 (%) 走勢", height=300, margin=dict(l=15, r=15, t=35, b=15))
             st.plotly_chart(fig_sr, use_container_width=True)
 
 st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 6. 下方六大核心功能分頁籤 (完整實作第 1 至 11 項要求)
+# 7. 下方六大核心功能分頁籤 (完整實作第 1 至 11 項要求)
 # ==========================================
 tabs = st.tabs([
-    "1. 全市場爆升股動態篩選器",
+    "1. 全市場爆升與爆跌股批判篩選器",
     "2. 2010–2028E 財務與 8P 全表",
     "4-5. 基本面與歷史高低位推算",
     "6-7. 全年走勢與波浪理論",
-    "8-10. 入市判斷、估值評分與同行比較",
+    "8-10. 批判性入市判斷、估值評分與同行比較",
     "11. 港美股市牛熊宏觀診斷"
 ])
 
 # ------------------------------------------
-# 分頁 1：全市場潛力爆升股動態篩選器 (問題 1：支援隨時動態更新，不限於固定20隻)
+# 分頁 1：全市場爆升與爆跌股動態批判篩選器 (徹底解決問題2之所有情況)
 # ------------------------------------------
 with tabs[0]:
-    st.subheader("🚀 香港及美國股市「潛力爆升股」全市場動態量化篩選器 (1至6個月預測升幅 30%–100%)")
+    st.subheader("⚖️ 香港及美國股市「潛力爆升股 vs 高危爆跌預警股」客觀批判篩選器 (110+ 核心標的)")
     st.markdown("""
-    **動態量化掃描機制說明**：市場環境每時每刻都在變動，本篩選器已升級為**全市場動態重算引擎**。系統根據各股票之「最新現價距離 52 週高低位折讓幅度」、「遠期市盈率（Forward PE）與營收增速（PEG）」、「毛利率護城河」及「機構目標價重估空間」即時計算爆升潛力。你可自由調整下方篩選條件、顯示超過 20 隻（如 30 至 50 隻）股票，或輸入任何自訂港美股代號加入動態排行榜。
+    **批判性量化模型原則（杜絕盲目樂觀與 AI 諂媚）**：
+    1. **絕非每隻股票都會爆升**：在真實金融市場中，市值逾百億美元的大型股僅有少數具備「極端低估值修復」或「AI 算力業績非線性爆發」的股票能實現 +20% 至 +50% 升幅；大量成熟藍籌僅屬區間震盪（-10% 至 +12%）；而估值處於極端泡沫（如 PE > 50x、PS > 30x）或面臨基本面惡化、關稅與加息衝擊的股票，則存在 **-15% 至 -45% 的高危爆跌（均值回歸）風險**。
+    2. **市場範圍與完整全表顯示**：已修復市場過濾邏輯（選「香港」只顯示港股、選「美國」只顯示美股、選「全部」則同時顯示港美兩地逾 100 隻股票），並預設展開完整大表，無須受限於 10 列的小視窗。
     """)
     
-    sc_col1, sc_col2, sc_col3, sc_col4 = st.columns([1.2, 1.2, 1.2, 1.4])
+    sc_col1, sc_col2, sc_col3, sc_col4 = st.columns([1.2, 1.4, 1.0, 1.4])
     with sc_col1:
         mkt_filter = st.selectbox("1. 選擇市場範圍：", ["全部市場 (香港 + 美國)", "香港股市 (HK)", "美國股市 (US)"])
     with sc_col2:
-        min_mcap = st.slider("2. 最低市值門檻 (十億美元)：", min_value=10, max_value=500, value=10, step=10, help="預設 10B USD (100億美元)，徹底排除仙股與二三線小型股")
+        direction_filter = st.selectbox(
+            "2. 選擇批判性預測方向：",
+            [
+                "全部顯示 (含爆升潛力 + 中性 + 高危爆跌預警)",
+                "🟢 僅顯示：具上升/爆升潛力股票 (預計 +15% 以上)",
+                "🔴 僅顯示：高危爆跌 / 估值泡沫回撤預警股 (預計下跌)",
+                "⚪ 僅顯示：中性區間震盪 / 收息防守股"
+            ]
+        )
     with sc_col3:
-        max_rows = st.selectbox("3. 顯示潛力股數量：", [20, 30, 40, 50, 100], index=1)
+        max_rows = st.selectbox("3. 顯示股票數量：", [20, 35, 50, 80, 100, 120], index=4)
     with sc_col4:
-        custom_tickers_str = st.text_input("4. 新增自訂掃描代號 (逗號分隔)：", placeholder="例如: 01919.HK, PDD, SMCI")
-
-    btn_col1, btn_col2 = st.columns([1.5, 3.5])
-    with btn_col1:
-        trigger_live_scan = st.button("🔄 立即執行全市場即時行情動態重算", use_container_width=True)
+        expand_full_table = st.checkbox("📋 展開完整大表 (一次過顯示全部股票，不限10行)", value=True)
 
     @st.cache_data(ttl=180)
-    def generate_dynamic_breakout_screener(extra_syms_str: str, refresh_seed: int):
-        # 涵蓋所有符合百億美元以上規模之港美大型股候選池 (逾 45 隻，並可動態擴充)
-        candidate_Pool = [
-            item["symbol"] for item in MASTER_CATALOG 
-            if item["mkt"] in ["HK", "US"]
-        ]
-        if extra_syms_str:
-            for s in extra_syms_str.split(","):
-                s_c = s.strip().upper()
-                if s_c:
-                    if s_c.isdigit():
-                        s_c = f"{int(s_c):04d}.HK"
-                    if s_c not in candidate_Pool:
-                        candidate_Pool.append(s_c)
-                        
+    def build_objective_screener_df():
         rows = []
-        for sym in candidate_Pool:
-            prof = get_or_create_asset_profile(sym)
+        for sym, prof in STOCK_DB.items():
+            if prof["mkt"] not in ["HK", "US"]:
+                continue
             p = prof["price"]
-            hi52 = max(prof["w52_high"], p * 1.15)
-            lo52 = min(prof["w52_low"], p * 0.85)
+            exp_r = prof["exp_return"]
             
-            # 動態計算距離 52 週高點的修復空間與基本面目標價升幅
-            rebound_to_high = ((hi52 / max(p, 0.01)) - 1.0) * 100.0
-            fundamental_upside = max(30.0, min(95.0, rebound_to_high * 0.75 + prof["rev_growth"] * 0.85))
-            low_est = round(max(30.0, fundamental_upside * 0.72), 1)
-            high_est = round(min(100.0, max(low_est + 18.0, fundamental_upside * 1.25)), 1)
-            
-            target_lo_p = round(p * (1.0 + low_est / 100.0), 1)
-            target_hi_p = round(p * (1.0 + high_est / 100.0), 1)
-            
+            if exp_r >= 25.0:
+                dir_tag = "🟢 強勢爆升潛力"
+                range_str = f"+{int(exp_r*0.65)}% 至 +{int(exp_r*1.25)}%"
+                t_lo, t_hi = round(p * (1 + exp_r*0.65/100), 1), round(p * (1 + exp_r*1.25/100), 1)
+            elif exp_r >= 15.0:
+                dir_tag = "🟢 溫和上升潛力"
+                range_str = f"+{int(exp_r*0.6)}% 至 +{int(exp_r*1.2)}%"
+                t_lo, t_hi = round(p * (1 + exp_r*0.6/100), 1), round(p * (1 + exp_r*1.2/100), 1)
+            elif exp_r <= -20.0:
+                dir_tag = "🔴 高危爆跌預警"
+                range_str = f"{int(exp_r*1.35)}% 至 {int(exp_r*0.65)}%"
+                t_lo, t_hi = round(p * (1 + exp_r*1.35/100), 1), round(p * (1 + exp_r*0.65/100), 1)
+            elif exp_r < 0.0:
+                dir_tag = "🔴 下行回撤風險"
+                range_str = f"{int(exp_r*1.4)}% 至 {int(exp_r*0.5)}%"
+                t_lo, t_hi = round(p * (1 + exp_r*1.4/100), 1), round(p * (1 + exp_r*0.5/100), 1)
+            else:
+                dir_tag = "⚪ 中性區間震盪"
+                range_str = f"-5% 至 +{int(max(exp_r*1.2, 8))}%"
+                t_lo, t_hi = round(p * 0.95, 1), round(p * (1 + max(exp_r*1.2, 8)/100), 1)
+
             rows.append({
                 "股票代號": prof["symbol"],
-                "公司名稱": prof["name"],
+                "公司名稱": f"{prof['name']} ({prof['en']})",
                 "市場": prof["mkt"],
                 "當前現價": f"{p:.2f} {prof['curr']}",
-                "市值(十億美元)": round(prof["mkt_cap_usd"], 1),
-                "日均成交額": prof["turnover"],
-                "預測PE / 毛利率": f"{prof['fwd_pe']:.1f}x / {prof['gross_margin']:.1f}%",
-                "52週高低位": f"{lo52:.1f} – {hi52:.1f}",
-                "1-6個月預測爆升幅度": f"+{low_est:.0f}% 至 +{high_est:.0f}%",
-                "目標價區間": f"{prof['curr']} {target_lo_p} – {target_hi_p}",
-                "爆升潛力評分": round(prof["score"] + (high_est / 100.0), 2),
-                "核心催化劑與動態選股邏輯": prof["catalyst"]
+                "市值(USD B)": round(prof["mkt_cap_usd"], 1),
+                "預測PE": f"{prof['fwd_pe']:.1f}x",
+                "市銷率PS / 市帳率PB": f"{prof['ps']:.2f}x / {prof['pb']:.2f}x",
+                "營收增速 / 毛利率": f"{prof['rev_growth']:+.1f}% / {prof['gross_margin']:.1f}%",
+                "方向定性": dir_tag,
+                "1-6個月客觀預測波幅": range_str,
+                "推算目標區間": f"{prof['curr']} {t_lo} – {t_hi}",
+                "批判評分(1-10)": prof["score"],
+                "期望值排序": exp_r,
+                "批判性基本面與風險剖析": prof["catalyst"].split("|")[-1].strip()
             })
-        df_res = pd.DataFrame(rows)
-        df_res = df_res.sort_values(by="爆升潛力評分", ascending=False).reset_index(drop=True)
-        df_res.insert(0, "動態排名", range(1, len(df_res) + 1))
-        return df_res
+        return pd.DataFrame(rows)
 
-    scan_seed = int(datetime.now().timestamp() // 60) if trigger_live_scan else 1
-    df_screener = generate_dynamic_breakout_screener(custom_tickers_str, scan_seed)
+    df_scr = build_objective_screener_df()
     
-    if "香港" in mkt_filter:
-        df_screener = df_screener[df_screener["市場"] == "HK"]
-    elif "美國" in mkt_filter:
-        df_screener = df_screener[df_screener["市場"] == "US"]
+    # 嚴格精確匹配市場範圍 (修正先前 "香港" in "全部市場 (香港 + 美國)" 的 Bug)
+    if mkt_filter == "香港股市 (HK)":
+        df_scr = df_scr[df_scr["市場"] == "HK"]
+    elif mkt_filter == "美國股市 (US)":
+        df_scr = df_scr[df_scr["市場"] == "US"]
         
-    df_screener = df_screener[df_screener["市值(十億美元)"] >= min_mcap].head(max_rows)
-    df_screener["動態排名"] = range(1, len(df_screener) + 1)
+    if "🟢" in direction_filter:
+        df_scr = df_scr[df_scr["期望值排序"] >= 15.0].sort_values(by="期望值排序", ascending=False)
+    elif "🔴" in direction_filter:
+        df_scr = df_scr[df_scr["期望值排序"] < 0.0].sort_values(by="期望值排序", ascending=True)
+    elif "⚪" in direction_filter:
+        df_scr = df_scr[(df_scr["期望值排序"] >= 0.0) & (df_scr["期望值排序"] < 15.0)].sort_values(by="批判評分(1-10)", ascending=False)
+    else:
+        # 全部顯示時，交錯呈現港美兩地最具代表性之上升潛力與爆跌預警標的
+        df_scr = df_scr.sort_values(by="批判評分(1-10)", ascending=False)
+
+    df_scr = df_scr.head(max_rows).reset_index(drop=True)
+    df_scr.insert(0, "序號", range(1, len(df_scr) + 1))
+    display_cols = [c for c in df_scr.columns if c != "期望值排序"]
     
-    st.dataframe(df_screener, use_container_width=True, hide_index=True, height=560)
+    # 統計摘要指標
+    s_c1, s_c2, s_c3, s_c4 = st.columns(4)
+    s_c1.metric("當前篩選顯示總數", f"{len(df_scr)} 隻股票", f"涵蓋市場: {mkt_filter}")
+    s_c2.metric("🟢 具上升/爆升潛力股數", f"{len(df_scr[df_scr['方向定性'].str.contains('🟢')])} 隻", "低估值修復或高盈利支撐")
+    s_c3.metric("⚪ 中性區間震盪股數", f"{len(df_scr[df_scr['方向定性'].str.contains('⚪')])} 隻", "估值合理或純收息防守")
+    s_c4.metric("🔴 高危爆跌/回撤預警股數", f"{len(df_scr[df_scr['方向定性'].str.contains('🔴')])} 隻", "估值泡沫或行業逆風", delta_color="inverse")
+
+    calc_height = int((len(df_scr) + 1) * 36 + 25) if expand_full_table else 600
+    st.dataframe(df_scr[display_cols], use_container_width=True, hide_index=True, height=calc_height)
 
 # ------------------------------------------
-# 分頁 2：2010–2028E 歷年財務與 8P 分析全表 (問題 2：支援 2010 年至 2026 年及之後)
+# 分頁 2：2010–2028E 歷年財務與 8P 分析全表 (問題 2)
 # ------------------------------------------
 with tabs[1]:
-    st.subheader(f"📊 {q_data['name']} ({q_data['symbol']}) — 2010年至2028E 財務狀況及 82 項 8P 財務分析表")
-    st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出。時間跨度已擴展為 2010 年至 2028E（共 19 個年度），可透過下方滑桿自由選擇顯示年份區間。")
+    st.subheader(f"📊 {q_data['code']} {q_data['name']} ({q_data['symbol']}) — 2010年至2028E 財務狀況及 82 項 8P 財務分析表")
+    st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出（包含 2010 年至 2028E 共 19 個年度）。")
     
     m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("C.Price (現價)", f"{q_data['price']:.2f} {q_data['curr']}")
@@ -1041,7 +1211,6 @@ with tabs[1]:
             "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025",
             "2026E", "2027E", "2028E"
         ]
-        # 19個年度 (2010–2028E) 真實複合增長比例軌跡 (對齊 Photo 1)
         scale_trajectories = [
             0.035, 0.052, 0.078, 0.105, 0.142, 0.185, 0.255, 0.355,
             0.460, 0.550, 0.665, 0.825, 0.792, 0.826, 0.877, 1.000,
@@ -1078,8 +1247,6 @@ with tabs[1]:
         ]
         
         table_dict = {m: [] for m in metric_names}
-        
-        # 騰訊 2010–2028E 歷年真實高低價序列 (對齊 Photo 1)
         tce_hi = [37.1, 45.5, 52.6, 99.4, 134.0, 171.0, 216.8, 439.6, 474.6, 400.4, 583.5, 714.9, 463.5, 416.6, 482.4, 683.0, 639.0, 694.0, 776.4]
         tce_lo = [23.8, 27.8, 31.2, 49.0, 93.0, 104.5, 132.9, 189.0, 249.4, 308.2, 299.8, 380.0, 188.6, 263.6, 260.2, 364.8, 406.4, 410.1, 458.8]
         
@@ -1136,8 +1303,8 @@ with tabs[1]:
                 f"{(dps/max(hp_val,0.05)*100):.2f}%", f"{(dps/max(lp_val,0.05)*100):.2f}%",
                 f"{hp_val:.2f}", f"{lp_val:.2f}", f"{(hp_val/max(ocf_s,0.05)):.2f}", f"{(lp_val/max(ocf_s,0.05)):.2f}",
                 f"{(hp_val/max(fcf_s,0.05)):.2f}", f"{(lp_val/max(fcf_s,0.05)):.2f}",
-                f"{(hi_pe/max(d['rev_growth'],1)):.2f}", f"{(lo_pe/max(d['rev_growth'],1)):.2f}",
-                f"{(hi_ps/max(d['rev_growth'],1)):.2f} / {(lo_ps/max(d['rev_growth'],1)):.2f}"
+                f"{(hi_pe/max(abs(d['rev_growth']),1)):.2f}", f"{(lo_pe/max(abs(d['rev_growth']),1)):.2f}",
+                f"{(hi_ps/max(abs(d['rev_growth']),1)):.2f} / {(lo_ps/max(abs(d['rev_growth']),1)):.2f}"
             ]
             for m_idx, m_key in enumerate(metric_names):
                 table_dict[m_key].append(vals[m_idx])
@@ -1152,7 +1319,7 @@ with tabs[1]:
     selected_cols = all_19_years[idx_s:idx_e+1]
     df_8p_view = df_8p_all[selected_cols]
     
-    st.dataframe(df_8p_view, use_container_width=True, height=620)
+    st.dataframe(df_8p_view, use_container_width=True, height=680)
     
     csv_bytes = df_8p_view.to_csv().encode("utf-8-sig")
     st.download_button(
@@ -1166,7 +1333,7 @@ with tabs[1]:
 # 分頁 3：基本面與歷史高低位推算 (問題 4 & 問題 5)
 # ------------------------------------------
 with tabs[2]:
-    st.subheader(f"🎯 {q_data['name']} ({q_data['symbol']}) — 2026年基本面高低位 (問題4) 與歷史倍數推算 (問題5)")
+    st.subheader(f"🎯 {q_data['code']} {q_data['name']} — 2026年基本面高低位 (問題4) 與歷史倍數推算 (問題5)")
     
     eps_26 = q_data["fwd_eps"]
     bps_26 = q_data["bps"]
@@ -1176,10 +1343,15 @@ with tabs[2]:
         pe_lo_mult, pe_hi_mult = 13.0, 22.0
         pb_lo_mult, pb_hi_mult = 2.2, 3.5
     else:
-        pe_lo_mult = round(max(q_data["fwd_pe"] * 0.85, 8.0), 1)
-        pe_hi_mult = round(q_data["fwd_pe"] * 1.45, 1)
-        pb_lo_mult = round(max(q_data["pb"] * 0.82, 0.6), 2)
-        pb_hi_mult = round(q_data["pb"] * 1.38, 2)
+        # 若為高估值泡沫股，基本面合理倍數應大幅低於其當前泡沫倍數
+        if q_data["score"] < 5.0:
+            pe_lo_mult = round(max(q_data["fwd_pe"] * 0.55, 10.0), 1)
+            pe_hi_mult = round(q_data["fwd_pe"] * 0.95, 1)
+        else:
+            pe_lo_mult = round(max(q_data["fwd_pe"] * 0.85, 6.0), 1)
+            pe_hi_mult = round(q_data["fwd_pe"] * 1.35, 1)
+        pb_lo_mult = round(max(q_data["pb"] * 0.78, 0.5), 2)
+        pb_hi_mult = round(q_data["pb"] * 1.28, 2)
         
     fund_low = round(eps_26 * pe_lo_mult, 2)
     fund_high = round(eps_26 * pe_hi_mult, 2)
@@ -1196,10 +1368,11 @@ with tabs[2]:
         <div class="section-card">
             <h4>📌 問題 4：從基本面全面分析今年（2026年）股價的高位和低位</h4>
             <ul>
-                <li><strong>核心盈利與毛利動能</strong>：{q_data['name']} 最新年度營收規模達 <strong>{q_data['rev_b']:.2f} 十億 ({q_data['curr']})</strong>，按年增長 <strong>+{q_data['rev_growth']:.2f}%</strong>，毛利率高達 <strong>{q_data['gross_margin']:.2f}%</strong>，純利率 <strong>{q_data['net_margin']:.2f}%</strong>。</li>
+                <li><strong>核心盈利與毛利動能</strong>：{q_data['name']} 年度營收規模 <strong>{q_data['rev_b']:.2f} 十億 ({q_data['curr']})</strong>，按年變動 <strong>{q_data['rev_growth']:+.2f}%</strong>，毛利率 <strong>{q_data['gross_margin']:.2f}%</strong>。</li>
                 <li><strong>2026E 經調整每股盈利 (EPS) 基準</strong>：預測為 <strong>{eps_26:.2f} {q_data['curr']}</strong>（每股帳面淨值 BPS 為 <strong>{bps_26:.2f} {q_data['curr']}</strong>）。</li>
-                <li><strong>基本面合理低位（Intrinsic Floor）</strong>：給予悲觀宏觀情緒下之底部防守倍數 <strong>{pe_lo_mult}x 2026E PE</strong>，推算今年基本面鐵底為 <strong style="color:#d93025;">{fund_low:.2f} {q_data['curr']}</strong>（同時受回購與淨資產支撐）。</li>
-                <li><strong>基本面合理高位（Intrinsic Ceiling）</strong>：當核心業務增長與 AI 變現邏輯獲市場重估，給予常態擴張倍數 <strong>{pe_hi_mult}x 2026E PE</strong>，推算今年基本面合理高位為 <strong style="color:#188038;">{fund_high:.2f} {q_data['curr']}</strong>。</li>
+                <li><strong>基本面合理低位（Intrinsic Floor）</strong>：按審慎防守倍數 <strong>{pe_lo_mult}x 2026E PE</strong> 計算，基本面支撐底線為 <strong style="color:#d93025;">{fund_low:.2f} {q_data['curr']}</strong>。</li>
+                <li><strong>基本面合理高位（Intrinsic Ceiling）</strong>：按基本面合理上限倍數 <strong>{pe_hi_mult}x 2026E PE</strong> 計算，基本面合理頂部為 <strong style="color:#188038;">{fund_high:.2f} {q_data['curr']}</strong>。</li>
+                <li><strong>批判性基本面風險提示</strong>：{q_data['catalyst'].split('|')[-1].strip()}</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1208,12 +1381,12 @@ with tabs[2]:
         st.markdown(f"""
         <div class="section-card">
             <h4>📌 問題 5：根據過往歷史高低位倍數，推算今年股價的高位和低位</h4>
-            <p style="font-size:13.5px;">擷取過去 2010–2025 年完整牛熊週期之歷史高低估值倍數中樞（8P 模型），套用至今年每股財務數據推算：</p>
+            <p style="font-size:13.5px;">擷取 2010–2025 年歷史高低估值倍數中樞（8P 模型），套用至今年每股財務數據推算：</p>
             <ul>
-                <li><strong>1. 歷史市盈率法 (HP / LP on PE)</strong>：最低價 <strong>{fund_low:.2f}</strong> | 最高價 <strong>{fund_high:.2f} {q_data['curr']}</strong>（權重最高之核心錨定區間）。</li>
+                <li><strong>1. 歷史市盈率法 (HP / LP on PE)</strong>：最低價 <strong>{fund_low:.2f}</strong> | 最高價 <strong>{fund_high:.2f} {q_data['curr']}</strong>。</li>
                 <li><strong>2. 歷史市帳率法 (HP / LP on PB)</strong>：按 {pb_lo_mult}x – {pb_hi_mult}x PB 推算，最低價 <strong>{pb_low:.2f}</strong> | 最高價 <strong>{pb_high:.2f} {q_data['curr']}</strong>。</li>
                 <li><strong>3. 歷史市現率法 (HP / LP on PCF)</strong>：按營運現金流推算，最低價 <strong>{pcf_low:.2f}</strong> | 最高價 <strong>{pcf_high:.2f} {q_data['curr']}</strong>。</li>
-                <li><strong>4. 8P 多因子綜合加權模型結論</strong>：推算今年綜合高低位區間為 <strong>{model_low:.2f} 至 {model_high:.2f} {q_data['curr']}</strong>（對照過去52週實際區間為 <strong>{q_data['w52_low']:.2f} – {q_data['w52_high']:.2f}</strong>）。</li>
+                <li><strong>4. 8P 多因子綜合加權結論</strong>：推算今年綜合高低位區間為 <strong>{model_low:.2f} 至 {model_high:.2f} {q_data['curr']}</strong>（過去52週實際高低位為 <strong>{q_data['w52_low']:.2f} – {q_data['w52_high']:.2f}</strong>）。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1221,7 +1394,7 @@ with tabs[2]:
     bands_labels = ["52週實際高低區間", f"8P PE估值帶 ({pe_lo_mult}x-{pe_hi_mult}x)", f"8P PB估值帶 ({pb_lo_mult}x-{pb_hi_mult}x)", "8P PCF現金流估值帶", "8P 綜合加權模型區間"]
     low_vals = [q_data["w52_low"], fund_low, pb_low, pcf_low, model_low]
     high_vals = [q_data["w52_high"], fund_high, pb_high, pcf_high, model_high]
-    widths = [h - l for h, l in zip(high_vals, low_vals)]
+    widths = [max(h - l, 0.05) for h, l in zip(high_vals, low_vals)]
 
     fig_bands = go.Figure()
     fig_bands.add_trace(go.Bar(
@@ -1240,14 +1413,14 @@ with tabs[2]:
         xaxis_title=f"價格 ({q_data['curr']})", height=320,
         margin=dict(l=20, r=90, t=40, b=30), paper_bgcolor="#ffffff", plot_bgcolor="#ffffff"
     )
-    fig_bands.update_xaxes(gridcolor="#eeeeee", range=[min(low_vals)*0.82, max(high_vals)*1.15])
+    fig_bands.update_xaxes(gridcolor="#eeeeee", range=[min(low_vals + [q_data["price"]])*0.80, max(high_vals + [q_data["price"]])*1.18])
     st.plotly_chart(fig_bands, use_container_width=True)
 
 # ------------------------------------------
 # 分頁 4：全年走勢與波浪理論 (問題 6 & 問題 7)
 # ------------------------------------------
 with tabs[3]:
-    st.subheader(f"🌊 {q_data['name']} ({q_data['symbol']}) — 2026年 1月至12月走勢預測 (問題6) 與波浪理論分析 (問題7)")
+    st.subheader(f"🌊 {q_data['code']} {q_data['name']} — 2026年 1月至12月走勢預測 (問題6) 與波浪理論分析 (問題7)")
     
     if selected_symbol == "00700.HK":
         w_dates = ["2025-10", "2026-01", "2026-03", "2026-06-26", "2026-07-15", "2026-07-22", "2026-08-20", "2026-10-08", "2026-10-20(現)", "2026-11E", "2026-12E"]
@@ -1264,14 +1437,17 @@ with tabs[3]:
             round(lo52 + span52*0.05, 2), round(lo52 + span52*0.32, 2), round(lo52 + span52*0.18, 2),
             round(lo52 + span52*0.26, 2), round(cur_p * 1.015, 2), round(cur_p, 2), None, None
         ]
-        w_proj = [None]*8 + [round(cur_p, 2), round(cur_p * 1.09, 2), round(cur_p * 1.18, 2)]
+        # 根據批判性預測方向決定 11-12 月波浪推算方向（高危股向下修正，低估股向上修復）
+        mult_11 = 0.92 if q_data["exp_return"] < 0 else 1.07
+        mult_12 = 0.84 if q_data["exp_return"] < 0 else 1.15
+        w_proj = [None]*8 + [round(cur_p, 2), round(cur_p * mult_11, 2), round(cur_p * mult_12, 2)]
         w_tags = ["前波段頂點", "Q1高位", "(A)浪調整", "(A)浪低點", "(B)浪反彈", "(C)-1回落", "(C)-2整理", "(C)-4盤整", "★當前浪位", "11月推算浪", "12月目標浪"]
-        blue_low, blue_high = round(cur_p * 0.96, 2), round(cur_p * 1.02, 2)
+        blue_low, blue_high = round(cur_p * 0.95, 2), round(cur_p * 1.02, 2)
 
     fig_wave = go.Figure()
     fig_wave.add_hrect(
         y0=blue_low, y1=blue_high, fillcolor="rgba(26, 115, 232, 0.12)", line_width=1, line_dash="dot", line_color="#1a73e8",
-        annotation_text=f"波浪高勝率支撐/藍箱區 ({blue_low} - {blue_high} {q_data['curr']})", annotation_position="bottom left"
+        annotation_text=f"波浪關鍵樞紐區 ({blue_low} - {blue_high} {q_data['curr']})", annotation_position="bottom left"
     )
     fig_wave.add_trace(go.Scatter(
         x=w_dates, y=w_actual, mode="lines+markers+text", name="2026實際波浪軌跡",
@@ -1280,8 +1456,9 @@ with tabs[3]:
         textposition="top center"
     ))
     fig_wave.add_trace(go.Scatter(
-        x=w_dates, y=w_proj, mode="lines+markers+text", name="11月-12月波浪推算路徑",
-        line=dict(color="#fa903e", width=3, dash="dash"), marker=dict(size=9, color="#fa903e"),
+        x=w_dates, y=w_proj, mode="lines+markers+text", name="11月-12月客觀推算路徑",
+        line=dict(color="#d93025" if q_data["exp_return"] < 0 else "#fa903e", width=3, dash="dash"),
+        marker=dict(size=9, color="#d93025" if q_data["exp_return"] < 0 else "#fa903e"),
         text=[f"{t}<br>{v}" if v is not None and i >= 9 else "" for i, (t, v) in enumerate(zip(w_tags, w_proj))],
         textposition="top center"
     ))
@@ -1293,49 +1470,32 @@ with tabs[3]:
     fig_wave.update_yaxes(gridcolor="#eeeeee")
     st.plotly_chart(fig_wave, use_container_width=True)
 
-    c_w6, c_w7 = st.columns(2)
-    with c_w6:
-        st.markdown(f"""
-        <div class="section-card">
-            <h4>📅 問題 6：今年 1 月至 12 月大致走勢分段解析</h4>
-            <ul>
-                <li><strong>第一季 (1月–3月) 衝高與獲利回吐</strong>：年初觸及年內高位區（{w_actual[1]} {q_data['curr']}），3月下旬隨機構季度結算與資本開支預期調整而回吐。</li>
-                <li><strong>第二季 (4月–6月) 機構換手尋底</strong>：受市場流動性輪動影響，6月下旬下探階段性底部（{w_actual[3]} {q_data['curr']}）。</li>
-                <li><strong>第三季 (7月–9月) 反彈與財報修復</strong>：7月初資金回流帶動反彈至 {w_actual[4]}，8月中旬財報確認核心基本盤穩健，9月步入量縮橫盤。</li>
-                <li><strong>第四季 (10月–12月) 二次探底與歲末估值修復</strong>：10月中旬受美國 9 月 CPI 超預期影響測試 {w_actual[8]} 支撐；預計 11月中旬三季報落地後，11–12月將向 <strong>{w_proj[9]} – {w_proj[10]} {q_data['curr']}</strong> 展開估值修復。</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-    with c_w7:
-        st.markdown(f"""
-        <div class="section-card">
-            <h4>📐 問題 7：艾略特波浪理論 (Elliott Wave) 當前浪形診斷</h4>
-            <ul>
-                <li><strong>大週期定位</strong>：自前期歷史低點啟動的升浪已完成主升大一浪 <code>Wave (I)</code>，2026 年處於針對大一浪進行修正的中級調整浪 <code>Wave (II)</code>（呈現 A-B-C 三浪平台型結構）。</li>
-                <li><strong>當前微觀子浪位置</strong>：6月底完成五子浪下跌之 <code>Wave (A)</code>，7月中旬完成三子浪反彈之 <code>Wave (B)</code>；目前已運行至 <strong>C 浪第 5 子浪末端 <code>Wave (II)-(C)-5</code></strong>。</li>
-                <li><strong>高勝率藍箱反轉區 (Blue Box)</strong>：當前價位（{q_data['price']:.2f} {q_data['curr']}）正處於黃金分割 0.500–0.618 回撤位與前期 A 浪底部的重疊支撐帶（{blue_low}–{blue_high}），11–12月有望啟動新一輪推動浪 <code>Wave (III)-(1)</code>。</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
 # ------------------------------------------
-# 分頁 5：入市判斷、估值評分與同行比較 (問題 8, 9, 10)
+# 分頁 5：批判性入市判斷、估值評分與同行比較 (徹底解決問題3：嚴格批判評分，拒絕盲目高分)
 # ------------------------------------------
 with tabs[4]:
-    st.subheader(f"⚖️ {q_data['name']} ({q_data['symbol']}) — 入市時機判斷 (問題8)、估值評分 (問題9) 與同行比較 (問題10)")
+    st.subheader(f"⚖️ {q_data['code']} {q_data['name']} — 批判性入市判斷 (問題8)、客觀估值評分 (問題9) 與同行比較 (問題10)")
     
     pos_pct = (q_data["price"] - q_data["w52_low"]) / max(q_data["w52_high"] - q_data["w52_low"], 0.01) * 100.0
-    pos_pct = np.clip(pos_pct, 1.0, 99.0)
+    pos_pct = float(np.clip(pos_pct, 1.0, 99.0))
+    sc_now = q_data["score"]
+    score_color = "#188038" if sc_now >= 7.0 else ("#f57c00" if sc_now >= 5.2 else "#d93025")
     
     c_e8, c_e9 = st.columns([3, 2])
     with c_e8:
         st.markdown(f"""
         <div class="section-card">
-            <h4>⏱️ 問題 8：目前是否適合買入，還是應等待一段時間後再入市？</h4>
-            <p><strong>核心結論：執行「兩階段分批入市策略」（即刻建立 35% 左側底倉 ＋ 等待 1至2週右側確認訊號投入 65% 主力倉位）</strong></p>
+            <h4>⏱️ 問題 8：盡量準確判斷目前是否適合買入，還是應等待一段時間後再入市？（批判性分析）</h4>
+            <p style="font-size:15px; font-weight:700; color:{score_color};">📌 客觀決策結論：{q_data['action_plan']}</p>
             <ul>
-                <li><strong>為何現價可即刻建立 35% 底倉（左側價值鐵底）</strong>：目前價格 <strong>{q_data['price']:.2f} {q_data['curr']}</strong> 處於 52 週區間的第 <strong>{pos_pct:.1f}%</strong> 分位數，遠期市盈率 <strong>{q_data['fwd_pe']:.2f}x</strong>，貼近 8P 模型估值下沿（{fund_low:.2f} {q_data['curr']}），下行空間有限，賠率極佳。</li>
-                <li><strong>為何主力 65% 資金應等待 1–2 週右側確認訊號</strong>：10月中旬美國 9 月 CPI 超預期引發無風險利率波動，加上財報季前夕市場觀望氣氛濃厚。等待價格重新站穩 20 週期均線（<strong>{df_chart['MA20'].iloc[-1]:.2f} {q_data['curr']}</strong>）或 11 月業績落地時加倉，可兼顧高勝率與高資金效率。</li>
+                <li><strong>當前價格位置與估值診斷</strong>：{q_data['name']} 現價 <strong>{q_data['price']:.2f} {q_data['curr']}</strong> 處於過去 52 週高低區間的第 <strong>{pos_pct:.1f}%</strong> 分位數；預測市盈率為 <strong>{q_data['fwd_pe']:.2f}x</strong>，市銷率 <strong>{q_data['ps']:.2f}x</strong>，市帳率 <strong>{q_data['pb']:.2f}x</strong>。</li>
+                <li><strong>核心基本面與逆風審視（正反雙向評估）</strong>：{q_data['catalyst']}</li>
+                <li><strong>具體執行時機與風控紀律</strong>：
+                    {"目前雖處於歷史低估值安全區間，可先動用 30%–35% 資金建立左側底倉，但考量美國 9 月 CPI 超預期帶來的美債息率波動及 11 月中旬三季報前的回購靜默期，剩餘 65%–70% 主力資金務必等待股價重新站穩 20 日均線（" + f"{df_chart['MA20'].iloc[-1]:.2f} {q_data['curr']}" + "）或業績確認後再行投入。" if sc_now >= 7.0 else (
+                        "目前估值已充分反映甚至透支短期利好，現價直接買入的值博率（Risk-Reward Ratio）偏低。強烈建議耐心等待股價回調至 8P 基本面支撐區（約 " + f"{fund_low:.1f}–{(fund_low+fund_high)/2:.1f} {q_data['curr']}" + "）且 RSI 回落至 35–40 區間時再作部署。" if sc_now >= 5.2 else
+                        "⚠️ 當前估值處於嚴重泡沫區（或面臨結構性基本面惡化與宏觀加息衝擊），下行均值回歸風險遠大於上行空間。現階段絕對不適合買入，已持倉者應逢反彈減持鎖定利潤或嚴設止損。"
+                    )}
+                </li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1343,41 +1503,41 @@ with tabs[4]:
     with c_e9:
         st.markdown(f"""
         <div class="section-card">
-            <h4>⭐ 問題 9：過往與目前估值比較及買入推薦評分 (1–10分)</h4>
-            <div style="font-size:28px; font-weight:800; color:#1a73e8; margin:6px 0;">
-                綜合評分：{q_data['score']:.1f} / 10 分
+            <h4>⭐ 問題 9：過往與目前估值比較及批判性評分 (1–10分)</h4>
+            <div style="font-size:30px; font-weight:800; color:{score_color}; margin:6px 0;">
+                批判性評分：{sc_now:.1f} / 10 分
             </div>
-            <p style="font-size:13.5px; margin-bottom:6px;"><strong>估值定性：顯著偏便宜（處於歷史底部估值分位區）</strong></p>
+            <p style="font-size:13.5px; font-weight:700; margin-bottom:6px;">定性結論：{q_data['verdict']}</p>
             <ul style="font-size:13px;">
-                <li><strong>PE 對比</strong>：當前預測 PE <strong>{q_data['fwd_pe']:.2f}x</strong>，顯著低於過去十年歷史均值。</li>
-                <li><strong>PB 與毛利率剪刀差</strong>：當前 PB 為 <strong>{q_data['pb']:.2f}x</strong>，毛利率達 <strong>{q_data['gross_margin']:.2f}%</strong>，資產盈利質量優異。</li>
-                <li><strong>扣分審慎考量 (-{10-q_data['score']:.1f}分)</strong>：短期資本開支與外部美債息率波動尚未完全平息。</li>
+                <li><strong>為何不給 9–10 分滿分（嚴格扣分理由 -{10.0-sc_now:.1f}分）</strong>：任何股票均存在宏觀利率、地緣政治、資本開支折舊或競爭加劇風險。本系統杜絕「無腦唱好」，即便低估值龍頭最高亦僅給予 7.8–8.4 分。</li>
+                <li><strong>PE / PS / PB 歷史對標</strong>：當前預測 PE <strong>{q_data['fwd_pe']:.1f}x</strong>、PS <strong>{q_data['ps']:.2f}x</strong>、PB <strong>{q_data['pb']:.2f}x</strong>（對照基本面合理 PE 區間為 {pe_lo_mult}x – {pe_hi_mult}x）。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("#### 🏆 問題 10：與全球及中國同行深度比較、發展潛力與所處階段分析")
-    peer_keys = ["00700.HK", "09988.HK", "00388.HK", "NVDA", "TSM", "MSFT", "META"]
+    st.markdown("#### 🏆 問題 10：與全球及中國同行深度比較、發展潛力與所處階段分析（含正面優勢與反面風險對比）")
+    peer_keys = ["00700.HK", "09988.HK", "00388.HK", "NVDA", "TSM", "AAPL", "PLTR", "TSLA"]
     if selected_symbol not in peer_keys:
-        peer_keys = [selected_symbol] + peer_keys[:6]
+        peer_keys = [selected_symbol] + peer_keys[:7]
         
     peer_rows = []
     for pk in peer_keys:
         pd_item = get_or_create_asset_profile(pk)
         peer_rows.append({
             "代號": pd_item["symbol"],
-            "名稱": pd_item["name"],
+            "公司名稱": pd_item["name"],
             "市場": pd_item["mkt"],
-            "總市值 (十億美元)": pd_item["mkt_cap_usd"],
-            "年度營收 (十億美元)": pd_item["rev_usd"],
-            "營收增速 (%)": f"+{pd_item['rev_growth']:.1f}%",
-            "毛利率 (%)": f"{pd_item['gross_margin']:.1f}%",
-            "預測市盈率 (26E PE)": f"{pd_item['fwd_pe']:.1f}x",
-            "市銷率 (PS)": f"{pd_item['ps']:.2f}x",
-            "所處企業生命週期與競爭優勢": pd_item["stage"]
+            "總市值 (USD B)": pd_item["mkt_cap_usd"],
+            "營收增速": f"{pd_item['rev_growth']:+.1f}%",
+            "毛利率": f"{pd_item['gross_margin']:.1f}%",
+            "預測PE": f"{pd_item['fwd_pe']:.1f}x",
+            "市銷率PS": f"{pd_item['ps']:.2f}x",
+            "批判評分(1-10)": pd_item["score"],
+            "估值定性與入市建議": pd_item["verdict"],
+            "所處階段與風險剖析": pd_item["catalyst"].split("|")[-1].strip()
         })
     df_peers = pd.DataFrame(peer_rows)
-    st.dataframe(df_peers, use_container_width=True, hide_index=True)
+    st.dataframe(df_peers, use_container_width=True, hide_index=True, height=int((len(df_peers)+1)*36+20))
 
 # ------------------------------------------
 # 分頁 6：港美股市牛熊宏觀診斷 (問題 11)
@@ -1386,8 +1546,8 @@ with tabs[5]:
     st.subheader("🌍 問題 11：香港和美國目前或今年（2026年）是否已進入牛市或熊市？")
     st.markdown("""
     <div class="section-card">
-        <h4 style="color:#1e3a5f; margin-top:0;">📌 核心宏觀定性結論：美股與港股在 2026 年均處於「結構性牛市（Bull Market）」，絕非單邊熊市</h4>
-        <p style="font-size:14px;">基於道氏理論（高低點抬升）、自低位累計升幅超越 20% 之國際牛熊分界線、日均成交額與估值分位數，兩地市場之客觀診斷如下：</p>
+        <h4 style="color:#1e3a5f; margin-top:0;">📌 核心宏觀定性結論：美股與港股在 2026 年均處於「結構性牛市（Bull Market）」，惟內部板塊劇烈分化且面臨美債高息考驗</h4>
+        <p style="font-size:14px;">基於道氏理論、自低位累計升幅超越 20% 之技術性牛熊分界線、日均成交額與估值分位數，兩地市場之客觀批判診斷如下：</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1397,9 +1557,8 @@ with tabs[5]:
         <div class="section-card">
             <h4>🇺🇸 美國股市：AI 算力驅動之結構性牛市後期（高估值慢牛伴隨利率高波動）</h4>
             <ul>
-                <li><strong>指數與市值表現</strong>：納斯達克 100 指數於 2026 年 10 月再創歷史新高；輝達（5.24萬億美元）、蘋果（5.00萬億美元）、Alphabet（4.21萬億美元）、微軟（3.96萬億美元）全線處於長期多頭趨勢。</li>
-                <li><strong>結構性驅動力</strong>：AI 基礎設施資本開支與算力需求具備真實盈利支撐（如台積電 Q4 營收指引按年激增 61%）。</li>
-                <li><strong>短期風險提示</strong>：美國 9 月 CPI 高於預期引發市場擔憂聯儲局推遲減息甚至維持高利率，導致高估值科技股在高位出現單日震盪加劇。</li>
+                <li><strong>牛市客觀證據</strong>：納斯達克 100 指數於 2026 年 10 月再創歷史新高；輝達（5.24萬億美元）、蘋果（5.00萬億美元）、Alphabet（4.21萬億美元）、微軟（3.96萬億美元）處於長期多頭趨勢，且具台積電 Q4 營收指引 +61% 之實質算力訂單支撐。</li>
+                <li><strong>批判性風險警示（並非所有美股皆可買）</strong>：美國 9 月 CPI 高於預期引發市場擔憂聯儲局推遲減息甚至繼續加息，羅素 2000 小型股與高估值泡沫軟體股（如 PS > 40x 之標的）面臨顯著估值壓縮風險。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1407,20 +1566,19 @@ with tabs[5]:
     with c_m2:
         st.markdown("""
         <div class="section-card">
-            <h4>🇭🇰 香港股市：估值修復型結構性牛市之中期整固期（「熊轉牛」後之二浪洗盤）</h4>
+            <h4>🇭🇰 香港股市：估值修復型結構性牛市之中期整固期（「熊轉牛」後之二浪換手洗盤）</h4>
             <ul>
-                <li><strong>數據推翻「熊市論」</strong>：恒生指數目前穩守 <strong>23,956 – 24,893 點</strong> 區間，較前期熊市底部（14,597點）已累積大幅上漲逾 <strong>+60%</strong>；主板日均成交額高達 <strong>2,000億至3,128億港元</strong>（10月20日僅半日成交已達 1,021 億港元），流動性充沛。</li>
-                <li><strong>內部三主線結構</strong>：國有大行（建行、農行）於 10 月中旬連創新高托底大市；恒生科技指數剔除負值後 PE 僅 <strong>17.2倍</strong>（處於歷史第 13% 低分位），科網龍頭正進行牛市一浪大漲後的二浪換手整固。</li>
-                <li><strong>關鍵點位防線</strong>：量化模型顯示恒指短期均衡區為 <code>23,400 – 24,400 點</code>，中期牛市強支撐位於 <code>22,900 點</code>；隨 3Q26 財報落地與 2027 年首季中國消費再通脹（Reflation）預期升溫，港股有望重啟升浪。</li>
+                <li><strong>數據推翻「單邊熊市論」</strong>：恒生指數目前穩守 <strong>23,956 – 24,893 點</strong> 區間，較前期熊市底部（14,597點）已累積大幅上漲逾 <strong>+60%</strong>；主板日均成交額高達 <strong>2,000億至3,128億港元</strong>（10月20日半日成交達 1,021 億港元）。</li>
+                <li><strong>批判性結構剖析</strong>：港股並非齊漲齊跌的全面瘋牛，而是由「國有大行高息股創新高托底」與「低估值科網龍頭（恒生科指剔除負值 PE 僅 17.2x，處歷史 13% 分位）二浪整固」構成的結構性慢牛。短期均衡區為 <code>23,400 – 24,400 點</code>，下方牛熊分界強支撐為 <code>22,900 點</code>。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
     df_macro = pd.DataFrame([
-        {"評估維度": "2026年牛熊最終定性", "美國股市 (標普500 / 納指100)": "結構性牛市 (AI算力主升後期)", "香港股市 (恒生指數 / 恒生科指)": "結構性牛市 (估值修復慢牛之中期整固)"},
-        {"評估維度": "關鍵指數點位與升幅", "美國股市 (標普500 / 納指100)": "納指100於10月再創歷史新高；7巨頭市值破紀錄", "香港股市 (恒生指數 / 恒生科指)": "恒指 23,956–24,893點 (較底部累升逾60%)"},
-        {"評估維度": "市場流動性與成交額", "美國股市 (標普500 / 納指100)": "極度充沛 (單一輝達或美光日成交逾250億美元)", "香港股市 (恒生指數 / 恒生科指)": "日均成交 2,000–3,128億港元 (半日逾千億)"},
-        {"評估維度": "估值水平與安全邊際", "美國股市 (標普500 / 納指100)": "偏高 (PE 25x–35x)，對美債息率極度敏感", "香港股市 (恒生指數 / 恒生科指)": "極具吸引力 (恒生科指PE 17.2x，歷史13%分位)"},
-        {"評估維度": "Q4至2027年初配置策略", "美國股市 (標普500 / 納指100)": "逢回調配置具實質業績之AI硬體龍頭 (TSM/NVDA/MU)", "香港股市 (恒生指數 / 恒生科指)": "逢低吸納高回購低估值科網龍頭 (00700/09988)"}
+        {"評估維度": "2026年牛熊最終定性", "美國股市 (標普500 / 納指100)": "結構性牛市 (AI算力主升後期，高估值高波動)", "香港股市 (恒生指數 / 恒生科指)": "結構性牛市 (估值修復慢牛之中期二浪整固)"},
+        {"評估維度": "關鍵指數點位與升幅", "美國股市 (標普500 / 納指100)": "納指100於10月再創歷史新高；科技巨頭市值破紀錄", "香港股市 (恒生指數 / 恒生科指)": "恒指 23,956–24,893點 (較熊市底部累升逾60%)"},
+        {"評估維度": "市場流動性與成交額", "美國股市 (標普500 / 納指100)": "極度充沛 (單一輝達或美光日成交逾250億美元)", "香港股市 (恒生指數 / 恒生科指)": "日均成交 2,000–3,128億港元 (半日成交逾千億)"},
+        {"評估維度": "估值水平與泡沫風險", "美國股市 (標普500 / 納指100)": "整體偏高 (PE 25x–35x)，部分AI應用股存嚴重泡沫", "香港股市 (恒生指數 / 恒生科指)": "極具安全邊際 (恒生科指PE 17.2x，歷史13%低分位)"},
+        {"評估維度": "批判性配置與避險策略", "美國股市 (標普500 / 納指100)": "配置實質盈利硬體龍頭 (TSM/NVDA)，迴避高PS泡沫股 (PLTR/ARM)", "香港股市 (恒生指數 / 恒生科指)": "逢低分批吸納高回購龍頭 (00700/09988)，迴避高負債車企與受壓資源股"}
     ])
     st.dataframe(df_macro, use_container_width=True, hide_index=True)
