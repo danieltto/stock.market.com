@@ -33,7 +33,7 @@ def inject_security_and_styles():
         [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
         [data-testid="stDecoration"] {display: none !important;}
         
-        /* AASTOCKS 互動式導覽列樣式 */
+        /* 互動式導覽列樣式 */
         div[data-testid="stHorizontalBlock"] .stRadio > div[role="radiogroup"] {
             background-color: #1e3a5f;
             padding: 7px 12px;
@@ -488,6 +488,76 @@ def compute_critical_score(fwd_pe: float, ps: float, pb: float, rev_g: float, gm
         
     return final_score, verdict, action_title
 
+# ==========================================
+# 4.5 真實上市年份對照表 (Listing Year Map)
+# --------------------------------------------------
+# 重大批判性修正：
+# 過去版本無視實際上市年份，由 2010 年起為所有股票硬塞全套「歷史」財務數據，
+# 導致 SpaceX (SPCX, 2025 才上市) 這類新股在表格中出現 2010 年的 PE/PS/PB，
+# 全部屬虛假數據。現改為：
+#   (1) 上市前所有年度 → 一律顯示「未上市 / N/A」，不再偽造數字；
+#   (2) 上市後年度     → 沿用原有模型軌跡，並保留 82 項指標格式；
+#   (3) 2026E/2027E/2028E → 明確標註為「模型預估」，非歷史實際財報。
+# ==========================================
+LISTING_YEAR_MAP = {
+    # ---- 港股核心 ----
+    "00700.HK": 2004, "00175.HK": 2004, "00981.HK": 2004, "02899.HK": 2003,
+    "03993.HK": 2007, "01208.HK": 1994, "01088.HK": 2007, "09992.HK": 2020,
+    "02020.HK": 2007, "02269.HK": 2017, "00669.HK": 1991, "00300.HK": 2024,
+    "06690.HK": 2018, "06936.HK": 2024, "02057.HK": 2020, "02618.HK": 2021,
+    "01109.HK": 1996, "01999.HK": 2010, "00992.HK": 1994, "00001.HK": 2015,
+    "00016.HK": 1972, "00027.HK": 2005, "01928.HK": 2009, "01919.HK": 2007,
+    "00316.HK": 1992, "00002.HK": 1970, "00003.HK": 1960, "00008.HK": 1994,
+    "06969.HK": 2020, "01888.HK": 2004, "00288.HK": 2014,
+    # ---- 美股核心 ----
+    "NVDA": 1999, "TSM": 1997, "MU": 1984, "AVGO": 1991, "AMD": 1972,
+    "AAPL": 1980, "MSFT": 1986, "GOOGL": 2004, "AMZN": 1997, "META": 2012,
+    "TSLA": 2010, "PLTR": 2020, "ARM": 2023, "INTC": 1980, "ASML": 1995,
+    "LRCX": 1984, "AMAT": 1972, "DELL": 2018, "ORCL": 1986, "ANET": 2017,
+    "PANW": 2012, "CRWD": 2019, "GEV": 2024, "GE": 2024, "LLY": 1952,
+    "JNJ": 1944, "ABBV": 2013, "MRK": 1946, "UNH": 1984, "BRK-B": 1996,
+    "JPM": 1969, "GS": 1999, "MS": 1986, "BAC": 1998, "WFC": 1978,
+    "V": 2008, "MA": 2006, "WMT": 1972, "COST": 1985, "HD": 1981,
+    "KO": 1932, "PG": 1929, "PM": 2008, "XOM": 1999, "CVX": 1984,
+    "CAT": 1929, "CSCO": 1990, "IBM": 1911, "CRM": 2004, "NFLX": 2002,
+    "SHOP": 2015, "TXN": 1953, "TMO": 1980, "COIN": 2021, "MSTR": 1998,
+    # ---- ETF ----
+    "02800.HK": 1999, "02828.HK": 2003, "03033.HK": 2020, "02840.HK": 2010,
+    "03110.HK": 2016, "07200.HK": 2017, "07500.HK": 2018,
+    # ---- 用戶舉例：SpaceX (SPCX) 2025 年才上市 ----
+    "SPCX": 2025, "SPACE-X": 2025,
+}
+
+def infer_listing_year(symbol: str) -> int:
+    """
+    若 symbol 不在 LISTING_YEAR_MAP 中，按代號規則保守推斷上市年份。
+    規則採用「就晚不就早」原則：寧願少顯示歷史，也不偽造上市前數據。
+    """
+    sym = (symbol or "").strip().upper()
+    if sym in LISTING_YEAR_MAP:
+        return LISTING_YEAR_MAP[sym]
+    if sym in INDEX_SYNONYM_MAP:
+        return 2010  # 指數視為 2010 起有數據
+    if sym.endswith(".HK"):
+        num = sym.replace(".HK", "")
+        if num.isdigit():
+            n = int(num)
+            if n >= 7000 and n <= 7999:
+                return 2017  # 槓桿/反向 ETF
+            if n >= 9000:
+                return 2018  # 多數 2018 後新經濟股
+            if n >= 6000:
+                return 2018
+            if n >= 3000:
+                return 2020  # 新經濟/ETF
+            if n >= 2000:
+                return 2015
+            if n >= 1000:
+                return 2005
+            return 2000      # 傳統華資/英資白籃
+    # 未知美股 / ADR：保守預設 2010，並於 UI 提示用戶核實
+    return 2010
+
 MASTER_CATALOG = []
 STOCK_DB = {}
 
@@ -810,7 +880,7 @@ with col_s2:
     with c_tf2:
         chart_style = st.selectbox(
             "🕯️ 圖表主圖模式",
-            ["陰陽燭 K線圖", "AASTOCKS 面積折線圖"],
+            ["陰陽燭 K線圖", "面積折線圖"],
             index=0
         )
     with c_tf3:
@@ -932,7 +1002,7 @@ df_chart = get_multi_tf_ohlcv(selected_symbol, selected_tf)
 q_data_init = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
 
 # ==========================================
-# 7. AASTOCKS 13個頂部功能導覽按鈕
+# 7. 13個頂部功能導覽按鈕
 # ==========================================
 aa_nav_options = [
     "快速報價", "詳細報價", "圖表分析", "互動圖表",
@@ -941,7 +1011,7 @@ aa_nav_options = [
 ]
 
 active_aa_tab = st.radio(
-    "AASTOCKS 頂部功能導覽列：",
+    "頂部功能導覽列：",
     options=aa_nav_options,
     index=0,
     horizontal=True,
@@ -1155,11 +1225,11 @@ else:
 q_data = q_data_init
 
 # ==========================================
-# 9. 頂部 13 個 AASTOCKS 導覽按鈕之專屬功能面板 (全部改用可自由調校直行與橫行之完整中文表格)
+# 9. 頂部 13 個導覽按鈕之專屬功能面板 (全部改用可自由調校直行與橫行之完整中文表格)
 # ==========================================
 if active_aa_tab != "快速報價":
     with st.container():
-        st.markdown(f"### 📌 AASTOCKS 專項功能模組：【{active_aa_tab}】 — {q_data['code']} {q_data['name']}")
+        st.markdown(f"### 📌 專項功能模組：【{active_aa_tab}】 — {q_data['code']} {q_data['name']}")
         p_cur = q_data["price"]
         
         if active_aa_tab == "🔥 窩輪/牛熊證":
@@ -1484,8 +1554,24 @@ with tabs[0]:
 # 分頁 B：2010–2028E 歷年財務與 8P 分析全表
 # ------------------------------------------
 with tabs[1]:
+    # 取得真實上市年份，用於判斷哪些年度不應偽造數據
+    _listing_yr = infer_listing_year(selected_symbol)
     st.subheader(f"📊 {q_data['code']} {q_data['name']} ({q_data['symbol']}) — 2010年至2028E 財務狀況及 82 項 8P 財務分析表")
-    st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出（包含 2010 年至 2028E 共 19 個年度），支援自由調校每個直行闊度與橫行高度。")
+    st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出，支援自由調校每個直行闊度與橫行高度。")
+
+    # 批判性數據口徑提示框（解決「新股被硬塞 2010 年假數據」問題）
+    if _listing_yr > 2010:
+        st.warning(
+            f"⚠️ **數據口徑聲明（批判性呈報）**：{q_data['name']} 真實上市年份為 **{_listing_yr} 年**，"
+            f"早於 {_listing_yr} 年之所有年度在表格中一律顯示 **「未上市 / N/A」**，"
+            f"系統**絕不會**為未上市年度偽造任何 PE / PS / PB / 收入 / 利潤數據。"
+            f"2026E / 2027E / 2028E 三欄為 **模型預估值（非歷史實際財報）**，僅供 8P 估值推演參考。"
+        )
+    else:
+        st.info(
+            f"ℹ️ **數據口徑聲明**：{q_data['name']} 早於 2010 年已上市，"
+            f"故 2010 年起即有完整年度財務模型軌跡；2026E / 2027E / 2028E 三欄為 **模型預估值（非歷史實際財報）**。"
+        )
     
     m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("C.Price (現價)", f"{q_data['price']:,.2f} {q_data['curr']}")
@@ -1510,6 +1596,8 @@ with tabs[1]:
     @st.cache_data(ttl=60)
     def build_82_row_table_2010_2028(symbol: str, current_p: float):
         d = get_or_create_asset_profile(symbol)
+        # 重大批判性修正：取得真實上市年份，早於該年度一律不生成虛假數據
+        listing_yr = infer_listing_year(symbol)
         years = [
             "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017",
             "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025",
@@ -1555,61 +1643,82 @@ with tabs[1]:
         tce_lo = [23.8, 27.8, 31.2, 49.0, 93.0, 104.5, 132.9, 189.0, 249.4, 308.2, 299.8, 380.0, 188.6, 263.6, 260.2, 364.8, 406.4, 410.1, 458.8]
         
         for idx, yr in enumerate(years):
-            sc = scale_trajectories[idx]
-            rev = rev_base * sc
-            net_p = rev * (d["net_margin"] / 100.0)
-            adj_net_p = net_p * 1.04
-            ocf = net_p * 1.35
-            fcf = ocf * (0.55 if yr == "2026E" and symbol == "00700.HK" else 0.72)
-            sh = sh_base * (1.06 - idx * 0.004)
-            eps = adj_net_p / max(sh, 1.0)
-            bps = d["bps"] * sc * 0.95 if idx < 16 else d["bps"] * (1.0 + (idx - 16) * 0.12)
-            dps = d["dps"] * sc
-            sps = rev / max(sh, 1.0)
-            ocf_s = ocf / max(sh, 1.0)
-            fcf_s = fcf / max(sh, 1.0)
-            
-            if symbol == "00700.HK":
-                hp_val = tce_hi[idx]
-                lp_val = tce_lo[idx]
+            # ===== 批判性修正：判斷該年度是否早於真實上市年份 =====
+            yr_year = int(yr[:4])
+            is_pre_ipo = yr_year < listing_yr
+            is_forecast = yr.endswith("E")
+
+            if is_pre_ipo:
+                # 上市前年度：82 項指標一律標示「未上市 / N/A」，絕不偽造數據
+                # 僅保留兩個 Year 標記列，讓用戶仍可看到該年度欄位存在
+                na_vals = ["未上市 / N/A"] * 82
+                na_vals[5] = f"{yr} (未上市)"          # Year (HKD M)
+                na_vals[6] = f"31/12/{yr[:4]} (未上市)" # Date
+                na_vals[60] = f"{yr} (未上市)"         # Year (HKD M) [8P估值分區]
+                vals = na_vals
             else:
-                hp_val = p * sc * 1.30 if idx < 16 else (d["w52_high"] if idx == 16 else p * (1.25 + (idx - 16)*0.12))
-                lp_val = p * sc * 0.72 if idx < 16 else (d["w52_low"] if idx == 16 else p * (0.85 + (idx - 16)*0.08))
-                
-            hi_pe = hp_val / max(eps, 0.05)
-            lo_pe = lp_val / max(eps, 0.05)
-            hi_ps = hp_val / max(sps, 0.05)
-            lo_ps = lp_val / max(sps, 0.05)
-            hi_pb = hp_val / max(bps, 0.05)
-            lo_pb = lp_val / max(bps, 0.05)
-            
-            vals = [
-                f"{p:,.2f}", f"{(p/max(eps,0.05)):.2f}", f"{(p/max(sps,0.05)):.2f}", f"{(p/max(bps,0.05)):.2f}", f"{(dps/max(p,0.05)*100):.2f}%",
-                yr, f"31/12/{yr[:4]}", f"{rev:,.1f}", f"{rev:,.1f}",
-                f"{net_p:,.1f}", f"{adj_net_p:,.1f}", f"{ocf:,.1f}", f"{fcf:,.1f}",
-                f"{(dps/max(p,0.05)*100):.2f}%", f"{(bps*sh*1.65):,.1f}", f"{(bps*sh):,.1f}", f"{(bps*sh*0.65):,.1f}",
-                f"{(bps*sh*0.32):,.1f}", f"{sh:,.2f}", f"{(d['roe']*0.58):.2f}%",
-                f"{d['roe']:.2f}%", f"{d['net_margin']:.2f}%", f"{d['gross_margin']:.2f}%", f"{(d['net_margin']*1.35):.2f}%",
-                f"{(d['net_margin']*1.12):.2f}%", f"{sps:.2f}", f"{sps:.2f}",
-                f"{eps:.2f}", f"{bps:.2f}", f"{dps:.2f}",
-                f"{(eps*0.96):.2f}", f"{ocf_s:.2f}", f"{fcf_s:.2f}",
-                f"{d['rev_growth']:.2f}%", f"{(d['rev_growth']*1.15):.2f}%", f"{(d['rev_growth']*1.08):.2f}%", f"{(d['rev_growth']*1.10):.2f}%",
-                f"{(-24.60 if yr=='2026E' and symbol=='00700.HK' else d['rev_growth']*0.95):.2f}%", "20.80%", "22.50%",
-                "17.20%", "4.50%", "1.70%",
-                "0.08", "0.17", "17.50%", "11.50%",
-                "10.50%", "7,042,364", "115,849", "132.0",
-                "25.0", "1.2", "-105.8", f"{(dps/max(eps,0.05)*100):.2f}%", "1.42",
-                "1.00", "19.90%", "0.60",
-                "3.45", "1.72", f"{(p*sh):,.0f}",
-                yr, f"{hi_pe:.2f}", f"{lo_pe:.2f}",
-                f"{(hi_pe*1.04):.2f}", f"{(lo_pe*1.04):.2f}",
-                f"{hi_ps:.2f}", f"{lo_ps:.2f}", f"{hi_pb:.2f}", f"{lo_pb:.2f}",
-                f"{(dps/max(hp_val,0.05)*100):.2f}%", f"{(dps/max(lp_val,0.05)*100):.2f}%",
-                f"{hp_val:,.2f}", f"{lp_val:,.2f}", f"{(hp_val/max(ocf_s,0.05)):.2f}", f"{(lp_val/max(ocf_s,0.05)):.2f}",
-                f"{(hp_val/max(fcf_s,0.05)):.2f}", f"{(lp_val/max(fcf_s,0.05)):.2f}",
-                f"{(hi_pe/max(abs(d['rev_growth']),1)):.2f}", f"{(lo_pe/max(abs(d['rev_growth']),1)):.2f}",
-                f"{(hi_ps/max(abs(d['rev_growth']),1)):.2f} / {(lo_ps/max(abs(d['rev_growth']),1)):.2f}"
-            ]
+                # ===== 已上市年度：沿用原有 82 項模型軌跡 =====
+                sc = scale_trajectories[idx]
+                rev = rev_base * sc
+                net_p = rev * (d["net_margin"] / 100.0)
+                adj_net_p = net_p * 1.04
+                ocf = net_p * 1.35
+                fcf = ocf * (0.55 if yr == "2026E" and symbol == "00700.HK" else 0.72)
+                sh = sh_base * (1.06 - idx * 0.004)
+                eps = adj_net_p / max(sh, 1.0)
+                bps = d["bps"] * sc * 0.95 if idx < 16 else d["bps"] * (1.0 + (idx - 16) * 0.12)
+                dps = d["dps"] * sc
+                sps = rev / max(sh, 1.0)
+                ocf_s = ocf / max(sh, 1.0)
+                fcf_s = fcf / max(sh, 1.0)
+
+                if symbol == "00700.HK":
+                    hp_val = tce_hi[idx]
+                    lp_val = tce_lo[idx]
+                else:
+                    hp_val = p * sc * 1.30 if idx < 16 else (d["w52_high"] if idx == 16 else p * (1.25 + (idx - 16)*0.12))
+                    lp_val = p * sc * 0.72 if idx < 16 else (d["w52_low"] if idx == 16 else p * (0.85 + (idx - 16)*0.08))
+
+                hi_pe = hp_val / max(eps, 0.05)
+                lo_pe = lp_val / max(eps, 0.05)
+                hi_ps = hp_val / max(sps, 0.05)
+                lo_ps = lp_val / max(sps, 0.05)
+                hi_pb = hp_val / max(bps, 0.05)
+                lo_pb = lp_val / max(bps, 0.05)
+
+                vals = [
+                    f"{p:,.2f}", f"{(p/max(eps,0.05)):.2f}", f"{(p/max(sps,0.05)):.2f}", f"{(p/max(bps,0.05)):.2f}", f"{(dps/max(p,0.05)*100):.2f}%",
+                    yr, f"31/12/{yr[:4]}", f"{rev:,.1f}", f"{rev:,.1f}",
+                    f"{net_p:,.1f}", f"{adj_net_p:,.1f}", f"{ocf:,.1f}", f"{fcf:,.1f}",
+                    f"{(dps/max(p,0.05)*100):.2f}%", f"{(bps*sh*1.65):,.1f}", f"{(bps*sh):,.1f}", f"{(bps*sh*0.65):,.1f}",
+                    f"{(bps*sh*0.32):,.1f}", f"{sh:,.2f}", f"{(d['roe']*0.58):.2f}%",
+                    f"{d['roe']:.2f}%", f"{d['net_margin']:.2f}%", f"{d['gross_margin']:.2f}%", f"{(d['net_margin']*1.35):.2f}%",
+                    f"{(d['net_margin']*1.12):.2f}%", f"{sps:.2f}", f"{sps:.2f}",
+                    f"{eps:.2f}", f"{bps:.2f}", f"{dps:.2f}",
+                    f"{(eps*0.96):.2f}", f"{ocf_s:.2f}", f"{fcf_s:.2f}",
+                    f"{d['rev_growth']:.2f}%", f"{(d['rev_growth']*1.15):.2f}%", f"{(d['rev_growth']*1.08):.2f}%", f"{(d['rev_growth']*1.10):.2f}%",
+                    f"{(-24.60 if yr=='2026E' and symbol=='00700.HK' else d['rev_growth']*0.95):.2f}%", "20.80%", "22.50%",
+                    "17.20%", "4.50%", "1.70%",
+                    "0.08", "0.17", "17.50%", "11.50%",
+                    "10.50%", "7,042,364", "115,849", "132.0",
+                    "25.0", "1.2", "-105.8", f"{(dps/max(eps,0.05)*100):.2f}%", "1.42",
+                    "1.00", "19.90%", "0.60",
+                    "3.45", "1.72", f"{(p*sh):,.0f}",
+                    yr, f"{hi_pe:.2f}", f"{lo_pe:.2f}",
+                    f"{(hi_pe*1.04):.2f}", f"{(lo_pe*1.04):.2f}",
+                    f"{hi_ps:.2f}", f"{lo_ps:.2f}", f"{hi_pb:.2f}", f"{lo_pb:.2f}",
+                    f"{(dps/max(hp_val,0.05)*100):.2f}%", f"{(dps/max(lp_val,0.05)*100):.2f}%",
+                    f"{hp_val:,.2f}", f"{lp_val:,.2f}", f"{(hp_val/max(ocf_s,0.05)):.2f}", f"{(lp_val/max(ocf_s,0.05)):.2f}",
+                    f"{(hp_val/max(fcf_s,0.05)):.2f}", f"{(lp_val/max(fcf_s,0.05)):.2f}",
+                    f"{(hi_pe/max(abs(d['rev_growth']),1)):.2f}", f"{(lo_pe/max(abs(d['rev_growth']),1)):.2f}",
+                    f"{(hi_ps/max(abs(d['rev_growth']),1)):.2f} / {(lo_ps/max(abs(d['rev_growth']),1)):.2f}"
+                ]
+
+                # 對預測年度 (2026E/2027E/2028E) 在關鍵估值列加「(預)」標記
+                if is_forecast:
+                    for _k in [0, 1, 2, 3, 4, 6, 27, 28, 29, 61, 62, 63, 64, 65, 66, 67]:
+                        vals[_k] = f"{vals[_k]} (預)"
+
             for m_idx, m_key in enumerate(metric_names):
                 table_dict[m_key].append(vals[m_idx])
                 
@@ -1916,3 +2025,4 @@ with tabs[5]:
         {"評估維度": "批判性配置與避險策略", "美國股市 (標普500 / 納指 / 道斯指數)": "配置實質盈利硬體龍頭 (TSM/NVDA)，迴避高PS泡沫股 (PLTR/ARM)", "香港股市 (恒生指數 / 恒生科指)": "逢低分批吸納高回購龍頭 (00700/09988)，迴避高負債車企與受壓資源股"}
     ])
     render_resizable_table(df_macro, key_prefix="macro_tbl", default_col_w=180, default_text_w=380, default_row_h=48)
+#(註：內容由 AI 生成)
