@@ -141,24 +141,23 @@ def inject_security_and_styles():
             position: sticky;
             top: 0;
             z-index: 10;
-            /* 允許滑鼠直接拖曳直行標題調校闊度 */
-            resize: horizontal;
-            overflow: hidden;
+            /* 允許滑鼠直接拖曳直行標題調校闊度與高度 */
+            resize: both;
+            overflow: auto;
             white-space: normal;
             word-break: break-word;
-            overflow-wrap: anywhere;
             line-height: 1.4;
         }
         table.custom-resizable-grid td {
             border: 1px solid #e2e8f0;
             color: #111827;
             vertical-align: top;
-            /* 關鍵修正：中文 100% 完整換行顯示，不出現捲軸或被截斷 */
-            overflow: visible;
+            /* 允許滑鼠直接拖曳任何儲存格調校橫行高度與直行闊度，並100%自動換行顯示所有中文字 */
+            resize: both;
+            overflow: auto;
             white-space: normal !important;
             word-wrap: break-word !important;
             word-break: break-word !important;
-            overflow-wrap: anywhere !important;
             line-height: 1.55;
         }
         table.custom-resizable-grid tr:nth-child(even) {
@@ -191,46 +190,48 @@ inject_security_and_styles()
 # 2. 支援「直行闊度與橫行高度自由調校」及「100%完整顯示中文」之表格渲染函數
 # ==========================================
 def render_resizable_table(df: pd.DataFrame, key_prefix: str, default_col_w: int = 125, default_text_w: int = 380, default_row_h: int = 52, max_container_h: int = 850, freeze_first_col: bool = False):
-    with st.expander("📐 表格顯示設定：調校每個「直行闊度」、「橫行高度」與「字體大小」（亦可用滑鼠直接拖曳表頭右邊框）", expanded=False):
+    with st.expander("📐 表格顯示設定：調校每個「直行闊度」、「橫行高度」與「字體大小」（亦可用滑鼠直接拖曳表格邊框）", expanded=False):
         rc1, rc2, rc3, rc4, rc5 = st.columns(5)
         col_w = rc1.slider("一般直行闊度 (px)", 70, 350, default_col_w, 5, key=f"{key_prefix}_cw")
         text_w = rc2.slider("中文長文分析欄闊度 (px)", 220, 900, default_text_w, 20, key=f"{key_prefix}_tw")
         row_h = rc3.slider("橫行高度 (px)", 28, 180, default_row_h, 4, key=f"{key_prefix}_rh")
         font_sz = rc4.slider("字體大小 (px)", 11, 20, 13, 1, key=f"{key_prefix}_fs")
-        auto_fit = rc5.checkbox("自動配合內容寬度", value=True, key=f"{key_prefix}_af", help="開啟後表格寬度自動配合內容，中文長文完整換行不截斷")
+        full_expand = rc5.checkbox("展開全表高度 (不設捲軸上限)", value=True, key=f"{key_prefix}_fe")
 
-    container_style = "" if auto_fit else f"max-height: {max_container_h}px;"
-
+    container_style = "" if full_expand else f"max-height: {max_container_h}px;"
+    
     # 建立可自由拖曳直行與橫行之 HTML 表格
-    # 關鍵修正：列寬由 th 控制，td 只設 padding 與高度，避免 min-width 衝突導致中文截斷
     html_parts = [f'<div class="resizable-table-wrapper" style="{container_style}">']
-    html_parts.append(f'<table class="custom-resizable-grid" style="font-size: {font_sz}px; table-layout: fixed;">')
-
-    # 表頭 (Headers) — 每列寬度在此統一設定
+    html_parts.append(f'<table class="custom-resizable-grid" style="font-size: {font_sz}px;">')
+    
+    # 表頭 (Headers)
     html_parts.append("<thead><tr>")
     if df.index.name:
         sticky_th = "position:sticky; left:0; z-index:12; background:#e2e8f0;" if freeze_first_col else ""
-        html_parts.append(f'<th style="width:{col_w+60}px; min-width:{col_w+60}px; max-width:{col_w+120}px; padding:8px 10px; {sticky_th}">{html.escape(str(df.index.name))}</th>')
+        html_parts.append(f'<th style="min-width:{col_w+60}px; padding:8px 10px; {sticky_th}">{html.escape(str(df.index.name))}</th>')
     for col in df.columns:
         c_str = str(col)
-        is_long_col = any(k in c_str for k in ["剖析", "分析", "催化劑", "定性", "階段", "建議", "名稱", "詳細", "內容", "備註"])
+        is_long_col = any(k in c_str for k in ["剖析", "分析", "催化劑", "定性", "階段", "建議", "名稱"])
         w_px = text_w if is_long_col else col_w
-        html_parts.append(f'<th style="width:{w_px}px; min-width:{w_px}px; max-width:{w_px+150}px; padding:8px 10px;">{html.escape(c_str)}</th>')
+        html_parts.append(f'<th style="min-width:{w_px}px; padding:8px 10px;">{html.escape(c_str)}</th>')
     html_parts.append("</tr></thead>")
-
-    # 表身 (Rows) — td 不設 min-width，由 th 控制列寬，內容自動換行
+    
+    # 表身 (Rows)
     html_parts.append("<tbody>")
     for idx_val, row in df.iterrows():
         html_parts.append(f'<tr style="height:{row_h}px;">')
         if df.index.name:
             sticky_td = "position:sticky; left:0; z-index:5; background:#f8fafc; font-weight:700;" if freeze_first_col else "font-weight:600;"
-            html_parts.append(f'<td style="padding:7px 10px; vertical-align:top; {sticky_td}">{html.escape(str(idx_val))}</td>')
+            html_parts.append(f'<td style="padding:7px 10px; {sticky_td}">{html.escape(str(idx_val))}</td>')
         for col in df.columns:
             val_str = str(row[col])
-            html_parts.append(f'<td style="padding:7px 10px; vertical-align:top; line-height:1.5;">{html.escape(val_str)}</td>')
+            c_str = str(col)
+            is_long_col = any(k in c_str for k in ["剖析", "分析", "催化劑", "定性", "階段", "建議", "名稱"])
+            w_px = text_w if is_long_col else col_w
+            html_parts.append(f'<td style="min-width:{w_px}px; height:{row_h}px; padding:7px 10px;">{html.escape(val_str)}</td>')
         html_parts.append("</tr>")
     html_parts.append("</tbody></table></div>")
-
+    
     st.markdown("".join(html_parts), unsafe_allow_html=True)
 
 # ==========================================
@@ -626,9 +627,9 @@ for row in RAW_UNIVERSE:
 # ==========================================
 # 4. 強制即時連線抓取函數 (修正問題1及問題4：確保所有股票、納指、道斯指數、標普500皆反映真實即時價格)
 # ==========================================
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=1)
 def fetch_realtime_market_tick(symbol: str):
-    """每 2 秒從 Yahoo Finance 獲取最新即時成交價；fragment 以 200ms 觸發但中間用本地 micro-tick 模擬跳動，避免 API 限流。"""
+    """每隔 1 秒從 Yahoo Finance 獲取最新即時成交價，包含指數(^IXIC, ^NDX, ^DJI, ^GSPC, ^HSI)與所有港美股"""
     try:
         tk = yf.Ticker(symbol)
         # 優先讀取毫秒級 fast_info，再讀取 1m / 1d history
@@ -816,28 +817,19 @@ def search_all_markets_fn(searchterm: str):
                 matched.append((lbl, i["symbol"]))
             
     # 3. 動態識別任意港股代號、窩輪或牛熊證
-    #    重大修正：避免與 STOCK_DB 中已存在的股票重複（例如輸入 700 時同時出現
-    #    「0700.HK 即時」與「00700.HK 騰訊控股」兩筆，造成雙重騰訊報價）
     if q_up.isdigit():
         n_v = int(q_up)
-        # 先把輸入數字正規化為港股常見格式 (1-4 位數 → 5 位數補零)
-        norm_hk = f"{n_v:05d}.HK" if n_v < 100000 else f"{n_v}.HK"
         if 11000 <= n_v <= 29999:
-            hk_sym = norm_hk
+            hk_sym = f"{n_v:05d}.HK"
             lbl = f"{n_v:05d} ({hk_sym}) | 港股窩輪 {n_v:05d} (認購/認沽證 Warrant) [窩輪]"
         elif 50000 <= n_v <= 69999:
-            hk_sym = norm_hk
+            hk_sym = f"{n_v:05d}.HK"
             lbl = f"{n_v:05d} ({hk_sym}) | 港股{'牛證' if n_v<60000 else '熊證'} {n_v:05d} (CBBC) [牛熊證]"
         else:
-            # 檢查 STOCK_DB 是否已有該正規化代號；若有則跳過動態生成，避免重複
-            hk_sym = norm_hk
-            if hk_sym in STOCK_DB:
-                # 已在 MASTER_CATALOG 匹配過，跳過避免雙重結果
-                hk_sym = None
-            else:
-                prof_tmp = get_or_create_asset_profile(hk_sym)
-                lbl = f"{hk_sym.replace('.HK','')} ({hk_sym}) | {prof_tmp['name']} — {prof_tmp['en']} [港股即時]"
-        if hk_sym and hk_sym not in [m[1] for m in matched]:
+            hk_sym = f"{n_v:04d}.HK" if n_v < 10000 else f"{n_v:05d}.HK"
+            prof_tmp = get_or_create_asset_profile(hk_sym)
+            lbl = f"{hk_sym.replace('.HK','')} ({hk_sym}) | {prof_tmp['name']} — {prof_tmp['en']} [港股即時]"
+        if hk_sym not in [m[1] for m in matched]:
             matched.insert(0, (lbl, hk_sym))
             
     # 4. Yahoo Search 全市場即時補齊
@@ -1028,130 +1020,12 @@ active_aa_tab = st.radio(
 )
 
 # ==========================================
-# 8. 支援「200ms 即時更新」之快速報價與動態指標主圖表
-#    重大架構修正：
-#    (a) 圖表 figure 在 fragment 外只構建一次，避免每 1 秒整圖閃爍；
-#    (b) fragment 以 200ms 觸發，只更新左欄價格數字、升跌%、40 檔買賣盤；
-#    (c) yfinance 真實行情每 2 秒才調用一次，中間用本地 micro-tick 模擬跳動。
+# 8. 支援「1秒即時更新」之快速報價與動態指標主圖表 (修正問題1、問題4及問題5)
 # ==========================================
-def build_static_chart_figure():
-    """構建 K 線圖 figure（只在 symbol/tf/indicators 改變時呼叫，不進入 fragment）"""
-    show_vol = "Volume (成交量)" in active_indicators
-    show_rsi = "RSI (相對強弱指標)" in active_indicators
-    show_macd = "MACD (指數平滑異同移動平均線)" in active_indicators
-    show_ma = "MA (移動平均線 MA10/20/50)" in active_indicators
-    show_bb = "Bollinger (布林通道上下軌)" in active_indicators
-
-    sub_panels = []
-    if show_vol: sub_panels.append("VOL")
-    if show_rsi: sub_panels.append("RSI")
-    if show_macd: sub_panels.append("MACD")
-
-    total_rows = 1 + len(sub_panels)
-    if total_rows == 1: r_heights = [1.0]
-    elif total_rows == 2: r_heights = [0.72, 0.28]
-    elif total_rows == 3: r_heights = [0.56, 0.22, 0.22]
-    else: r_heights = [0.46, 0.18, 0.18, 0.18]
-
-    fig_k = make_subplots(rows=total_rows, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=r_heights)
-    x_labels = df_chart.index.strftime("%Y-%m-%d %H:%M") if "小時" in selected_tf else df_chart.index.strftime("%Y-%m-%d")
-
-    if "陰陽燭" in chart_style:
-        fig_k.add_trace(go.Candlestick(
-            x=x_labels, open=df_chart["Open"], high=df_chart["High"],
-            low=df_chart["Low"], close=df_chart["Close"], name="K線",
-            increasing_line_color="#188038", decreasing_line_color="#d93025"
-        ), row=1, col=1)
-    else:
-        fig_k.add_trace(go.Scatter(
-            x=x_labels, y=df_chart["Close"], mode="lines", name="收市價",
-            line=dict(color="#1a5fb4", width=2.2),
-            fill="tozeroy", fillcolor="rgba(26,95,180,0.10)"
-        ), row=1, col=1)
-
-    if show_ma:
-        fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MA10"], mode="lines", name="MA10", line=dict(color="#9c27b0", width=1.2)), row=1, col=1)
-        fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MA20"], mode="lines", name="MA20", line=dict(color="#1a73e8", width=1.5)), row=1, col=1)
-        fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MA50"], mode="lines", name="MA50", line=dict(color="#fa903e", width=1.5, dash="dot")), row=1, col=1)
-    if show_bb:
-        fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["BB_Upper"], mode="lines", name="BB上軌", line=dict(color="#888888", width=1, dash="dash")), row=1, col=1)
-        fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["BB_Lower"], mode="lines", name="BB下軌", line=dict(color="#888888", width=1, dash="dash")), row=1, col=1)
-
-    curr_row = 2
-    for p_type in sub_panels:
-        if p_type == "VOL":
-            vol_colors = ["#188038" if c >= o else "#d93025" for c, o in zip(df_chart["Close"], df_chart["Open"])]
-            fig_k.add_trace(go.Bar(x=x_labels, y=df_chart["Volume"], name="Volume(成交量)", marker_color=vol_colors, opacity=0.75), row=curr_row, col=1)
-            fig_k.update_yaxes(title_text="Vol", side="right", gridcolor="#f0f0f0", showticklabels=False, row=curr_row, col=1)
-        elif p_type == "RSI":
-            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["RSI14"], mode="lines", name="RSI(14)", line=dict(color="#8e24aa", width=1.8)), row=curr_row, col=1)
-            fig_k.add_hline(y=70, line_dash="dot", line_color="#d93025", row=curr_row, col=1)
-            fig_k.add_hline(y=30, line_dash="dot", line_color="#188038", row=curr_row, col=1)
-            fig_k.update_yaxes(title_text="RSI", side="right", range=[0, 100], gridcolor="#f0f0f0", row=curr_row, col=1)
-        elif p_type == "MACD":
-            m_colors = ["#188038" if v >= 0 else "#d93025" for v in df_chart["Hist"]]
-            fig_k.add_trace(go.Bar(x=x_labels, y=df_chart["Hist"], name="MACD柱", marker_color=m_colors), row=curr_row, col=1)
-            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MACD"], mode="lines", name="DIF", line=dict(color="#1a73e8", width=1.4)), row=curr_row, col=1)
-            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["Signal"], mode="lines", name="DEA", line=dict(color="#fa903e", width=1.4)), row=curr_row, col=1)
-            fig_k.update_yaxes(title_text="MACD", side="right", gridcolor="#f0f0f0", row=curr_row, col=1)
-        curr_row += 1
-
-    chart_h = 330 + (len(sub_panels) * 75)
-    fig_k.update_layout(
-        title=dict(text=f"{q_data_init['code']} {q_data_init['name']} — {selected_tf} | 高: {df_chart['High'].max():,.2f} 低: {df_chart['Low'].min():,.2f} | RSI: {df_chart['RSI14'].iloc[-1]:.1f}",
-                   font=dict(size=13, color="#111111")),
-        height=chart_h, margin=dict(l=10, r=50, t=32, b=15),
-        xaxis_rangeslider_visible=False,
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1, font=dict(size=10.5)),
-        paper_bgcolor="#ffffff", plot_bgcolor="#ffffff"
-    )
-    fig_k.update_yaxes(side="right", gridcolor="#f0f0f0", row=1, col=1)
-    fig_k.update_xaxes(gridcolor="#f0f0f0", nticks=8)
-    return fig_k
-
-# 靜態圖表在 fragment 外只渲染一次（消除每 1 秒整圖閃爍）
-col_quote, col_chart = st.columns([4.8, 6.2])
-with col_chart:
-    st.plotly_chart(build_static_chart_figure(), use_container_width=True, key="main_kline_static", config={"displayModeBar": True, "responsive": True})
-
-def render_orderbook_40_levels(live_q):
-    """渲染 40 檔即時買賣盤金額與手數（港股/美股適用）"""
-    p = live_q["price"]
-    curr = live_q["curr"]
-    # 每檔價差依股價階梯
-    if p >= 200: tick = 0.20
-    elif p >= 50: tick = 0.05
-    elif p >= 10: tick = 0.02
-    else: tick = 0.01
-    lot_size = live_q.get("lot", 100)
-    rows = []
-    for i in range(1, 41):
-        bid_p = p - i * tick
-        ask_p = p + i * tick
-        # 模擬流通盤深度：愈深檔位手數愈少
-        bid_lots = max(int(8000 / (i ** 1.15)), 20)
-        ask_lots = max(int(6500 / (i ** 1.12)), 15)
-        bid_shares = bid_lots * lot_size
-        ask_shares = ask_lots * lot_size
-        bid_val = bid_shares * bid_p
-        ask_val = ask_shares * ask_p
-        rows.append({
-            "檔位": f"{i:02d}",
-            "買入價": f"{bid_p:,.3f}",
-            "買入手數": f"{bid_lots:,} 手",
-            "買入金額": f"{bid_val/1e6:,.2f} 萬 {curr}",
-            "賣出價": f"{ask_p:,.3f}",
-            "賣出手數": f"{ask_lots:,} 手",
-            "賣出金額": f"{ask_val/1e6:,.2f} 萬 {curr}",
-        })
-    df_ob = pd.DataFrame(rows)
-    st.markdown(f"##### 📊 即時 40 檔買賣盤深度（每手 {lot_size:,} 股 | 最小價差 {tick} {curr}）")
-    render_resizable_table(df_ob, key_prefix="orderbook_40", default_col_w=110, default_text_w=140, default_row_h=30)
-
-@st.fragment(run_every=0.2)
-def live_200ms_fragment():
-    """200ms 局部刷新：只更新價格數字、升跌%、40 檔買賣盤；圖表已在 fragment 外渲染不重繪。"""
+def render_live_quote_and_chart_section():
     live_q = get_or_create_asset_profile(selected_symbol, apply_micro_tick=enable_1s_live)
+    
+    # 同步抓取四大核心指數之即時點位顯示於橫幅
     hsi_q = get_or_create_asset_profile("^HSI", apply_micro_tick=False)
     spx_q = get_or_create_asset_profile("^GSPC", apply_micro_tick=False)
     ndx_q = get_or_create_asset_profile("^IXIC", apply_micro_tick=False)
@@ -1174,7 +1048,7 @@ def live_200ms_fragment():
             &nbsp;<span class="tag-badge">{live_q['mkt']}</span>
         </div>
         <div style="font-size:13px; font-weight:600;">
-            <span class="live-pulse"></span>即時刷新頻率：<strong>{"0.2 秒 (200ms 極速串流)" if enable_1s_live else "靜態模式"}</strong>
+            <span class="live-pulse"></span>即時刷新頻率：<strong>{"1.0 秒 (1000ms 極速串流)" if enable_1s_live else "靜態模式"}</strong>
             &nbsp;|&nbsp; 批判性評分：<span style="color:#1a73e8; font-size:15px;">{live_q['score']:.1f} / 10 分</span>
         </div>
     </div>
@@ -1194,6 +1068,8 @@ def live_200ms_fragment():
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    col_quote, col_chart = st.columns([4.8, 6.2])
 
     with col_quote:
         st.markdown(f"""
@@ -1230,21 +1106,121 @@ def live_200ms_fragment():
                     <td class="aa-label">每手單位</td><td class="aa-val">{live_q['lot']}</td>
                     <td class="aa-label">收益率 / 52週波幅</td><td class="aa-val">{live_q['yield']:.2f}% | {live_q['w52_low']:,.1f} - {live_q['w52_high']:,.1f}</td>
                 </tr>
+                <tr>
+                    <td class="aa-label">RSI(14) 指標</td><td class="aa-val">{df_chart['RSI14'].iloc[-1]:.2f}</td>
+                    <td class="aa-label">MACD (DIF / DEA)</td><td class="aa-val">{df_chart['MACD'].iloc[-1]:.2f} / {df_chart['Signal'].iloc[-1]:.2f}</td>
+                </tr>
             </table>
             <div style="font-size:11.5px; color:#188038; font-weight:700; margin-top:8px; padding-top:6px; border-top:1px dashed #e0e0e0;">
                 ⏱️ 毫秒級即時更新時間: {live_q['update_time']} | {live_q['adr_info']}
             </div>
         </div>
         """, unsafe_allow_html=True)
-        # 40 檔買賣盤深度表（問題1新增）
-        render_orderbook_40_levels(live_q)
 
+    with col_chart:
+        # 根據使用者開啟的輔助按鈕 (Volume, RSI, MACD) 動態決定子圖數量與高度比例
+        show_vol = "Volume (成交量)" in active_indicators
+        show_rsi = "RSI (相對強弱指標)" in active_indicators
+        show_macd = "MACD (指數平滑異同移動平均線)" in active_indicators
+        show_ma = "MA (移動平均線 MA10/20/50)" in active_indicators
+        show_bb = "Bollinger (布林通道上下軌)" in active_indicators
+
+        sub_panels = []
+        if show_vol:
+            sub_panels.append("VOL")
+        if show_rsi:
+            sub_panels.append("RSI")
+        if show_macd:
+            sub_panels.append("MACD")
+
+        total_rows = 1 + len(sub_panels)
+        if total_rows == 1:
+            r_heights = [1.0]
+        elif total_rows == 2:
+            r_heights = [0.72, 0.28]
+        elif total_rows == 3:
+            r_heights = [0.56, 0.22, 0.22]
+        else:
+            r_heights = [0.46, 0.18, 0.18, 0.18]
+
+        fig_k = make_subplots(
+            rows=total_rows, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+            row_heights=r_heights
+        )
+        x_labels = df_chart.index.strftime("%Y-%m-%d %H:%M") if "小時" in selected_tf else df_chart.index.strftime("%Y-%m-%d")
+        
+        # 將最後一根 K 線收市價同步為最新即時價
+        close_series = df_chart["Close"].copy()
+        close_series.iloc[-1] = live_q["price"]
+
+        if "陰陽燭" in chart_style:
+            fig_k.add_trace(go.Candlestick(
+                x=x_labels, open=df_chart["Open"], high=df_chart["High"],
+                low=df_chart["Low"], close=close_series, name="K線",
+                increasing_line_color="#188038", decreasing_line_color="#d93025"
+            ), row=1, col=1)
+        else:
+            fig_k.add_trace(go.Scatter(
+                x=x_labels, y=close_series, mode="lines", name="即時收市價",
+                line=dict(color="#1a5fb4", width=2.2),
+                fill="tozeroy", fillcolor="rgba(26,95,180,0.10)"
+            ), row=1, col=1)
+
+        if show_ma:
+            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MA10"], mode="lines", name="MA10", line=dict(color="#9c27b0", width=1.2)), row=1, col=1)
+            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MA20"], mode="lines", name="MA20", line=dict(color="#1a73e8", width=1.5)), row=1, col=1)
+            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MA50"], mode="lines", name="MA50", line=dict(color="#fa903e", width=1.5, dash="dot")), row=1, col=1)
+
+        if show_bb:
+            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["BB_Upper"], mode="lines", name="BB上軌", line=dict(color="#888888", width=1, dash="dash")), row=1, col=1)
+            fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["BB_Lower"], mode="lines", name="BB下軌", line=dict(color="#888888", width=1, dash="dash")), row=1, col=1)
+
+        curr_row = 2
+        for p_type in sub_panels:
+            if p_type == "VOL":
+                vol_colors = ["#188038" if c >= o else "#d93025" for c, o in zip(close_series, df_chart["Open"])]
+                fig_k.add_trace(go.Bar(
+                    x=x_labels, y=df_chart["Volume"], name="Volume(成交量)", marker_color=vol_colors, opacity=0.75
+                ), row=curr_row, col=1)
+                fig_k.update_yaxes(title_text="Vol", side="right", gridcolor="#f0f0f0", showticklabels=False, row=curr_row, col=1)
+            elif p_type == "RSI":
+                fig_k.add_trace(go.Scatter(
+                    x=x_labels, y=df_chart["RSI14"], mode="lines", name="RSI(14)", line=dict(color="#8e24aa", width=1.8)
+                ), row=curr_row, col=1)
+                fig_k.add_hline(y=70, line_dash="dot", line_color="#d93025", row=curr_row, col=1)
+                fig_k.add_hline(y=30, line_dash="dot", line_color="#188038", row=curr_row, col=1)
+                fig_k.update_yaxes(title_text="RSI", side="right", range=[0, 100], gridcolor="#f0f0f0", row=curr_row, col=1)
+            elif p_type == "MACD":
+                m_colors = ["#188038" if v >= 0 else "#d93025" for v in df_chart["Hist"]]
+                fig_k.add_trace(go.Bar(x=x_labels, y=df_chart["Hist"], name="MACD柱", marker_color=m_colors), row=curr_row, col=1)
+                fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["MACD"], mode="lines", name="DIF", line=dict(color="#1a73e8", width=1.4)), row=curr_row, col=1)
+                fig_k.add_trace(go.Scatter(x=x_labels, y=df_chart["Signal"], mode="lines", name="DEA", line=dict(color="#fa903e", width=1.4)), row=curr_row, col=1)
+                fig_k.update_yaxes(title_text="MACD", side="right", gridcolor="#f0f0f0", row=curr_row, col=1)
+            curr_row += 1
+
+        chart_h = 330 + (len(sub_panels) * 75)
+        fig_k.update_layout(
+            title=dict(
+                text=f"{live_q['code']} {live_q['name']} — {selected_tf} | 高: {df_chart['High'].max():,.2f} 低: {df_chart['Low'].min():,.2f} | RSI: {df_chart['RSI14'].iloc[-1]:.1f}",
+                font=dict(size=13, color="#111111")
+            ),
+            height=chart_h, margin=dict(l=10, r=50, t=32, b=15),
+            xaxis_rangeslider_visible=False,
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1, font=dict(size=10.5)),
+            paper_bgcolor="#ffffff", plot_bgcolor="#ffffff"
+        )
+        fig_k.update_yaxes(side="right", gridcolor="#f0f0f0", row=1, col=1)
+        fig_k.update_xaxes(gridcolor="#f0f0f0", nticks=8)
+        st.plotly_chart(fig_k, use_container_width=True)
+
+# 若支援 st.fragment 且開啟 1 秒即時更新，則以 1.0 秒週期局部刷新報價看板
 if hasattr(st, "fragment") and enable_1s_live:
-    live_200ms_fragment()
+    @st.fragment(run_every=1.0)
+    def live_1s_fragment():
+        render_live_quote_and_chart_section()
+    live_1s_fragment()
 else:
-    live_q_static = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
-    # 靜態模式也渲染一次報價
-    st.markdown(f"**{live_q_static['code']} {live_q_static['name']}** — 即時現價 {live_q_static['price']:,.3f} {live_q_static['curr']} ({live_q_static['pct']:+.2f}%)")
+    render_live_quote_and_chart_section()
 
 q_data = q_data_init
 
