@@ -8,6 +8,8 @@ from plotly.subplots import make_subplots
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import html
+import io
+import urllib.request
 
 try:
     from streamlit_searchbox import st_searchbox
@@ -29,11 +31,11 @@ if "theme_mode" not in st.session_state:
     st.session_state["theme_mode"] = "light"
 
 def apply_theme(theme_mode: str):
-    """注入 JS 將主題 class 加到 document.body，並同步 Plotly 圖表配色"""
+    """注入 JS 將主題 class 加到頂層 document.body（components.html 跑在 iframe，須用 window.parent.document）。"""
     class_map = {"light": "theme-light", "darkblue": "theme-darkblue", "dark": "theme-dark"}
     cls = class_map.get(theme_mode, "theme-light")
     components.html(
-        f"<script>document.body.classList.remove('theme-light','theme-darkblue','theme-dark');document.body.classList.add('{cls}');</script>",
+        f"<script>try{{var d=window.parent.document; d.body.classList.remove('theme-light','theme-darkblue','theme-dark'); d.body.classList.add('{cls}');}}catch(e){{}}</script>",
         height=0, width=0
     )
 
@@ -211,200 +213,212 @@ def inject_security_and_styles():
             background-color: #eef2ff;
         }
 
-        /* ===== 40 檔買賣盤純 HTML 表格樣式（fragment 內使用，不帶 widget）===== */
-        .orderbook-html-box {
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            margin-top: 10px;
-            overflow: hidden;
-            background: #ffffff;
+        /* ============================================================
+           v7 全畫面主題系統（白色 / 深藍 / 黑色）
+           機制：body 加上 theme-darkblue / theme-dark class，並用 CSS 變數
+           統一覆蓋所有 Streamlit 容器、widget、表格、自訂卡片，確保「整個畫面」變色。
+           ============================================================ */
+        body.theme-darkblue {
+            --bg:#0b1a3a; --bg2:#0d2047; --panel:#13285a; --panel2:#0f224a;
+            --border:#2a4480; --text:#e9effd; --muted:#a7b9dd; --accent:#86b4ff; --th:#1d3a73;
         }
-        .orderbook-title {
-            background: #1e3a5f;
-            color: #ffffff;
-            font-weight: 700;
-            font-size: 12.5px;
-            padding: 8px 12px;
+        body.theme-dark {
+            --bg:#0a0a0a; --bg2:#0f0f0f; --panel:#171717; --panel2:#131313;
+            --border:#2d2d2d; --text:#ededed; --muted:#a8a8a8; --accent:#82c5ff; --th:#222222;
         }
-        table.orderbook-html-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11.5px;
-            table-layout: fixed;
-        }
-        table.orderbook-html-table th {
-            background: #e2e8f0;
-            color: #1e293b;
-            padding: 5px 4px;
-            border: 1px solid #cbd5e1;
-            text-align: center;
-            font-weight: 700;
-            position: sticky;
-            top: 0;
-        }
-        table.orderbook-html-table td {
-            padding: 4px 4px;
-            border: 1px solid #e2e8f0;
-            text-align: center;
-            white-space: nowrap;
-        }
-        table.orderbook-html-table td.ob-lvl {
-            font-weight: 700;
-            background: #f1f5f9;
-            color: #334155;
-        }
-        table.orderbook-html-table td.ob-bid {
-            color: #188038;
-            font-weight: 600;
-        }
-        table.orderbook-html-table td.ob-ask {
-            color: #d93025;
-            font-weight: 600;
-        }
-        table.orderbook-html-table tbody tr:nth-child(even) {
-            background: #f8fafc;
-        }
-        .orderbook-l2-note {
-            font-size: 11.5px; color: #8a5a00; background: #fff7e6;
-            border: 1px solid #ffd591; border-radius: 6px; padding: 6px 9px;
-            margin: 6px 0 8px; line-height: 1.5; font-weight: 600;
-        }
-        table.orderbook-html-table td.ob-na {
-            color: #9aa3b2; font-size: 11.5px; text-align: center;
-            font-style: italic; letter-spacing: 0.3px;
-        }
-        table.orderbook-html-table tr.ob-na-row { color: #b8bfcc; }
-        .theme-darkblue .orderbook-l2-note, .theme-dark .orderbook-l2-note {
-            background: #3a2f10; color: #ffd591; border-color: #8a6d3b;
-        }
-        .theme-darkblue table.orderbook-html-table td.ob-na,
-        .theme-dark table.orderbook-html-table td.ob-na { color: #6b7689; }
+        body.theme-darkblue, body.theme-dark { background: var(--bg) !important; }
 
-        /* ===== 深色主題：深藍（darkblue）===== */
-        .theme-darkblue .stApp {
-            background: #0b1a3a !important;
-            color: #e8eefc !important;
-        }
-        .theme-darkblue .stMarkdown, .theme-darkblue .stText, .theme-darkblue label,
-        .theme-darkblue .stSelectbox label, .theme-darkblue .stToggle label,
-        .theme-darkblue .stMultiSelect label, .theme-darkblue .stRadio label,
-        .theme-darkblue .stSlider label, .theme-darkblue .stMetric, .theme-darkblue .stMetric label {
-            color: #e8eefc !important;
-        }
-        .theme-darkblue .stSelectbox > div > div, .theme-darkblue .stMultiSelect > div > div,
-        .theme-darkblue .stTextInput > div > div > input {
-            background: #142a55 !important;
-            color: #ffffff !important;
-            border-color: #2a4580 !important;
-        }
-        .theme-darkblue .stExpander {
-            background: #142a55 !important;
-            border: 1px solid #2a4580 !important;
-            color: #e8eefc !important;
-        }
-        .theme-darkblue .resizable-table-wrapper,
-        .theme-darkblue .orderbook-html-box {
-            background: #142a55 !important;
-            border-color: #2a4580 !important;
-        }
-        .theme-darkblue table.custom-resizable-grid th,
-        .theme-darkblue table.orderbook-html-table th {
-            background: #1e3a6e !important;
-            color: #ffffff !important;
-            border-color: #2a4580 !important;
-        }
-        .theme-darkblue table.custom-resizable-grid td,
-        .theme-darkblue table.orderbook-html-table td {
-            color: #dce5f8 !important;
-            border-color: #243a66 !important;
-        }
-        .theme-darkblue table.custom-resizable-grid tr:nth-child(even),
-        .theme-darkblue table.orderbook-html-table tbody tr:nth-child(even) {
-            background: #10224a !important;
-        }
-        .theme-darkblue table.orderbook-html-table td.ob-lvl {
-            background: #1e3a6e !important;
-            color: #9fc0ff !important;
-        }
-        .theme-darkblue .orderbook-title {
-            background: #1e3a6e !important;
-        }
-        .theme-darkblue .stMetricValue, .theme-darkblue .stMetricLabel {
-            color: #e8eefc !important;
-        }
-        .theme-darkblue .stTabs [data-baseweb="tab-list"] {
-            background: #142a55;
-        }
-        .theme-darkblue .stTabs [data-baseweb="tab"] {
-            color: #9fc0ff !important;
-        }
-        .theme-darkblue .stTabs [aria-selected="true"] {
-            background: #1e3a6e !important;
-            color: #ffffff !important;
+        /* 頂層容器全覆蓋（含主內容區、側邊欄、Header、區塊）*/
+        body.theme-darkblue .stApp, body.theme-dark .stApp,
+        body.theme-darkblue [data-testid="stAppViewContainer"], body.theme-dark [data-testid="stAppViewContainer"],
+        body.theme-darkblue [data-testid="stMainBlockContainer"], body.theme-dark [data-testid="stMainBlockContainer"],
+        body.theme-darkblue [data-testid="stMain"], body.theme-dark [data-testid="stMain"],
+        body.theme-darkblue section.main, body.theme-dark section.main,
+        body.theme-darkblue [data-testid="stSidebar"], body.theme-dark [data-testid="stSidebar"],
+        body.theme-darkblue [data-testid="stSidebarContent"], body.theme-dark [data-testid="stSidebarContent"],
+        body.theme-darkblue [data-testid="stSidebarUserContent"], body.theme-dark [data-testid="stSidebarUserContent"],
+        body.theme-darkblue [data-testid="stHeader"], body.theme-dark [data-testid="stHeader"],
+        body.theme-darkblue [data-testid="stToolbar"], body.theme-dark [data-testid="stToolbar"],
+        body.theme-darkblue [data-testid="stVerticalBlock"], body.theme-dark [data-testid="stVerticalBlock"],
+        body.theme-darkblue [data-testid="stHorizontalBlock"], body.theme-dark [data-testid="stHorizontalBlock"],
+        body.theme-darkblue [data-testid="stElementContainer"], body.theme-dark [data-testid="stElementContainer"],
+        body.theme-darkblue .stBlock, body.theme-dark .stBlock {
+            background-color: var(--bg) !important;
+            color: var(--text) !important;
+            border-color: var(--border) !important;
         }
 
-        /* ===== 深色主題：純黑（dark）===== */
-        .theme-dark .stApp {
-            background: #0a0a0a !important;
-            color: #e8e8e8 !important;
+        /* 所有文字 */
+        body.theme-darkblue p, body.theme-dark p,
+        body.theme-darkblue li, body.theme-dark li,
+        body.theme-darkblue h1, body.theme-dark h1,
+        body.theme-darkblue h2, body.theme-dark h2,
+        body.theme-darkblue h3, body.theme-dark h3,
+        body.theme-darkblue h4, body.theme-dark h4,
+        body.theme-darkblue h5, body.theme-dark h5,
+        body.theme-darkblue h6, body.theme-dark h6,
+        body.theme-darkblue label, body.theme-dark label,
+        body.theme-darkblue .stMarkdown, body.theme-dark .stMarkdown,
+        body.theme-darkblue .stText, body.theme-dark .stText,
+        body.theme-darkblue .stCaption, body.theme-dark .stCaption,
+        body.theme-darkblue [data-testid="stWidgetLabel"], body.theme-dark [data-testid="stWidgetLabel"],
+        body.theme-darkblue .stMetric, body.theme-dark .stMetric,
+        body.theme-darkblue .stMetricValue, body.theme-dark .stMetricValue,
+        body.theme-darkblue .stMetricLabel, body.theme-dark .stMetricLabel,
+        body.theme-darkblue .stMetricDirection, body.theme-dark .stMetricDirection,
+        body.theme-darkblue small, body.theme-dark small {
+            color: var(--text) !important;
         }
-        .theme-dark .stMarkdown, .theme-dark .stText, .theme-dark label,
-        .theme-dark .stSelectbox label, .theme-dark .stToggle label,
-        .theme-dark .stMultiSelect label, .theme-dark .stRadio label,
-        .theme-dark .stSlider label, .theme-dark .stMetric, .theme-dark .stMetric label {
-            color: #e8e8e8 !important;
+        body.theme-darkblue .stCaption, body.theme-dark .stCaption { color: var(--muted) !important; }
+
+        /* 漲跌色保留（深色用較亮的綠/紅，避免與背景相撞）*/
+        body.theme-darkblue .aa-price-up, body.theme-dark .aa-price-up { color:#26a69a !important; }
+        body.theme-darkblue .aa-price-down, body.theme-dark .aa-price-down { color:#ef5350 !important; }
+
+        /* 輸入控件：selectbox / multiselect / text / number input */
+        body.theme-darkblue [data-baseweb="select"] > div, body.theme-dark [data-baseweb="select"] > div,
+        body.theme-darkblue [data-baseweb="input"], body.theme-dark [data-baseweb="input"],
+        body.theme-darkblue [data-baseweb="base-input"], body.theme-dark [data-baseweb="base-input"],
+        body.theme-darkblue input, body.theme-dark input,
+        body.theme-darkblue textarea, body.theme-dark textarea {
+            background-color: var(--panel) !important;
+            color: var(--text) !important;
+            border-color: var(--border) !important;
         }
-        .theme-dark .stSelectbox > div > div, .theme-dark .stMultiSelect > div > div,
-        .theme-dark .stTextInput > div > div > input {
-            background: #1a1a1a !important;
-            color: #ffffff !important;
-            border-color: #333333 !important;
+        body.theme-darkblue [data-baseweb="select"] span, body.theme-dark [data-baseweb="select"] span,
+        body.theme-darkblue [data-baseweb="select"] input, body.theme-dark [data-baseweb="select"] input,
+        body.theme-darkblue [data-baseweb="input"] input, body.theme-dark [data-baseweb="input"] input {
+            color: var(--text) !important;
         }
-        .theme-dark .stExpander {
-            background: #1a1a1a !important;
-            border: 1px solid #333333 !important;
-            color: #e8e8e8 !important;
+        body.theme-darkblue [data-baseweb="tag"], body.theme-dark [data-baseweb="tag"] {
+            background-color: var(--th) !important; color: var(--text) !important;
         }
-        .theme-dark .resizable-table-wrapper,
-        .theme-dark .orderbook-html-box {
-            background: #1a1a1a !important;
-            border-color: #333333 !important;
+        /* 下拉彈層（baseweb portal 掛在 body 下）*/
+        body.theme-darkblue [data-baseweb="menu"], body.theme-dark [data-baseweb="menu"],
+        body.theme-darkblue ul[role="listbox"], body.theme-dark ul[role="listbox"],
+        body.theme-darkblue [data-baseweb="popover"], body.theme-dark [data-baseweb="popover"] {
+            background-color: var(--panel) !important; border:1px solid var(--border) !important;
         }
-        .theme-dark table.custom-resizable-grid th,
-        .theme-dark table.orderbook-html-table th {
-            background: #222222 !important;
-            color: #ffffff !important;
-            border-color: #3a3a3a !important;
+        body.theme-darkblue li[role="option"], body.theme-dark li[role="option"],
+        body.theme-darkblue [role="option"], body.theme-dark [role="option"] {
+            background-color: var(--panel) !important; color: var(--text) !important;
         }
-        .theme-dark table.custom-resizable-grid td,
-        .theme-dark table.orderbook-html-table td {
-            color: #dcdcdc !important;
-            border-color: #2a2a2a !important;
+        body.theme-darkblue li[role="option"]:hover, body.theme-dark li[role="option"]:hover,
+        body.theme-darkblue [role="option"][aria-selected="true"], body.theme-dark [role="option"][aria-selected="true"] {
+            background-color: var(--th) !important;
         }
-        .theme-dark table.custom-resizable-grid tr:nth-child(even),
-        .theme-dark table.orderbook-html-table tbody tr:nth-child(even) {
-            background: #141414 !important;
+
+        /* 按鈕 */
+        body.theme-darkblue .stButton > button, body.theme-dark .stButton > button,
+        body.theme-darkblue .stDownloadButton > button, body.theme-dark .stDownloadButton > button {
+            background-color: var(--panel) !important; color: var(--text) !important;
+            border:1px solid var(--border) !important;
         }
-        .theme-dark table.orderbook-html-table td.ob-lvl {
-            background: #222222 !important;
-            color: #90caf9 !important;
+        body.theme-darkblue .stButton > button:hover, body.theme-dark .stButton > button:hover {
+            background-color: var(--th) !important; border-color: var(--accent) !important;
         }
-        .theme-dark .orderbook-title {
-            background: #222222 !important;
+
+        /* 核取方塊 / 單選 / 滑桿 */
+        body.theme-darkblue [data-baseweb="checkbox"], body.theme-dark [data-baseweb="checkbox"],
+        body.theme-darkblue [data-baseweb="radio"], body.theme-dark [data-baseweb="radio"] {
+            color: var(--text) !important;
         }
-        .theme-dark .stMetricValue, .theme-dark .stMetricLabel {
-            color: #e8e8e8 !important;
+        body.theme-darkblue [data-testid="stTickBarMin"], body.theme-dark [data-testid="stTickBarMin"],
+        body.theme-darkblue [data-testid="stTickBarMax"], body.theme-dark [data-testid="stTickBarMax"] {
+            color: var(--muted) !important; fill: var(--muted) !important;
         }
-        .theme-dark .stTabs [data-baseweb="tab-list"] {
-            background: #1a1a1a;
+
+        /* Expander 折疊面板 */
+        body.theme-darkblue [data-testid="stExpander"], body.theme-dark [data-testid="stExpander"],
+        body.theme-darkblue details, body.theme-dark details {
+            background-color: var(--panel) !important; border:1px solid var(--border) !important;
+            color: var(--text) !important;
         }
-        .theme-dark .stTabs [data-baseweb="tab"] {
-            color: #b0b0b0 !important;
+        body.theme-darkblue [data-testid="stExpander"] summary, body.theme-dark [data-testid="stExpander"] summary,
+        body.theme-darkblue details summary, body.theme-dark details summary {
+            color: var(--text) !important;
         }
-        .theme-dark .stTabs [aria-selected="true"] {
-            background: #2a2a2a !important;
-            color: #ffffff !important;
+        body.theme-darkblue [data-testid="stExpanderDetails"], body.theme-dark [data-testid="stExpanderDetails"] {
+            background-color: var(--panel) !important;
         }
+
+        /* Tabs 分頁 */
+        body.theme-darkblue [data-baseweb="tab-list"], body.theme-dark [data-baseweb="tab-list"] {
+            background-color: var(--panel2) !important;
+        }
+        body.theme-darkblue [data-baseweb="tab"], body.theme-dark [data-baseweb="tab"] {
+            color: var(--muted) !important;
+        }
+        body.theme-darkblue [data-baseweb="tab"][aria-selected="true"], body.theme-dark [data-baseweb="tab"][aria-selected="true"] {
+            background-color: var(--panel) !important; color: var(--text) !important;
+        }
+        body.theme-darkblue [data-baseweb="tab-highlight"], body.theme-dark [data-baseweb="tab-highlight"],
+        body.theme-darkblue [data-baseweb="tab-border"], body.theme-dark [data-baseweb="tab-border"] {
+            background-color: var(--accent) !important;
+        }
+
+        /* 數據框 / 表格 */
+        body.theme-darkblue .stDataFrame, body.theme-dark .stDataFrame,
+        body.theme-darkblue [data-testid="stDataFrame"], body.theme-dark [data-testid="stDataFrame"],
+        body.theme-darkblue .stTable, body.theme-dark .stTable,
+        body.theme-darkblue .resizable-table-wrapper, body.theme-dark .resizable-table-wrapper {
+            background-color: var(--panel) !important; border-color: var(--border) !important;
+        }
+        body.theme-darkblue table, body.theme-dark table {
+            background-color: var(--panel) !important; color: var(--text) !important;
+        }
+        body.theme-darkblue table th, body.theme-dark table th {
+            background-color: var(--th) !important; color: var(--text) !important;
+            border-color: var(--border) !important;
+        }
+        body.theme-darkblue table td, body.theme-dark table td {
+            color: var(--text) !important; border-color: var(--border) !important;
+        }
+        body.theme-darkblue table.custom-resizable-grid tr:nth-child(even),
+        body.theme-dark table.custom-resizable-grid tr:nth-child(even) {
+            background-color: var(--panel2) !important;
+        }
+
+        /* Alert 提示框：保留語意底色，文字轉淺色 */
+        body.theme-darkblue [data-testid="stAlert"] p, body.theme-dark [data-testid="stAlert"] p,
+        body.theme-darkblue [data-testid="stAlert"] span, body.theme-dark [data-testid="stAlert"] span {
+            color: #f4f6fb !important;
+        }
+
+        /* 自訂 HTML 卡片 */
+        body.theme-darkblue .aa-quote-container, body.theme-dark .aa-quote-container,
+        body.theme-darkblue .aa-index-bar, body.theme-dark .aa-index-bar,
+        body.theme-darkblue .section-card, body.theme-dark .section-card {
+            background-color: var(--panel) !important; border-color: var(--border) !important;
+            color: var(--text) !important;
+        }
+        body.theme-darkblue .selected-asset-banner, body.theme-dark .selected-asset-banner {
+            background-color: var(--panel2) !important; color: var(--text) !important;
+        }
+        body.theme-darkblue .aa-label, body.theme-dark .aa-label { color: var(--muted) !important; }
+        body.theme-darkblue .aa-val, body.theme-dark .aa-val { color: var(--text) !important; }
+        body.theme-darkblue .aa-price-box-up, body.theme-dark .aa-price-box-up {
+            background-color: rgba(38,166,154,0.14) !important;
+        }
+        body.theme-darkblue .aa-price-box-down, body.theme-dark .aa-price-box-down {
+            background-color: rgba(239,83,80,0.14) !important;
+        }
+        body.theme-darkblue .aa-metric-table td, body.theme-dark .aa-metric-table td {
+            border-color: var(--border) !important;
+        }
+        body.theme-darkblue .tag-badge, body.theme-dark .tag-badge {
+            background-color: rgba(239,83,80,0.18) !important; color:#ff9b97 !important;
+            border-color: rgba(239,83,80,0.4) !important;
+        }
+
+        /* 程式碼 / 分隔線 / 引用 */
+        body.theme-darkblue code, body.theme-dark code {
+            background-color: var(--panel2) !important; color: var(--text) !important;
+        }
+        body.theme-darkblue pre, body.theme-dark pre {
+            background-color: var(--panel2) !important; border:1px solid var(--border) !important;
+        }
+        body.theme-darkblue hr, body.theme-dark hr { border-color: var(--border) !important; }
 
         /* 主題切換按鈕固定在右上角 */
         .theme-switcher-fixed {
@@ -880,8 +894,117 @@ for row in RAW_UNIVERSE:
     }
 
 # ==========================================
-# 4. 真實市場數據抓取層（v6：杜絕假跳動、假盤口、假財報；全部以 Yahoo Finance 真實數據為準）
+# 4. 真實市場數據抓取層（v7：多數據源備援 — Yahoo Finance 為主，Stooq 為備；杜絕假跳動、假盤口、假財報）
 # ==========================================
+
+def to_stooq_symbols(symbol: str):
+    """把 Yahoo 代號轉換為 Stooq 候選代號清單（回傳 list，港股主板給 4 位補零與不補零兩種寫法）；無法對應者回傳空清單。"""
+    s = str(symbol).strip().upper()
+    idx_map = {"^HSI": "^hsi", "^GSPC": "^spx", "^SPX": "^spx", "^IXIC": "^comp",
+               "^NDX": "^ndx", "^DJI": "^dji", "^RUT": "^rut", "^VIX": "^vix"}
+    if s in idx_map:
+        return [idx_map[s]]
+    if s.endswith(".HK"):
+        digits = s[:-3]
+        if not digits.isdigit():
+            return []
+        # 港股主板代號為 4 位（Yahoo 常寫 00700；Stooq 為 0700.hk）。
+        # 5 位且以 1/2/3/6 等開頭者為窩輪/牛熊證/界內證，Stooq 免費源不提供 → 回空。
+        is_main = (len(digits) <= 4) or (len(digits) == 5 and digits.startswith("0"))
+        if not is_main:
+            return []
+        bare = digits.lstrip("0")
+        if not bare:
+            bare = "0"
+        main_code = bare.zfill(4)
+        cands = [main_code.lower() + ".hk"]
+        alt = bare.lower() + ".hk"
+        if alt not in cands:
+            cands.append(alt)
+        return cands
+    if "." not in s and "=" not in s and s.isalnum():
+        return [s.lower() + ".us"]
+    return []
+
+
+def to_stooq_symbol(symbol: str):
+    """回傳首選 Stooq 代號（向後相容）；無對應回傳 None。"""
+    cands = to_stooq_symbols(symbol)
+    return cands[0] if cands else None
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_stooq_ohlc(symbol: str, stooq_interval: str = "d", days: int = 2600):
+    """
+    從 Stooq（免費、無須 API key、全球可訪問性通常較 Yahoo 穩定）下載歷史 OHLCV。
+    stooq_interval: d=日線, w=週線, m=月線。Stooq 免費源不提供分鐘線。
+    回傳 DataFrame（含 Open/High/Low/Close/Volume），失敗回傳空 DataFrame。
+    """
+    out = pd.DataFrame()
+    candidates = to_stooq_symbols(symbol)
+    if not candidates:
+        return out
+    for ss in candidates:
+        try:
+            url = f"https://stooq.com/q/d/l/?s={ss}&i={stooq_interval}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore")
+            if not raw or "No data" in raw or len(raw) < 40:
+                continue
+            df = pd.read_csv(io.StringIO(raw))
+            if df is None or df.empty or "Close" not in df.columns:
+                continue
+            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+            df = df.dropna(subset=["Date"]).set_index("Date").sort_index()
+            for c in ["Open", "High", "Low", "Close", "Volume"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            df = df.dropna(subset=["Close"])
+            if not df.empty:
+                df = df.tail(days)
+                return df[["Open", "High", "Low", "Close", "Volume"]] if "Volume" in df.columns else df[["Open", "High", "Low", "Close"]]
+        except Exception:
+            continue
+    return out
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def get_price_history(symbol: str, interval: str, period: str, resample_rule=None):
+    """
+    統一歷史 K 線獲取（v7 多源）：
+      1) Yahoo Finance（含分鐘/小時/日/週）；
+      2) Yahoo 失敗或空白時，日/週/月線改用 Stooq 備援。
+    回傳 (DataFrame, source_name)；皆失敗回傳 (空 DataFrame, None)。
+    """
+    df = pd.DataFrame()
+    source = None
+    # 1) Yahoo
+    try:
+        tk = yf.Ticker(symbol)
+        raw = tk.history(period=period, interval=interval, auto_adjust=True)
+        if raw is not None and not raw.empty and len(raw) >= 6:
+            df = raw.copy()
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            if resample_rule:
+                df = df.resample(resample_rule).agg({
+                    "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"
+                }).dropna()
+            source = "Yahoo Finance"
+    except Exception:
+        df = pd.DataFrame()
+    # 2) Stooq 備援（僅日/週/月線；分鐘/小時線 Stooq 免費源不提供）
+    if df.empty and interval in ("1d", "1wk", "1mo"):
+        si = {"1d": "d", "1wk": "w", "1mo": "m"}.get(interval, "d")
+        days = {"1y": 300, "2y": 600, "5y": 1500, "10y": 3000, "max": 4000}.get(period, 300)
+        sd = fetch_stooq_ohlc(symbol, si, days=days)
+        if sd is not None and not sd.empty and len(sd) >= 6:
+            df = sd.copy()
+            source = "Stooq（Yahoo 連線失敗時的備援源）"
+    return df, source
+
+
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
 def fetch_real_fundamentals(symbol: str):
     """
@@ -1054,6 +1177,31 @@ def fetch_realtime_market_tick(symbol: str):
             })
     except Exception:
         pass
+
+    # v7：Yahoo 失敗時以 Stooq 日線最後收盤備援（明確標示為收盤價、非即時）
+    if not result.get("live_ok"):
+        try:
+            sd = fetch_stooq_ohlc(symbol, "d", days=20)
+            if sd is not None and not sd.empty and len(sd) >= 2:
+                p = float(sd["Close"].iloc[-1])
+                prev = float(sd["Close"].iloc[-2])
+                chg = p - prev
+                pct = (chg / prev * 100.0) if prev else 0.0
+                result.update({
+                    "live_ok": True,
+                    "price": round(p, 3),
+                    "change": round(chg, 3),
+                    "pct": round(pct, 2),
+                    "low": round(float(sd["Low"].iloc[-1]), 3),
+                    "high": round(float(sd["High"].iloc[-1]), 3),
+                    "vol_num": float(sd["Volume"].iloc[-1]) if "Volume" in sd.columns else 0.0,
+                    "prev_close": round(prev, 3),
+                    "quote_time": str(sd.index[-1])[:10],
+                    "delayed": True,
+                    "source": "Stooq"
+                })
+        except Exception:
+            pass
     return result
 
 
@@ -1069,10 +1217,10 @@ def fetch_real_momentum_snapshot(symbol: str):
     """
     out = {"ok": False}
     try:
-        tk = yf.Ticker(symbol)
-        df = tk.history(period="2y", interval="1d", auto_adjust=True)
+        df, _src = get_price_history(symbol, "1d", "2y")
         if df is None or df.empty or len(df) < 60:
             return out
+        out["source"] = _src
         close = df["Close"].dropna()
         if len(close) < 60:
             return out
@@ -1228,9 +1376,9 @@ def fetch_real_annual_financials(symbol: str):
         except Exception:
             pass
 
-        # 歷史年度最高/最低（收盤價口徑，複權）
+        # 歷史年度最高/最低（v7 多源：Yahoo→Stooq）
         try:
-            hmax = tk.history(period="max", interval="1d", auto_adjust=True)
+            hmax, _hsrc = get_price_history(symbol, "1d", "max")
             if hmax is not None and not hmax.empty:
                 grp = hmax.groupby(hmax.index.year)
                 for yr, g in grp:
@@ -1257,10 +1405,10 @@ def fetch_real_monthly_path(symbol: str, months: int = 13):
     """
     out = {"ok": False}
     try:
-        tk = yf.Ticker(symbol)
-        df = tk.history(period="2y", interval="1d", auto_adjust=True)
+        df, _src = get_price_history(symbol, "1d", "2y")
         if df is None or df.empty:
             return out
+        out["source"] = _src
         m = df.resample("ME").agg({"Close": "last", "High": "max", "Low": "min"}).dropna()
         m = m.tail(months)
         labels = [d.strftime("%Y-%m") for d in m.index]
@@ -1276,6 +1424,107 @@ def fetch_real_monthly_path(symbol: str, months: int = 13):
         return out
     except Exception:
         return out
+
+
+def zigzag_pivots(highs, lows, pct: float = 0.06):
+    """
+    百分比閾值 ZigZag 擺動點識別（純函數，無隨機、無模擬）。
+    回傳 [(idx, price, kind)]，kind：
+      'H' 已確認擺動高點；'L' 已確認擺動低點；
+      'H?'/'L?' 為最末端「尚未確認」的當前潛在端點（需日後價格再走 pct 才成立）。
+    """
+    n = len(highs)
+    pivots = []
+    if n < 5:
+        return pivots
+    trend = 0  # 0=未定, 1=向上, -1=向下
+    hi = float(highs[0]); hi_i = 0
+    lo = float(lows[0]); lo_i = 0
+    for i in range(n):
+        h = float(highs[i]); l = float(lows[i])
+        if h >= hi:
+            hi, hi_i = h, i
+        if l <= lo:
+            lo, lo_i = l, i
+        # 自暫定高點回落 pct → 確認該高點
+        if trend >= 0 and hi > 0 and l <= hi * (1.0 - pct):
+            pivots.append((hi_i, hi, "H"))
+            trend = -1
+            lo, lo_i = l, i
+            hi, hi_i = -1e18, i
+        # 自暫定低點反彈 pct → 確認該低點
+        elif trend <= 0 and 0 < lo < 1e17 and h >= lo * (1.0 + pct):
+            pivots.append((lo_i, lo, "L"))
+            trend = 1
+            hi, hi_i = h, i
+            lo, lo_i = 1e18, i
+    # 末端尚未確認的潛在端點
+    if trend == 1 and hi > 0:
+        pivots.append((hi_i, hi, "H?"))
+    elif trend == -1 and 0 < lo < 1e17:
+        pivots.append((lo_i, lo, "L?"))
+    return pivots
+
+
+def label_elliott(pivots):
+    """
+    啟發式艾略特標號（非 100%、僅「一種」機械解讀，必須人工確認）：
+    以最近一個擺動高點為推動浪「5」，向前交替標 0/1/2/3/4/5，
+    其後若再轉折則標 A（低）/B（高）/C（低）。資料不足處留 None。
+    """
+    labels = [None] * len(pivots)
+    if len(pivots) < 2:
+        return labels
+    last_h = None
+    for j in range(len(pivots) - 1, -1, -1):
+        if str(pivots[j][2]).startswith("H"):
+            last_h = j
+            break
+    if last_h is None:
+        return labels
+    names = {0: "0", 1: "1", 2: "2", 3: "3", 4: "4", 5: "5"}
+    for k in range(0, 6):
+        idx = last_h - (5 - k)
+        if 0 <= idx < len(pivots):
+            labels[idx] = names[k]
+    for k, nm in enumerate(["A", "B", "C"], start=1):
+        idx = last_h + k
+        if 0 <= idx < len(pivots):
+            labels[idx] = nm
+    return labels
+
+
+def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420):
+    """v7：取真實日線（Yahoo→Stooq 多源）→ ZigZag 擺動點 → 啟發式艾略特標浪。失敗回傳 ok=False。"""
+    out = {"ok": False, "pivots": [], "labels": [], "dates": [], "prices": [], "kinds": [],
+           "line_dates": [], "line_close": [], "src": None, "pct": pct, "hi52": None, "lo52": None}
+    try:
+        df, src = get_price_history(symbol, "1d", "2y")
+        if df is None or df.empty or len(df) < 30:
+            return out
+        df = df.tail(days)
+        highs = df["High"].values
+        lows = df["Low"].values
+        closes = df["Close"].values
+        idx = df.index
+        pivots = zigzag_pivots(highs, lows, pct)
+        labels = label_elliott(pivots)
+        out.update({
+            "ok": True,
+            "pivots": pivots,
+            "labels": labels,
+            "dates": [str(idx[i])[:10] for i, _, _ in pivots],
+            "prices": [float(p) for _, p, _ in pivots],
+            "kinds": [str(k) for _, _, k in pivots],
+            "line_dates": [str(d)[:10] for d in idx],
+            "line_close": [float(c) for c in closes],
+            "src": src,
+            "hi52": float(df["High"].tail(252).max()),
+            "lo52": float(df["Low"].tail(252).min()),
+        })
+    except Exception:
+        pass
+    return out
 
 
 def compute_real_forecast(prof: dict, mom: dict):
@@ -1490,6 +1739,7 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
     prof["ask_size"] = live.get("ask_size")
     prof["quote_time"] = live.get("quote_time")
     prof["delayed"] = live.get("delayed")
+    prof["source"] = live.get("source") or ("Yahoo Finance" if live.get("live_ok") else None)
 
     if live.get("live_ok"):
         prof["price"] = live["price"]
@@ -1650,14 +1900,15 @@ def search_all_markets_fn(searchterm: str):
 
     return matched if matched else default_list[:30]
 
-# 頂部全局數據源口徑橫幅（v6 誠實聲明）
+# 頂部全局數據源口徑橫幅（v7 誠實聲明）
 st.markdown(
     "<div style='font-size:12px; line-height:1.6; background:#eef5ff; border:1px solid #b8d3f5; "
     "border-radius:8px; padding:8px 12px; margin-bottom:8px; color:#1f3a5f;'>"
-    "📡 <b>數據真實性聲明（v6）</b>：本系統所有<b>現價、升跌、歷史 K 線、財報、估值與動能</b>均取自 "
-    "<b>Yahoo Finance（yfinance）真實市場數據</b>，<b>已完全移除假跳動、隨機買賣盤與模擬 K 線</b>。"
-    "免費源限制：港股成價一般<b>延遲約 15 分鐘</b>，且<b>不提供第 2–40 檔 Level 2 買賣盤深度</b>（需富途/盈透等付費報價，本系統不予編造）；"
-    "財報與價格快取 6–8 小時，跨交易日重開會自動更新。模型推演僅為統計參考，<b>不構成投資建議</b>。"
+    "📡 <b>數據真實性聲明（v7）</b>：現價、歷史 K 線、財報、估值與動能均取自真實市場數據，"
+    "採<b>雙數據源備援：Yahoo Finance 為主、Stooq 為備</b>（圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
+    "本版<b>取消自動更新、改為手動按鈕</b>：每個區塊右上角「🔄 更新」按一下才重抓。"
+    "免費源限制：港股成價一般延遲約 15 分鐘；分鐘線僅 Yahoo 提供、Stooq 只提供日/週/月線；"
+    "Level 2 多檔買賣深度屬付費數據，本系統已<b>移除 40 檔盤口</b>且絕不編造。模型推演僅供統計參考，<b>不構成投資建議</b>。"
     "</div>",
     unsafe_allow_html=True
 )
@@ -1724,7 +1975,16 @@ with col_s2:
         )
     with c_tf3:
         st.markdown("<div style='margin-top:26px;'></div>", unsafe_allow_html=True)
-        enable_1s_live = st.toggle("⚡ 自動刷新報價", value=True, help="啟用後每 0.5 秒檢查一次；Yahoo 真實成價約每 8 秒更新（港股通常延遲 15 分鐘），不做假跳動")
+        if st.button("🔄 全部更新", help="手動清空快取並重新抓取所有真實數據（v7 已取消自動更新）", use_container_width=True):
+            for _fn in (fetch_realtime_market_tick, fetch_real_fundamentals,
+                        fetch_real_momentum_snapshot, fetch_real_annual_financials,
+                        fetch_real_monthly_path, get_price_history, fetch_stooq_ohlc):
+                try:
+                    _fn.clear()
+                except Exception:
+                    pass
+            # 圖表快取 get_multi_tf_ohlcv 定義於本段之後，改由圖表區專用「更新圖表」按鈕清除
+            st.rerun()
 
 # 修正問題5：設置互動式按鈕控制，隨時加入或刪除 RSI, MACD, Volume, MA, 布林通道
 active_indicators = st.multiselect(
@@ -1764,40 +2024,49 @@ def get_multi_tf_ohlcv(symbol: str, timeframe: str):
     }
     period, interval, resample_rule = tf_config.get(timeframe, ("1y", "1d", None))
     df_hist = pd.DataFrame()
-    
-    try:
-        tk = yf.Ticker(base["symbol"])
-        raw = tk.history(period=period, interval=interval)
-        if raw is not None and not raw.empty and len(raw) >= 6:
-            df_hist = raw.copy()
-            df_hist.index = df_hist.index.tz_localize(None) if df_hist.index.tz is not None else df_hist.index
-            if resample_rule:
-                df_hist = df_hist.resample(resample_rule).agg({
-                    "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"
-                }).dropna()
-    except Exception:
-        df_hist = pd.DataFrame()
+    data_source = None
+
+    # v7：統一多源獲取（Yahoo 主、Stooq 備）
+    df_hist, data_source = get_price_history(base["symbol"], interval, period, resample_rule)
 
     if df_hist.empty:
-        # v6：不再用 np.random 編造模擬 K 線。改為嘗試備用區間，仍失敗則回傳空資料並標記。
-        for _p, _iv in [("2y", "1d"), ("10y", "1d"), ("1mo", "1h"), ("5d", "30m"), ("5d", "15m")]:
-            try:
-                raw2 = tk.history(period=_p, interval=_iv)
-                if raw2 is not None and not raw2.empty and len(raw2) >= 6:
-                    df_hist = raw2.copy()
-                    df_hist.index = df_hist.index.tz_localize(None) if df_hist.index.tz is not None else df_hist.index
-                    break
-            except Exception:
-                continue
+        # 分鐘/小時線：再嘗試 Yahoo 其他備用區間（Stooq 免費源不提供分鐘線）
+        if interval in ("15m", "30m", "1h"):
+            for _p, _iv in [("60d", "30m"), ("60d", "15m"), ("3mo", "1h"), ("1mo", "1h"), ("2y", "1d")]:
+                try:
+                    _df, _src = get_price_history(base["symbol"], _iv, _p)
+                    if _df is not None and not _df.empty and len(_df) >= 6:
+                        df_hist, data_source = _df, _src + f"（以 {_iv} 備用呈現）"
+                        break
+                except Exception:
+                    continue
+        else:
+            # 日/週線：再嘗試更長區間（自動含 Stooq 備援）
+            for _p in ("2y", "5y", "10y", "max"):
+                try:
+                    _df, _src = get_price_history(base["symbol"], interval, _p)
+                    if _df is not None and not _df.empty and len(_df) >= 6:
+                        df_hist, data_source = _df, _src
+                        break
+                except Exception:
+                    continue
 
     # 真實數據仍無法取得：回傳空 DataFrame 並標記，由圖表層顯示「數據缺失」，不繪製假圖
-    if df_hist.empty:
+    if df_hist is None or df_hist.empty:
         empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume",
                                       "MA10", "MA20", "MA50", "BB_Upper", "BB_Lower",
                                       "RSI14", "MACD", "Signal", "Hist"])
         empty.attrs["data_ok"] = False
-        empty.attrs["data_msg"] = f"Yahoo Finance 暫時無法提供 {base['symbol']} 的 {timeframe} 真實數據（可能為離線、代號無效或該商品無此週期）。"
+        empty.attrs["data_source"] = None
+        empty.attrs["data_msg"] = (
+            f"Yahoo Finance 與 Stooq 均暫時無法提供 {base['symbol']} 的 {timeframe} 真實數據"
+            f"（可能為離線、代號無效、或該商品不提供此週期）。分鐘線僅 Yahoo 提供，Stooq 僅支援日/週/月線。"
+        )
         return empty
+
+    # 補齊 Volume 欄（Stooq 極少數情況可能缺）
+    if "Volume" not in df_hist.columns:
+        df_hist["Volume"] = 0.0
 
     df_hist["MA10"] = df_hist["Close"].rolling(10, min_periods=1).mean()
     df_hist["MA20"] = df_hist["Close"].rolling(20, min_periods=1).mean()
@@ -1817,7 +2086,9 @@ def get_multi_tf_ohlcv(symbol: str, timeframe: str):
     df_hist["MACD"] = ema12 - ema26
     df_hist["Signal"] = df_hist["MACD"].ewm(span=9, adjust=False).mean()
     df_hist["Hist"] = df_hist["MACD"] - df_hist["Signal"]
-    
+
+    df_hist.attrs["data_ok"] = True
+    df_hist.attrs["data_source"] = data_source
     return df_hist
 
 df_chart = get_multi_tf_ohlcv(selected_symbol, selected_tf)
@@ -1845,28 +2116,25 @@ active_aa_tab = st.radio(
 )
 
 # ==========================================
-# 8. 支援「200ms 即時更新」之快速報價與動態指標主圖表
-#    重大架構修正：
-#    (a) 圖表 figure 在 fragment 外只構建一次，避免每 1 秒整圖閃爍；
-#    (b) fragment 以 200ms 觸發，只更新左欄價格數字、升跌%、40 檔買賣盤；
-#    (c) yfinance 真實行情每 2 秒才調用一次，中間用本地 micro-tick 模擬跳動。
+# 8. 主圖表（v7：取消自動更新，圖表僅在切換標的/週期或按「更新圖表」時重抓；
+#    數據採 Yahoo→Stooq 多源；右欄與左欄報價等寬對稱；已移除 40 檔買賣盤）
 # ==========================================
 def build_static_chart_figure():
-    """構建 K 線圖 figure（只在 symbol/tf/indicators 改變時呼叫，不進入 fragment）"""
+    """構建 K 線圖 figure（只在 symbol/tf/指標改變或手動按更新時重新構建）"""
     tc = get_theme_chart_colors()
 
-    # v6：真實數據缺失時，顯示明確提示，不繪製任何模擬圖
+    # v7：真實數據缺失時，顯示明確提示，不繪製任何模擬圖
     if df_chart is None or df_chart.empty or df_chart.attrs.get("data_ok") is False:
-        msg = getattr(df_chart, "attrs", {}).get("data_msg", "Yahoo Finance 暫時無法提供此商品的真實歷史數據。")
+        msg = getattr(df_chart, "attrs", {}).get("data_msg", "Yahoo Finance 與 Stooq 暫時無法提供此商品的真實歷史數據。")
         fig_empty = go.Figure()
         fig_empty.add_annotation(
-            text=f"⚠️ {msg}<br><br>本系統不會以模擬或隨機數據繪製圖表。請檢查網絡連線、股票代號，或稍後重試。",
+            text=f"⚠️ {msg}<br><br>本系統不會以模擬或隨機數據繪製圖表。請按「🔄 更新圖表」、檢查網絡連線或股票代號，或切換到日線（Stooq 可提供）。",
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(size=15, color=tc["text"]), align="center", bgcolor=tc["plot"], bordercolor=tc["grid"], borderwidth=1
         )
         fig_empty.update_layout(
             paper_bgcolor=tc["paper"], plot_bgcolor=tc["plot"],
-            height=st.session_state.get("chart_height", 1250),
+            height=st.session_state.get("chart_height", 720),
             margin=dict(l=10, r=10, t=30, b=10)
         )
         return fig_empty
@@ -1935,8 +2203,8 @@ def build_static_chart_figure():
                                tickfont=dict(color=tc["text"]), title_font=dict(color=tc["text"]), row=curr_row, col=1)
         curr_row += 1
 
-    # 圖表高度：預設拉長至與 40 檔買賣盤等長（約 1250px），可由滑桿調校
-    chart_h = st.session_state.get("chart_height", 1250)
+    # 圖表高度：由右欄滑桿調校（v7 預設 720px，左右等寬對稱）
+    chart_h = st.session_state.get("chart_height", 720)
     fig_k.update_layout(
         title=dict(text=f"{q_data_init['code']} {q_data_init['name']} — {selected_tf} | 高: {df_chart['High'].max():,.2f} 低: {df_chart['Low'].min():,.2f} | RSI: {df_chart['RSI14'].iloc[-1]:.1f}",
                    font=dict(size=13, color=tc["text"])),
@@ -1952,110 +2220,44 @@ def build_static_chart_figure():
     return fig_k
 
 # 靜態圖表在 fragment 外只渲染一次（消除每 1 秒整圖閃爍）
-col_quote, col_chart = st.columns([4.8, 6.2])
+col_quote, col_chart = st.columns([1, 1])
 with col_chart:
-    # 圖表高度滑桿：讓右邊圖表可拉長與左邊 40 檔買賣盤等長
-    if "chart_height" not in st.session_state:
-        st.session_state["chart_height"] = 1250
-    st.slider(
-        "📏 圖表高度（拉長/縮短對齊左邊 40 檔買賣盤）",
-        min_value=400, max_value=2200, step=50,
-        value=st.session_state["chart_height"],
-        key="chart_height_slider",
-        help="拖曳即可調整右邊 K 線圖整體高度，使其與左邊 40 檔買賣盤長度一致"
-    )
-    st.session_state["chart_height"] = st.session_state["chart_height_slider"]
+    # 圖表工具列：右上角「更新圖表」按鈕 + 高度滑桿
+    _cc1, _cc2 = st.columns([1.1, 3.2])
+    with _cc1:
+        st.markdown("<div style='height:1px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 更新圖表", key="refresh_chart_btn", use_container_width=True,
+                     help="按一下即清除圖表快取，重新從 Yahoo / Stooq 抓取所選時間週期的真實 K 線"):
+            for _fn in (get_multi_tf_ohlcv, get_price_history, fetch_stooq_ohlc):
+                try:
+                    _fn.clear()
+                except Exception:
+                    pass
+            st.rerun()
+    with _cc2:
+        if "chart_height" not in st.session_state:
+            st.session_state["chart_height"] = 720
+        st.slider(
+            "📏 圖表高度",
+            min_value=400, max_value=1400, step=40,
+            value=st.session_state["chart_height"],
+            key="chart_height_slider",
+            help="拖曳調整右邊 K 線圖整體高度（v7 左右兩欄已對稱）"
+        )
+        st.session_state["chart_height"] = st.session_state["chart_height_slider"]
+    # 數據源標示
+    _chart_src = df_chart.attrs.get("data_source") if chart_ok else None
+    if chart_ok and _chart_src:
+        st.caption(f"📊 圖表數據源：**{_chart_src}**　|　週期：{selected_tf}　|　按「🔄 更新圖表」手動刷新")
     st.plotly_chart(build_static_chart_figure(), use_container_width=True, key="main_kline_static", config={"displayModeBar": True, "responsive": True})
 
-def render_orderbook_40_html(live_q):
+
+def render_quote_panel():
     """
-    v6 真實盤口（純 HTML，不含 widget，避免 fragment 頻繁重跑導致 WebSocket 崩潰）：
-    - 第 1 檔最佳買賣價（bid/ask）與掛單量，只在 Yahoo Finance 真實提供時顯示。
-    - 第 2–40 檔屬於 Level 2 深度，免費公開源（Yahoo）不提供，明確標示「需付費 Level 2」，
-      絕不再以亂數編造手數/金額。
-    """
-    p = live_q["price"]
-    curr = live_q["curr"]
-    lot_size = live_q.get("lot", 100)
-    bid = live_q.get("bid")
-    ask = live_q.get("ask")
-    bid_size = live_q.get("bid_size")
-    ask_size = live_q.get("ask_size")
-
-    has_l2 = (bid is not None and ask is not None)
-
-    def _fmt_size(sz):
-        if sz is None:
-            return "—"
-        try:
-            sz = float(sz)
-            if sz >= 10000:
-                return f"{sz/10000:.1f} 萬股"
-            return f"{int(sz):,} 股"
-        except Exception:
-            return "—"
-
-    def _fmt_val(price, sz):
-        if price is None or sz is None:
-            return "—"
-        try:
-            v = float(price) * float(sz)
-            return f"{v/1e4:,.1f} 萬 {curr}"
-        except Exception:
-            return "—"
-
-    rows_html = []
-    for i in range(1, 41):
-        if i == 1 and has_l2:
-            rows_html.append(
-                f"<tr>"
-                f"<td class='ob-lvl'>01</td>"
-                f"<td class='ob-bid'>{float(bid):,.3f}</td>"
-                f"<td class='ob-bid'>{_fmt_size(bid_size)}</td>"
-                f"<td class='ob-bid'>{_fmt_val(bid, bid_size)}</td>"
-                f"<td class='ob-ask'>{float(ask):,.3f}</td>"
-                f"<td class='ob-ask'>{_fmt_size(ask_size)}</td>"
-                f"<td class='ob-ask'>{_fmt_val(ask, ask_size)}</td>"
-                f"</tr>"
-            )
-        else:
-            note = "需付費 Level 2" if i > 1 else "免費源未提供"
-            rows_html.append(
-                f"<tr class='ob-na-row'>"
-                f"<td class='ob-lvl'>{i:02d}</td>"
-                f"<td class='ob-na' colspan='3'>— {note} —</td>"
-                f"<td class='ob-na' colspan='3'>— {note} —</td>"
-                f"</tr>"
-            )
-
-    if has_l2:
-        spread = float(ask) - float(bid)
-        spread_pct = spread / float(bid) * 100 if bid else 0
-        head_note = f"最佳一檔買賣差價：{spread:,.3f} {curr} ({spread_pct:.3f}%)"
-    else:
-        head_note = "Yahoo 免費行情未提供即時盤口（港股通常僅提供延遲成價，無掛單深度）"
-
-    return f"""
-    <div class="orderbook-html-box">
-        <div class="orderbook-title">📊 買賣盤深度（每手 {lot_size:,} 股）｜僅第 1 檔為真實數據</div>
-        <div class="orderbook-l2-note">⚠️ {head_note}。第 2–40 檔為 Level 2 付費深度（富途／盈透／券商專業報價），本系統使用免費公開源，故不予編造。</div>
-        <table class="orderbook-html-table">
-            <thead><tr>
-                <th>檔位</th><th>買入價</th><th>買入量</th><th>買入金額</th>
-                <th>賣出價</th><th>賣出量</th><th>賣出金額</th>
-            </tr></thead>
-            <tbody>{''.join(rows_html)}</tbody>
-        </table>
-    </div>
-    """
-
-@st.fragment(run_every=0.5)
-def live_price_fragment():
-    """
-    0.5 秒局部刷新（Streamlit WebSocket 穩定下限）：
-    - fragment 內只渲染純 HTML markdown，不使用 expander/slider/checkbox 等 widget
-    - 圖表在 fragment 外靜態渲染，不重繪、不閃爍
-    - 40 檔買賣盤用純 HTML 表格，避免 widget 狀態同步導致 Cached ForwardMsg MISS 崩潰
+    v7 手動刷新報價面板（已取消 @st.fragment 自動更新）：
+    - 純 HTML markdown 渲染，穩定不閃爍；
+    - 已移除 40 檔買賣盤（Level 2 屬付費數據，免費源不提供，不予編造）；
+    - 數據源實際標示為 Yahoo Finance 或 Stooq（備援）；離線時明確聲明。
     """
     live_q = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
     hsi_q = get_or_create_asset_profile("^HSI", apply_micro_tick=False)
@@ -2069,22 +2271,30 @@ def live_price_fragment():
     box_cls = "aa-price-box-up" if is_up else "aa-price-box-down"
     curr_label = "港元" if live_q["curr"] == "HKD" else "美元"
 
-    # v6 誠實數據源標示：真實成價、行情時點、延遲提示；離線時明確聲明
+    _src_name = live_q.get("source") or "Yahoo Finance"
+    _is_stooq = bool(live_q.get("source")) and "Stooq" in str(live_q.get("source"))
+    # v7 誠實數據源標示：真實成價、來源、行情時點、延遲提示；雙源皆失敗時明確聲明
     if live_q.get("live_ok"):
         qt = live_q.get("quote_time")
-        _is_hk = live_q.get("mkt") == "HK"
-        delay_note = "港股免費源通常延遲約 15 分鐘" if _is_hk else "美股盤中接近即時（視交易所）"
-        _data_source_line = (
-            f"🔗 數據源：Yahoo Finance 真實成價｜{delay_note}｜"
-            f"行情時點：{qt if qt else live_q['update_time']}｜頁面刷新：{live_q['update_time']}"
-        )
+        if _is_stooq:
+            _data_source_line = (
+                f"🔗 數據源：<b>Stooq 備援源</b>（Yahoo 連線失敗時自動改用）｜"
+                f"顯示為<b>最近收盤價、非即時</b>（Stooq 免費源僅提供日線）｜行情日期：{qt if qt else live_q['update_time']}"
+            )
+        else:
+            _is_hk = live_q.get("mkt") == "HK"
+            delay_note = "港股免費源通常延遲約 15 分鐘" if _is_hk else "美股盤中接近即時（視交易所）"
+            _data_source_line = (
+                f"🔗 數據源：Yahoo Finance 真實成價｜{delay_note}｜"
+                f"行情時點：{qt if qt else live_q['update_time']}｜頁面刷新：{live_q['update_time']}"
+            )
         fund_asof = live_q.get("fund_as_of")
         if fund_asof:
             _data_source_line += f"｜基本面數據截至：{fund_asof}"
     else:
         _data_source_line = (
-            "⚠️ 無法連線 Yahoo Finance，現價為最後已知參考價（非即時，升跌顯示 0）。"
-            "本系統不會在離線時製造假跳動，請檢查網絡後重試。"
+            "⚠️ Yahoo Finance 與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
+            "本系統不會在離線時製造假跳動，請按「🔄 更新報價」重試。"
         )
     _data_source_line += f"<br>{live_q.get('adr_info', '')}"
 
@@ -2099,7 +2309,7 @@ def live_price_fragment():
             &nbsp;<span class="tag-badge">{live_q['mkt']}</span>
         </div>
         <div style="font-size:13px; font-weight:600;">
-            <span class="live-pulse"></span>報價狀態：<strong>{"自動刷新中（真實成價，Yahoo 約 8 秒更新）" if enable_1s_live else "手動靜態"}</strong>
+            <span class="live-pulse"></span>報價狀態：<strong>手動更新（按「🔄 更新報價」才重抓，不做假跳動）</strong>
             &nbsp;|&nbsp; 批判性評分：<span style="color:#1a73e8; font-size:15px;">{live_q['score']:.1f} / 10 分</span>
         </div>
     </div>
@@ -2121,6 +2331,15 @@ def live_price_fragment():
     """, unsafe_allow_html=True)
 
     with col_quote:
+        if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
+                     help="按一下即清除報價快取，重新從 Yahoo / Stooq 抓取最新真實成價與指數"):
+            for _fn in (fetch_realtime_market_tick,
+                        fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc):
+                try:
+                    _fn.clear()
+                except Exception:
+                    pass
+            st.rerun()
         st.markdown(f"""
         <div class="aa-quote-container">
             <div style="font-size:13px; color:#1a73e8; margin-bottom:10px; font-weight:600;">
@@ -2128,7 +2347,7 @@ def live_price_fragment():
             </div>
             <div style="display:flex; gap:14px;">
                 <div class="{box_cls}" style="flex:1.15;">
-                    <div style="font-size:12px; color:#666;">真實現價 {curr_label}（Yahoo Finance）</div>
+                    <div style="font-size:12px; color:#666;">真實現價 {curr_label}（{_src_name}）</div>
                     <div class="{price_cls}">{arrow_sym} {live_q['price']:,.3f}</div>
                 </div>
                 <div class="{box_cls}" style="flex:1;">
@@ -2160,14 +2379,10 @@ def live_price_fragment():
                 {_data_source_line}
             </div>
         </div>
-        {render_orderbook_40_html(live_q)}
         """, unsafe_allow_html=True)
 
-if enable_1s_live:
-    live_price_fragment()
-else:
-    live_q_static = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
-    st.markdown(f"**{live_q_static['code']} {live_q_static['name']}** — 即時現價 {live_q_static['price']:,.3f} {live_q_static['curr']} ({live_q_static['pct']:+.2f}%)")
+# v7：統一以手動面板渲染（不再有自動/靜態分支）
+render_quote_panel()
 
 q_data = q_data_init
 
@@ -2412,6 +2627,18 @@ tabs = st.tabs([
     "港美股市牛熊宏觀診斷"
 ])
 
+def tab_refresh_button(key: str, extra_fns=None, label: str = "🔄 更新本分頁數據"):
+    """v7：每個分頁的手動更新小按鈕；按下後清除相關快取並重跑，不做任何自動更新。"""
+    if st.button(label, key=key, use_container_width=True,
+                 help="手動重新抓取本分頁所需的真實數據（Yahoo / Stooq）"):
+        fns = list(extra_fns or []) + [get_price_history, fetch_stooq_ohlc, fetch_realtime_market_tick]
+        for fn in fns:
+            try:
+                fn.clear()
+            except Exception:
+                pass
+        st.rerun()
+
 # ------------------------------------------
 # 分頁 A：全市場爆升與爆跌股批判篩選器 (解決問題2：完整顯示所有中文字，直行橫行可自由調校闊度高度)
 # ------------------------------------------
@@ -2601,6 +2828,7 @@ with tabs[1]:
     # 取得真實上市年份，用於判斷哪些年度不應偽造數據
     _listing_yr = infer_listing_year(selected_symbol)
     st.subheader(f"📊 {q_data['code']} {q_data['name']} ({q_data['symbol']}) — 2010年至2028E 財務狀況及 82 項 8P 財務分析表")
+    tab_refresh_button("refresh_tab_8p", [fetch_real_annual_financials, fetch_real_fundamentals])
     st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出，支援自由調校每個直行闊度與橫行高度。")
 
     # v6 真實財報數據口徑提示框
@@ -2910,6 +3138,7 @@ with tabs[1]:
 # ------------------------------------------
 with tabs[2]:
     st.subheader(f"🎯 {q_data['code']} {q_data['name']} — 2026年基本面高低位分析與歷史倍數推算")
+    tab_refresh_button("refresh_tab_fund", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
     
     eps_26 = q_data["fwd_eps"]
     bps_26 = q_data["bps"]
@@ -2983,12 +3212,15 @@ with tabs[2]:
         annotation_text=f"現價: {q_data['price']:,.2f} {q_data['curr']}", annotation_position="top right",
         annotation_font=dict(color="#d93025", size=13)
     )
+    _tc = get_theme_chart_colors()
     fig_bands.update_layout(
         title=f"{q_data['name']} — 2026年基本面與歷史 8P 模型高低位區間 vs 當前現價對標圖",
         xaxis_title=f"價格 ({q_data['curr']})", height=320,
-        margin=dict(l=20, r=90, t=40, b=30), paper_bgcolor="#ffffff", plot_bgcolor="#ffffff"
+        margin=dict(l=20, r=90, t=40, b=30),
+        paper_bgcolor=_tc["paper"], plot_bgcolor=_tc["plot"], font=dict(color=_tc["text"])
     )
-    fig_bands.update_xaxes(gridcolor="#eeeeee", range=[min(low_vals + [q_data["price"]])*0.80, max(high_vals + [q_data["price"]])*1.18])
+    fig_bands.update_xaxes(gridcolor=_tc["grid"], range=[min(low_vals + [q_data["price"]])*0.80, max(high_vals + [q_data["price"]])*1.18])
+    fig_bands.update_yaxes(gridcolor=_tc["grid"])
     st.plotly_chart(fig_bands, use_container_width=True)
 
 # ------------------------------------------
@@ -2996,7 +3228,27 @@ with tabs[2]:
 # ------------------------------------------
 with tabs[3]:
     st.subheader(f"🌊 {q_data['code']} {q_data['name']} — 2026年 1月至12月走勢預測與波浪理論分析")
-    
+
+    # v7 手動刷新 + ZigZag 閾值
+    _w_r1, _w_r2 = st.columns([1, 3])
+    with _w_r1:
+        st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 更新波浪分析", key="refresh_wave_btn", use_container_width=True,
+                     help="重新從 Yahoo / Stooq 抓取真實日線與月度走勢，重算擺動點與標浪"):
+            for _fn in (fetch_real_monthly_path, fetch_real_momentum_snapshot,
+                        get_price_history, fetch_stooq_ohlc):
+                try:
+                    _fn.clear()
+                except Exception:
+                    pass
+            st.rerun()
+    with _w_r2:
+        zig_pct = st.slider(
+            "ZigZag 擺動閾值 %（越小越敏感、擺動點越多；越大越只看主要高低點）",
+            min_value=3.0, max_value=15.0, value=6.0, step=0.5, key="zig_pct_slider"
+        ) / 100.0
+    wave = compute_wave_analysis(selected_symbol, pct=zig_pct)
+
     # v6：波浪理論「實際軌跡」改用真實月度收盤 + 真實 52 週高低點，不再硬編碼或線性內插
     mp = fetch_real_monthly_path(selected_symbol)
     mom_w = fetch_real_momentum_snapshot(selected_symbol)
@@ -3057,6 +3309,101 @@ with tabs[3]:
         st.warning("⚠️ Yahoo Finance 暫時無法提供此標的真實月度走勢，無法繪製波浪圖（不使用模擬數據）。")
     st.plotly_chart(fig_wave, use_container_width=True)
 
+    # ===== v7：ZigZag 自動擺動點 + 啟發式艾略特標浪（誠實標註，不假裝 100% 準確）=====
+    st.markdown("##### 🧩 艾略特波浪自動標示（ZigZag 擺動點演算法）")
+    if wave.get("ok") and wave.get("pivots"):
+        tc = get_theme_chart_colors()
+        fig_zz = go.Figure()
+        fig_zz.add_hrect(
+            y0=wave["lo52"], y1=wave["hi52"],
+            fillcolor="rgba(26,115,232,0.10)", line_width=1, line_dash="dot",
+            line_color="#1a73e8", layer="below",
+            annotation_text=f"52週真實區間 {wave['lo52']:,.1f}–{wave['hi52']:,.1f}",
+            annotation_position="bottom left"
+        )
+        # 真實日線收盤（淡底線）
+        fig_zz.add_trace(go.Scatter(
+            x=wave["line_dates"], y=wave["line_close"], mode="lines",
+            name="真實日線收盤", line=dict(color=tc["grid"], width=1), opacity=0.9
+        ))
+        # ZigZag 連線
+        fig_zz.add_trace(go.Scatter(
+            x=wave["dates"], y=wave["prices"], mode="lines",
+            name=f"ZigZag {wave['pct']*100:.1f}% 閾值",
+            line=dict(color=tc["ma20"], width=2)
+        ))
+        # 分類標號點
+        zz_dates, zz_prices, zz_kinds = wave["dates"], wave["prices"], wave["kinds"]
+        zz_labels = wave["labels"]
+        h_d, h_p, h_t = [], [], []
+        l_d, l_p, l_t = [], [], []
+        u_d, u_p, u_t = [], [], []
+        n_d, n_p = [], []
+        for i, (d, p, k) in enumerate(zip(zz_dates, zz_prices, zz_kinds)):
+            lab = zz_labels[i]
+            if k.endswith("?"):
+                u_d.append(d); u_p.append(p); u_t.append(f"{lab or '?'}")
+            elif lab:
+                if k.startswith("H"):
+                    h_d.append(d); h_p.append(p); h_t.append(lab)
+                else:
+                    l_d.append(d); l_p.append(p); l_t.append(lab)
+            else:
+                n_d.append(d); n_p.append(p)
+        fig_zz.add_trace(go.Scatter(
+            x=h_d, y=h_p, text=h_t, mode="markers+text", textposition="top center",
+            textfont=dict(size=15, color="#ef5350"), name="推動浪高點 1/3/5、B",
+            marker=dict(size=10, color="#ef5350", symbol="triangle-down")
+        ))
+        fig_zz.add_trace(go.Scatter(
+            x=l_d, y=l_p, text=l_t, mode="markers+text", textposition="bottom center",
+            textfont=dict(size=15, color="#26a69a"), name="推動浪低點 0/2/4、A、C",
+            marker=dict(size=10, color="#26a69a", symbol="triangle-up")
+        ))
+        fig_zz.add_trace(go.Scatter(
+            x=u_d, y=u_p, text=u_t, mode="markers+text", textposition="middle right",
+            textfont=dict(size=13, color="#fa903e"), name="尚未確認的當前潛在端點",
+            marker=dict(size=12, color="rgba(250,144,62,0.25)", line=dict(width=1.5, color="#fa903e"), symbol="circle")
+        ))
+        fig_zz.add_trace(go.Scatter(
+            x=n_d, y=n_p, mode="markers", name="未編號擺動點",
+            marker=dict(size=5, color=tc["muted"] if "muted" in tc else "#9aa3b2")
+        ))
+        fig_zz.update_layout(
+            title=f"{q_data['name']} ({q_data['symbol']}) — ZigZag 自動擺動點與啟發式 1–5 / A–C 標浪（數據源：{wave['src'] or 'Yahoo/Stooq'}）",
+            yaxis_title=f"價格 ({q_data['curr']})", height=620,
+            margin=dict(l=20, r=30, t=55, b=25),
+            paper_bgcolor=tc["paper"], plot_bgcolor=tc["plot"], font=dict(color=tc["text"]),
+            legend=dict(orientation="h", y=1.02)
+        )
+        fig_zz.update_xaxes(gridcolor=tc["grid"]); fig_zz.update_yaxes(gridcolor=tc["grid"])
+        st.plotly_chart(fig_zz, use_container_width=True)
+
+        st.error(
+            "⚠️ **關於波浪標號的批判性說明（請務必先讀）**：艾略特波浪理論本質主觀、須事後才可確認，"
+            "同一張圖往往存在多種合理數法，**並不存在「100% 準確」的即時標浪**。上圖 1–5 與 A–C，"
+            f"是電腦以 **{wave['pct']*100:.1f}% ZigZag 擺動閾值**機械識別擺動高低點後，依固定規則自動編號的「**其中一種可能解讀**」，"
+            "僅供分析參考、絕非定論；調整閾值或加入更長數據，標號都可能改變。橙色空心點為「尚未確認」的潛在端點。"
+            "此標示**不構成投資建議**，請務必結合成交、基本面與大趨勢自行人工確認。"
+        )
+        # 擺動點明細表
+        _rows = []
+        for i, (d, p, k) in enumerate(zip(zz_dates, zz_prices, zz_kinds)):
+            _rows.append({
+                "日期": d,
+                "高低點": "高點" if k.startswith("H") else "低點",
+                f"價格({q_data['curr']})": round(p, 3),
+                "自動標號": zz_labels[i] if zz_labels[i] else "—",
+                "是否確認": "已確認" if not k.endswith("?") else "未確認"
+            })
+        with st.expander("📋 檢視 ZigZag 擺動點明細（含自動標號）", expanded=False):
+            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+    else:
+        st.warning(
+            "⚠️ Yahoo Finance 與 Stooq 目前均無法提供此標的足夠長的真實日線，無法計算 ZigZag 擺動點與標浪。"
+            "本系統不會在無真實數據時編造波浪，請按「🔄 更新波浪分析」或稍後重試。"
+        )
+
     c_w6, c_w7 = st.columns(2)
     with c_w6:
         _av = [v for v in w_actual if isinstance(v, (int, float))]
@@ -3112,6 +3459,7 @@ with tabs[3]:
 # ------------------------------------------
 with tabs[4]:
     st.subheader(f"⚖️ {q_data['code']} {q_data['name']} — 批判性入市判斷、客觀估值評分與同行比較")
+    tab_refresh_button("refresh_tab_entry", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
     
     pos_pct = (q_data["price"] - q_data["w52_low"]) / max(q_data["w52_high"] - q_data["w52_low"], 0.01) * 100.0
     pos_pct = float(np.clip(pos_pct, 1.0, 99.0))
@@ -3181,6 +3529,7 @@ with tabs[4]:
 # ------------------------------------------
 with tabs[5]:
     st.subheader("🌍 香港和美國目前或今年（2026年）是否已進入牛市或熊市？")
+    tab_refresh_button("refresh_tab_macro", [fetch_real_momentum_snapshot])
 
     # v6：牛熊判定完全由真實指數數據驅動，不再寫死結論與點位
     macro_indices = [("🇺🇸 標普500", "^GSPC"), ("🇺🇸 納斯達克", "^IXIC"),
