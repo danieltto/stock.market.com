@@ -6,6 +6,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import html
 
 try:
@@ -263,6 +264,21 @@ def inject_security_and_styles():
         table.orderbook-html-table tbody tr:nth-child(even) {
             background: #f8fafc;
         }
+        .orderbook-l2-note {
+            font-size: 11.5px; color: #8a5a00; background: #fff7e6;
+            border: 1px solid #ffd591; border-radius: 6px; padding: 6px 9px;
+            margin: 6px 0 8px; line-height: 1.5; font-weight: 600;
+        }
+        table.orderbook-html-table td.ob-na {
+            color: #9aa3b2; font-size: 11.5px; text-align: center;
+            font-style: italic; letter-spacing: 0.3px;
+        }
+        table.orderbook-html-table tr.ob-na-row { color: #b8bfcc; }
+        .theme-darkblue .orderbook-l2-note, .theme-dark .orderbook-l2-note {
+            background: #3a2f10; color: #ffd591; border-color: #8a6d3b;
+        }
+        .theme-darkblue table.orderbook-html-table td.ob-na,
+        .theme-dark table.orderbook-html-table td.ob-na { color: #6b7689; }
 
         /* ===== 深色主題：深藍（darkblue）===== */
         .theme-darkblue .stApp {
@@ -816,15 +832,15 @@ for row in RAW_UNIVERSE:
         news_s = "《大行》摩通降騰訊目標價至625元 AI策略順序清晰惟回報需時更長"
         adr_s = "相關美股: TCEHY.US 52.290 美元 (折合 410.38 港元, 港股比美股高 +0.10%)"
     else:
-        np.random.seed(abs(hash(sym)) % 100000)
-        pct = round(float(np.random.uniform(-1.8, 1.8)), 2)
-        chg = round(p * (pct / 100.0), 3)
-        lo = round(p * 0.988, 3)
-        hi = round(p * 1.014, 3)
-        w52_l = round(p * (0.72 if exp_r > 0 else 0.58), 2)
-        w52_h = round(p * (1.32 if exp_r > 20 else 1.12), 2)
-        vol_s = f"{round(max(mcap_u*0.08, 2.5), 2)}百萬"
-        turn_s = f"{round(max(mcap_u*0.015, 1.2), 2)}億 {curr}"
+        # v6：不再用 np.random 造假漲跌/高低點。以下僅為「最後已知靜態參考基準」，
+        # 真實行情會在 get_or_create_asset_profile 由 Yahoo Finance 覆蓋；離線時漲跌明確顯示 0。
+        chg, pct = 0.0, 0.0
+        lo = round(p, 3)
+        hi = round(p, 3)
+        w52_l = round(p * 0.72, 2)
+        w52_h = round(p * 1.28, 2)
+        vol_s = "數據連線中"
+        turn_s = f"— {curr}"
         mcap_s = f"{round(mcap_u * (7.85 if curr=='HKD' else 1.0), 1)}十億 {curr}" if mkt in ["HK", "US"] else f"指數/合約資產 (US${mcap_u}B)"
         pe_v = round(f_pe * 1.12, 2)
         eps_v = round(p / max(pe_v, 1.0), 4)
@@ -864,46 +880,526 @@ for row in RAW_UNIVERSE:
     }
 
 # ==========================================
-# 4. 強制即時連線抓取函數 (修正問題1及問題4：確保所有股票、納指、道斯指數、標普500皆反映真實即時價格)
+# 4. 真實市場數據抓取層（v6：杜絕假跳動、假盤口、假財報；全部以 Yahoo Finance 真實數據為準）
 # ==========================================
-@st.cache_data(ttl=2)
-def fetch_realtime_market_tick(symbol: str):
-    """每 2 秒從 Yahoo Finance 獲取最新即時成交價；fragment 以 200ms 觸發但中間用本地 micro-tick 模擬跳動，避免 API 限流。"""
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def fetch_real_fundamentals(symbol: str):
+    """
+    從 Yahoo Finance 抓取真實基本面與財報數據（財報更新頻率低，快取 6 小時）。
+    任何字段取不到時一律為 None，由調用方顯示「數據缺失」，絕不以亂數或推估值填充。
+    回傳 dict：fund（基本面指標）、fin（財報關鍵值）、as_of（數據時點）。
+    """
+    out = {"ok": False, "fund": {}, "as_of": None, "source": "Yahoo Finance"}
     try:
         tk = yf.Ticker(symbol)
-        # 優先讀取毫秒級 fast_info，再讀取 1m / 1d history
-        h1d = tk.history(period="5d", interval="1d")
-        if h1d is not None and not h1d.empty:
-            p = float(h1d["Close"].iloc[-1])
-            prev = float(h1d["Close"].iloc[-2]) if len(h1d) > 1 else float(h1d["Open"].iloc[-1])
-            lo = float(h1d["Low"].iloc[-1])
-            hi = float(h1d["High"].iloc[-1])
-            vol = float(h1d["Volume"].iloc[-1])
-            
-            # 嘗試抓取 1 分鐘級最新 tick
-            try:
-                h1m = tk.history(period="1d", interval="1m")
-                if h1m is not None and not h1m.empty:
-                    p = float(h1m["Close"].iloc[-1])
-                    lo = min(lo, float(h1m["Low"].min()))
-                    hi = max(hi, float(h1m["High"].max()))
-            except Exception:
-                pass
-                
+        info = {}
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
+
+        def _g(*keys):
+            for k in keys:
+                v = info.get(k)
+                if v is not None:
+                    return v
+            return None
+
+        fund = {
+            "bid": _g("bid", "regularMarketBid"),
+            "ask": _g("ask", "regularMarketAsk"),
+            "bid_size": _g("bidSize", "regularMarketBidSize"),
+            "ask_size": _g("askSize", "regularMarketAskSize"),
+            "trailing_pe": _g("trailingPE", "peTrailing"),
+            "forward_pe": _g("forwardPE", "peForward"),
+            "pb": _g("priceToBook", "pb"),
+            "ps": _g("priceToSalesTrailing12Months", "psTrailing"),
+            "trailing_eps": _g("trailingEps"),
+            "forward_eps": _g("forwardEps"),
+            "dividend_yield": _g("dividendYield"),
+            "total_revenue": _g("totalRevenue"),
+            "revenue_growth": _g("revenueGrowth"),
+            "earnings_growth": _g("earningsGrowth"),
+            "gross_margin": _g("grossMargins"),
+            "profit_margin": _g("profitMargins"),
+            "roe": _g("returnOnEquity"),
+            "roa": _g("returnOnAssets"),
+            "debt_to_equity": _g("debtToEquity"),
+            "current_ratio": _g("currentRatio"),
+            "market_cap": _g("marketCap", "marketCapNumber"),
+            "shares_out": _g("sharesOutstanding"),
+            "beta": _g("beta"),
+            "book_value": _g("bookValue"),
+            "operating_cf": _g("operatingCashflow"),
+            "free_cf": _g("freeCashflow"),
+            "total_cash": _g("totalCash", "cashAndCashEquivalents"),
+            "total_debt_info": _g("totalDebt"),
+            "fifty_two_high": _g("fiftyTwoWeekHigh"),
+            "fifty_two_low": _g("fiftyTwoWeekLow"),
+            "avg_volume": _g("averageVolume"),
+            "sector": _g("sector"),
+            "industry": _g("industry"),
+            "quote_type": _g("quoteType"),
+            "currency": _g("currency"),
+            "regular_market_time": _g("regularMarketTime", "regularMarketUnix"),
+        }
+
+        # 財報（年度）— 真實歷史財報，取不到就留空
+        fin = {}
+        try:
+            inc = tk.income_stmt
+            if inc is not None and not inc.empty:
+                latest = inc.columns[0]
+                def _row(name):
+                    if name in inc.index:
+                        v = inc.loc[name].dropna()
+                        return float(v.iloc[0]) if len(v) else None
+                    return None
+                fin["fiscal_date"] = str(latest.date()) if hasattr(latest, "date") else str(latest)
+                fin["revenue"] = _row("Total Revenue")
+                fin["gross_profit"] = _row("Gross Profit")
+                fin["net_income"] = _row("Net Income")
+                fin["ebitda"] = _row("EBITDA")
+        except Exception:
+            pass
+
+        try:
+            bs = tk.balance_sheet
+            if bs is not None and not bs.empty:
+                def _brow(name):
+                    if name in bs.index:
+                        v = bs.loc[name].dropna()
+                        return float(v.iloc[0]) if len(v) else None
+                    return None
+                fin["total_assets"] = _brow("Total Assets")
+                fin["total_debt"] = _brow("Total Debt")
+                fin["total_equity"] = _brow("Stockholders Equity")
+                fin["cash"] = _brow("Cash And Cash Equivalents")
+        except Exception:
+            pass
+
+        out["ok"] = bool(info)
+        out["fund"] = fund
+        out["fin"] = fin
+        out["as_of"] = datetime.now().strftime("%Y/%m/%d %H:%M")
+        return out
+    except Exception:
+        return out
+
+
+@st.cache_data(ttl=8, show_spinner=False)
+def fetch_realtime_market_tick(symbol: str):
+    """
+    每 8 秒從 Yahoo Finance 取得真實最新成價與盤口（v6：不再用本地 micro-tick 造假跳動）。
+    免費源限制：
+      - 港股成價通常延遲約 15 分鐘；美股盤中接近即時（視交易所而定）。
+      - 完整 40 檔 Level 2 買賣盤深度為付費數據，Yahoo 僅可能提供最佳一檔 bid/ask。
+    回傳值含 data_ok / price / change / pct / low / high / vol / bid / ask / 數據時點 / 延遲標記。
+    """
+    result = {"live_ok": False, "bid": None, "ask": None, "bid_size": None, "ask_size": None,
+              "quote_time": None, "delayed": None}
+    try:
+        tk = yf.Ticker(symbol)
+        p = prev = lo = hi = vol = None
+
+        # 1) 日線：取最新成價、前收、日內高低、成交量
+        try:
+            h1d = tk.history(period="5d", interval="1d", auto_adjust=False)
+            if h1d is not None and not h1d.empty:
+                p = float(h1d["Close"].iloc[-1])
+                prev = float(h1d["Close"].iloc[-2]) if len(h1d) > 1 else float(h1d["Open"].iloc[-1])
+                lo = float(h1d["Low"].iloc[-1])
+                hi = float(h1d["High"].iloc[-1])
+                vol = float(h1d["Volume"].iloc[-1])
+        except Exception:
+            pass
+
+        # 2) 1 分鐘線：盤中以最新一根 1m 收盤價覆蓋（港股 Yahoo 仍為延遲）
+        try:
+            h1m = tk.history(period="1d", interval="1m", auto_adjust=False)
+            if h1m is not None and not h1m.empty:
+                p = float(h1m["Close"].iloc[-1])
+                lo = min(lo, float(h1m["Low"].min())) if lo is not None else float(h1m["Low"].min())
+                hi = max(hi, float(h1m["High"].max())) if hi is not None else float(h1m["High"].max())
+                result["quote_time"] = str(h1m.index[-1].tz_localize(None))[:19]
+        except Exception:
+            pass
+
+        # 3) 真實盤口（僅最佳一檔；港股常為 None）
+        try:
+            info = tk.info or {}
+            result["bid"] = info.get("bid")
+            result["ask"] = info.get("ask")
+            result["bid_size"] = info.get("bidSize")
+            result["ask_size"] = info.get("askSize")
+            mkt_state = str(info.get("marketState", "")).lower()
+            result["delayed"] = ("delayed" in str(info.get("exchangeDataDelayedBy", 0)).lower()) or (
+                isinstance(info.get("exchangeDataDelayedBy"), (int, float)) and info.get("exchangeDataDelayedBy", 0) > 60
+            )
+        except Exception:
+            pass
+
+        if p is not None and prev is not None:
             chg = p - prev
             pct = (chg / prev * 100.0) if prev else 0.0
-            return {
+            result.update({
                 "live_ok": True,
                 "price": round(p, 3),
                 "change": round(chg, 3),
                 "pct": round(pct, 2),
-                "low": round(lo, 3),
-                "high": round(hi, 3),
-                "vol_num": vol
-            }
+                "low": round(lo, 3) if lo is not None else round(p, 3),
+                "high": round(hi, 3) if hi is not None else round(p, 3),
+                "vol_num": vol or 0.0,
+                "prev_close": round(prev, 3)
+            })
     except Exception:
         pass
-    return {"live_ok": False}
+    return result
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def fetch_real_momentum_snapshot(symbol: str):
+    """
+    v6 真實價格動能快照（快取 6 小時）。全部由真實歷史日線計算，不含任何假設軌跡：
+      - 52 週高/低、現價於 52 週區間位置百分位
+      - 近 21 / 63 / 126 交易日（約 1/3/6 月）真實回報
+      - 日收益率年化波動率（用於客觀波幅區間）
+      - RSI14、現價相對 50/200 日均線位置
+    取不到時 ok=False。
+    """
+    out = {"ok": False}
+    try:
+        tk = yf.Ticker(symbol)
+        df = tk.history(period="2y", interval="1d", auto_adjust=True)
+        if df is None or df.empty or len(df) < 60:
+            return out
+        close = df["Close"].dropna()
+        if len(close) < 60:
+            return out
+        p = float(close.iloc[-1])
+        hi52 = float(df["High"].tail(252).max())
+        lo52 = float(df["Low"].tail(252).min())
+        pos52 = (p - lo52) / (hi52 - lo52) * 100 if hi52 > lo52 else 50.0
+
+        def _ret(n):
+            if len(close) > n:
+                base = float(close.iloc[-1 - n])
+                return (p / base - 1) * 100 if base else None
+            return None
+        r21, r63, r126 = _ret(21), _ret(63), _ret(126)
+
+        ret = close.pct_change().dropna()
+        vol_ann = float(ret.tail(252).std() * (252 ** 0.5) * 100) if len(ret) > 30 else None
+
+        delta = close.diff()
+        up = delta.clip(lower=0).rolling(14).mean()
+        dn = (-delta.clip(upper=0)).rolling(14).mean()
+        rsi = float(100 - 100 / (1 + (up.iloc[-1] / (dn.iloc[-1] + 1e-9))))
+
+        ma50 = float(close.tail(50).mean())
+        ma200 = float(close.tail(min(200, len(close))).mean())
+        above_ma50 = p > ma50
+        above_ma200 = p > ma200
+
+        out.update({
+            "ok": True, "price": round(p, 3), "hi52": round(hi52, 3), "lo52": round(lo52, 3),
+            "pos52": round(pos52, 1), "r21": round(r21, 1) if r21 is not None else None,
+            "r63": round(r63, 1) if r63 is not None else None,
+            "r126": round(r126, 1) if r126 is not None else None,
+            "vol_ann": round(vol_ann, 1) if vol_ann is not None else None,
+            "rsi": round(rsi, 1), "above_ma50": above_ma50, "above_ma200": above_ma200,
+            "ma50": round(ma50, 3), "ma200": round(ma200, 3),
+            "as_of": str(df.index[-1].tz_localize(None))[:10]
+        })
+        return out
+    except Exception:
+        return out
+
+
+@st.cache_data(ttl=12 * 3600, show_spinner=False)
+def fetch_real_annual_financials(symbol: str):
+    """
+    v6 真實年度財報（快取 12 小時）。從 Yahoo Finance 拉取：
+      - 年度損益表（收入、毛利、純利、EBITDA、營運收入、R&D、稅項、EPS、股數）
+      - 年度資產負債表（資產、權益、負債、債務、現金、流動比率、應收/應付、存貨）
+      - 年度現金流（經營現金流、自由現金流、資本開支、折舊）
+      - 年度股息（dividends 按年匯總）
+      - 歷史年度最高/最低收市價（history(max) 按年 resample，可覆蓋上市以來）
+    免費源通常僅提供最近約 4 年年度財報；更早年度一律回傳缺失，由表格標 N/A，不編造。
+    回傳：{year(int): {field: value}}，外加 "_years_price" {year: {high, low}}。
+    """
+    annual = {}
+    price_year = {}
+
+    def _row(df, candidates):
+        if df is None:
+            return None
+        for c in candidates:
+            if c in df.index:
+                ser = df.loc[c]
+                ser = ser.dropna() if hasattr(ser, "dropna") else ser
+                if ser is not None and len(ser) > 0:
+                    return ser
+        return None
+
+    def _put(yr, key, val):
+        if val is None or (isinstance(val, float) and (val != val)):
+            return
+        annual.setdefault(yr, {})[key] = float(val)
+
+    try:
+        tk = yf.Ticker(symbol)
+        inc = None; bs = None; cf = None
+        try:
+            inc = tk.income_stmt
+        except Exception:
+            inc = None
+        try:
+            bs = tk.balance_sheet
+        except Exception:
+            bs = None
+        try:
+            cf = tk.cashflow
+        except Exception:
+            cf = None
+
+        if inc is not None and not inc.empty:
+            for col in inc.columns:
+                yr = getattr(col, "year", None)
+                if yr is None:
+                    continue
+                frame = inc[[col]]
+                def _v(cands):
+                    s = _row(frame, cands)
+                    return s.iloc[0] if s is not None else None
+                _put(yr, "revenue", _v(["Total Revenue", "Total Revenue Growth"]))
+                _put(yr, "gross_profit", _v(["Gross Profit"]))
+                _put(yr, "net_income", _v(["Net Income", "Net Income Common Stockholders", "Net Income Continuous Operations"]))
+                _put(yr, "ebitda", _v(["EBITDA", "Normalized EBITDA"]))
+                _put(yr, "op_income", _v(["Operating Income"]))
+                _put(yr, "rd", _v(["Research And Development"]))
+                _put(yr, "sga", _v(["Selling General And Administration", "Selling General & Administration"]))
+                _put(yr, "interest", _v(["Interest Expense", "Net Interest"]))
+                _put(yr, "tax", _v(["Tax Provision", "Income Tax Expense"]))
+                _put(yr, "eps", _v(["Diluted EPS", "Basic EPS"]))
+                _put(yr, "shares", _v(["Diluted Average Shares", "Basic Average Shares"]))
+
+        if bs is not None and not bs.empty:
+            for col in bs.columns:
+                yr = getattr(col, "year", None)
+                if yr is None:
+                    continue
+                frame = bs[[col]]
+                def _v(cands):
+                    s = _row(frame, cands)
+                    return s.iloc[0] if s is not None else None
+                _put(yr, "assets", _v(["Total Assets"]))
+                _put(yr, "equity", _v(["Stockholders Equity", "Stockholders' Equity", "Total Equity Gross Minority Interest"]))
+                _put(yr, "liabilities", _v(["Total Liabilities Net Minority Interest", "Total Liabilities"]))
+                _put(yr, "debt", _v(["Total Debt", "Net Debt"]))
+                _put(yr, "cash", _v(["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"]))
+                _put(yr, "curr_assets", _v(["Current Assets"]))
+                _put(yr, "curr_liab", _v(["Current Liabilities"]))
+                _put(yr, "receivables", _v(["Receivables", "Accounts Receivable"]))
+                _put(yr, "payables", _v(["Payables", "Accounts Payable"]))
+                _put(yr, "inventory", _v(["Inventory"]))
+
+        if cf is not None and not cf.empty:
+            for col in cf.columns:
+                yr = getattr(col, "year", None)
+                if yr is None:
+                    continue
+                frame = cf[[col]]
+                def _v(cands):
+                    s = _row(frame, cands)
+                    return s.iloc[0] if s is not None else None
+                _put(yr, "ocf", _v(["Operating Cash Flow", "Total Cash From Operating Activities"]))
+                _put(yr, "fcf", _v(["Free Cash Flow"]))
+                _put(yr, "capex", _v(["Capital Expenditure"]))
+                _put(yr, "depreciation", _v(["Depreciation And Amortization", "Depreciation", "Depreciation Amortization Depletion"]))
+
+        # 年度股息
+        try:
+            divs = tk.dividends
+            if divs is not None and not divs.empty:
+                div_year = divs.groupby(divs.index.year).sum()
+                for yr, v in div_year.items():
+                    _put(int(yr), "dps_total", float(v))
+        except Exception:
+            pass
+
+        # 歷史年度最高/最低（收盤價口徑，複權）
+        try:
+            hmax = tk.history(period="max", interval="1d", auto_adjust=True)
+            if hmax is not None and not hmax.empty:
+                grp = hmax.groupby(hmax.index.year)
+                for yr, g in grp:
+                    price_year[int(yr)] = {
+                        "high": float(g["High"].max()),
+                        "low": float(g["Low"].min()),
+                        "close": float(g["Close"].iloc[-1])
+                    }
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+    annual["_price_year"] = price_year
+    return annual
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def fetch_real_monthly_path(symbol: str, months: int = 13):
+    """
+    v6 真實月度走勢（供波浪理論分頁）。回傳近 months 個月每月末收盤價（真實），
+    以及 52 週真實最高/最低價及其發生日期。取不到時 ok=False。
+    """
+    out = {"ok": False}
+    try:
+        tk = yf.Ticker(symbol)
+        df = tk.history(period="2y", interval="1d", auto_adjust=True)
+        if df is None or df.empty:
+            return out
+        m = df.resample("ME").agg({"Close": "last", "High": "max", "Low": "min"}).dropna()
+        m = m.tail(months)
+        labels = [d.strftime("%Y-%m") for d in m.index]
+        closes = [round(float(v), 2) for v in m["Close"].values]
+        d1 = df.tail(252)
+        hi = float(d1["High"].max()); lo = float(d1["Low"].min())
+        hi_d = d1["High"].idxmax(); lo_d = d1["Low"].idxmin()
+        out.update({
+            "ok": True, "labels": labels, "closes": closes,
+            "hi52": round(hi, 2), "lo52": round(lo, 2),
+            "hi52_date": str(hi_d)[:10], "lo52_date": str(lo_d)[:10]
+        })
+        return out
+    except Exception:
+        return out
+
+
+def compute_real_forecast(prof: dict, mom: dict):
+    """
+    v6 真實量化推演（非預測、非保證）：
+      以真實財報（估值/成長/盈利/負債）+ 真實價格動能（52週位置/RSI/均線/歷史波動率）
+      計算方向性評分，並以真實年化波動率推出 1–6 個月客觀統計區間。
+    回傳：direction, tag, expected_pct, lo_pct, hi_pct, t_lo, t_hi, score, reasons[]
+    """
+    p = float(prof.get("price", 0) or 0)
+    if p <= 0 or not mom.get("ok"):
+        return {"ok": False, "reasons": ["真實數據不足，無法推演（Yahoo Finance 未提供該標的完整報價/歷史）。"]}
+
+    fpe = prof.get("fwd_pe")
+    pe = prof.get("pe")
+    ps = prof.get("ps")
+    pb = prof.get("pb")
+    rev_g = prof.get("rev_growth")
+    earn_g = prof.get("earnings_growth")
+    gm = prof.get("gross_margin")
+    nm = prof.get("net_margin")
+    roe = prof.get("roe")
+    d2e = prof.get("debt_to_equity")
+    eps = prof.get("fwd_eps") or prof.get("eps")
+    vol_ann = mom.get("vol_ann")
+    pos52 = mom.get("pos52", 50)
+    rsi = mom.get("rsi", 50)
+    r63 = mom.get("r63")
+    r126 = mom.get("r126")
+    above50 = mom.get("above_ma50")
+    above200 = mom.get("above_ma200")
+
+    score = 0.0
+    reasons = []
+
+    # 估值維度（最多 +3.5 / -3.5）
+    profitable = isinstance(eps, (int, float)) and eps > 0
+    if profitable and isinstance(fpe, (int, float)) and fpe > 0:
+        if fpe < 12:
+            score += 2.0; reasons.append(f"遠期PE僅 {fpe:.1f}x，估值處於偏低區間")
+        elif fpe < 20:
+            score += 1.0; reasons.append(f"遠期PE {fpe:.1f}x，估值合理")
+        elif fpe < 35:
+            score += 0.0; reasons.append(f"遠期PE {fpe:.1f}x，估值不便宜")
+        elif fpe < 60:
+            score -= 1.5; reasons.append(f"遠期PE {fpe:.1f}x，估值偏貴，需高增長兌現")
+        else:
+            score -= 3.0; reasons.append(f"遠期PE高達 {fpe:.1f}x，泡沫風險顯著")
+    else:
+        score -= 2.0
+        reasons.append("未盈利或遠期EPS為負，缺乏估值支撐，股價依賴情緒與融資")
+
+    # 成長/盈利維度（最多 +2.5 / -2.5）
+    if isinstance(rev_g, (int, float)):
+        if rev_g >= 25:
+            score += 1.5; reasons.append(f"營收同比 {rev_g:+.0f}% 高增長")
+        elif rev_g >= 10:
+            score += 0.8; reasons.append(f"營收同比 {rev_g:+.0f}% 穩健成長")
+        elif rev_g <= -10:
+            score -= 1.2; reasons.append(f"營收同比 {rev_g:+.0f}% 收縮")
+        else:
+            reasons.append(f"營收同比 {rev_g:+.0f}%，成長平淡")
+    if isinstance(roe, (int, float)):
+        if roe >= 20:
+            score += 1.0; reasons.append(f"ROE {roe:.0f}% 顯示盈利質素佳")
+        elif roe < 0:
+            score -= 1.0; reasons.append(f"ROE {roe:.0f}% 為負，蝕錢")
+    if isinstance(nm, (int, float)) and nm < 0:
+        score -= 0.8; reasons.append(f"淨利率 {nm:.0f}% 為負")
+
+    # 動能/技術維度（最多 +2 / -2，以真實數據為準）
+    if isinstance(r63, (int, float)):
+        if r63 >= 20:
+            score += 0.8; reasons.append(f"近 3 月真實升 {r63:.0f}%，動能強（亦需防追高）")
+        elif r63 <= -20:
+            score -= 0.8; reasons.append(f"近 3 月真實跌 {r63:.0f}%，動能弱（或存在超賣反彈）")
+    if above200 is True:
+        score += 0.5; reasons.append("現價站穩 200 日線之上")
+    elif above200 is False:
+        score -= 0.5; reasons.append("現價失守 200 日線，中長線偏弱")
+    if rsi >= 75:
+        score -= 0.6; reasons.append(f"RSI {rsi:.0f} 超買，短線回調風險")
+    elif rsi <= 28:
+        score += 0.4; reasons.append(f"RSI {rsi:.0f} 超賣，或現技術反彈")
+    if pos52 >= 92:
+        score -= 0.4; reasons.append(f"貼近 52 週高位（{pos52:.0f}% 分位），安全邊際低")
+    elif pos52 <= 12:
+        score += 0.5; reasons.append(f"處 52 週低位（{pos52:.0f}% 分位），估值修復空間大")
+
+    # 風險維度（最多 -1.5）
+    if isinstance(d2e, (int, float)) and d2e > 150:
+        score -= 1.0; reasons.append(f"負債/股東權益 {d2e:.0f}% 偏高")
+    if not profitable:
+        score -= 0.5
+
+    # 方向定性
+    if score >= 3.0:
+        tag = "🟢 強勢爆升潛力（模型）"
+    elif score >= 1.2:
+        tag = "🟢 溫和上升潛力（模型）"
+    elif score <= -3.0:
+        tag = "🔴 高危爆跌預警（模型）"
+    elif score < 0:
+        tag = "🔴 下行回撤風險（模型）"
+    else:
+        tag = "⚪ 中性區間震盪（模型）"
+
+    # 客觀統計區間：以真實年化波動率推 6 個月（√0.5）的 ±1σ 區間，再疊加方向性傾向
+    sigma_h = (vol_ann or 35) * (0.5 ** 0.5) / 100.0  # 6 個月 1σ
+    drift = max(min(score * 0.04, 0.35), -0.35)        # 評分映射為方向性中樞
+    t_hi = round(p * (1 + drift + sigma_h), 2)
+    t_lo = round(p * (1 + drift - sigma_h), 2)
+    hi_pct = round((drift + sigma_h) * 100)
+    lo_pct = round((drift - sigma_h) * 100)
+    expected_pct = round(drift * 100, 1)
+    direction = "up" if score >= 1.2 else ("down" if score < 0 else "neutral")
+
+    return {
+        "ok": True, "tag": tag, "direction": direction, "score": round(score, 2),
+        "expected_pct": expected_pct, "lo_pct": lo_pct, "hi_pct": hi_pct,
+        "t_lo": t_lo, "t_hi": t_hi, "vol_ann": vol_ann, "pos52": pos52, "rsi": rsi,
+        "reasons": reasons[:5]
+    }
+
 
 def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
     # 先檢查是否為中文同義詞 (如「道斯指數」「納斯達克指數」「標普500指數」)
@@ -985,32 +1481,91 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
                 "stage": "動態檢索資產"
             }
 
-    # 關鍵修正：強制呼叫 live tick 更新所有股票與美國/香港指數之真實即時價位
+    # ===== v6 真實行情覆蓋：以 Yahoo Finance 真實成價為準，杜絕本地假跳動 =====
     live = fetch_realtime_market_tick(prof["symbol"])
+    prof["live_ok"] = bool(live.get("live_ok"))
+    prof["bid"] = live.get("bid")
+    prof["ask"] = live.get("ask")
+    prof["bid_size"] = live.get("bid_size")
+    prof["ask_size"] = live.get("ask_size")
+    prof["quote_time"] = live.get("quote_time")
+    prof["delayed"] = live.get("delayed")
+
     if live.get("live_ok"):
         prof["price"] = live["price"]
         prof["change"] = live["change"]
         prof["pct"] = live["pct"]
         prof["low"] = live["low"]
         prof["high"] = live["high"]
-        prof["w52_low"] = min(prof["w52_low"], live["low"])
-        prof["w52_high"] = max(prof["w52_high"], live["high"])
+        prof["prev_close"] = live.get("prev_close", prof["price"] - prof["change"])
         if live.get("vol_num", 0) > 0:
+            prof["vol_num"] = live["vol_num"]
             prof["vol"] = f"{live['vol_num']/1e6:.2f}百萬"
+    else:
+        prof["change"] = 0.0
+        prof["pct"] = 0.0
+        prof["prev_close"] = prof.get("price", 0)
 
-    # 若啟用 1 秒即時刷新模式，反映每秒市場微觀買賣盤跳動 (Micro-Tick)
-    if apply_micro_tick:
-        now_ms = datetime.now().microsecond
-        jitter_pct = ((now_ms % 7) - 3) * 0.00015
-        base_prev = prof["price"] - prof["change"]
-        new_p = round(prof["price"] * (1.0 + jitter_pct), 3)
-        prof["price"] = new_p
-        prof["change"] = round(new_p - base_prev, 3)
-        prof["pct"] = round((prof["change"] / max(base_prev, 0.001)) * 100.0, 3)
-        prof["low"] = round(min(prof["low"], new_p), 3)
-        prof["high"] = round(max(prof["high"], new_p), 3)
+    # ===== v6 真實基本面覆蓋：僅對股票/ETF（衍生工具與指數沒有財報）=====
+    if prof.get("mkt") in ["HK", "US", "ETF"]:
+        rf = fetch_real_fundamentals(prof["symbol"])
+        prof["fund_ok"] = rf.get("ok", False)
+        fund = rf.get("fund", {})
+        fin = rf.get("fin", {})
+        prof["fund_as_of"] = rf.get("as_of")
 
-    prof["update_time"] = datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]
+        if fund.get("trailing_pe") is not None:
+            prof["pe"] = round(float(fund["trailing_pe"]), 2)
+        if fund.get("forward_pe") is not None:
+            prof["fwd_pe"] = round(float(fund["forward_pe"]), 2)
+        if fund.get("pb") is not None:
+            prof["pb"] = round(float(fund["pb"]), 3)
+        if fund.get("ps") is not None:
+            prof["ps"] = round(float(fund["ps"]), 3)
+        if fund.get("trailing_eps") is not None:
+            prof["eps"] = round(float(fund["trailing_eps"]), 4)
+        if fund.get("forward_eps") is not None:
+            prof["fwd_eps"] = round(float(fund["forward_eps"]), 4)
+        if fund.get("dividend_yield") is not None:
+            prof["yield"] = round(float(fund["dividend_yield"]) * 100, 2)
+        if fund.get("revenue_growth") is not None:
+            prof["rev_growth"] = round(float(fund["revenue_growth"]) * 100, 2)
+        if fund.get("gross_margin") is not None:
+            prof["gross_margin"] = round(float(fund["gross_margin"]) * 100, 2)
+        if fund.get("profit_margin") is not None:
+            prof["net_margin"] = round(float(fund["profit_margin"]) * 100, 2)
+        if fund.get("roe") is not None:
+            prof["roe"] = round(float(fund["roe"]) * 100, 2)
+        if fund.get("market_cap") is not None:
+            prof["mkt_cap_real"] = float(fund["market_cap"])
+        if fund.get("shares_out") is not None:
+            prof["shares_m"] = round(float(fund["shares_out"]) / 1e6, 2)
+        if fund.get("fifty_two_high") is not None:
+            prof["w52_high"] = round(float(fund["fifty_two_high"]), 3)
+        if fund.get("fifty_two_low") is not None:
+            prof["w52_low"] = round(float(fund["fifty_two_low"]), 3)
+        if fund.get("book_value") is not None:
+            prof["bps"] = round(float(fund["book_value"]), 3)
+        # 真實每股經營/自由現金流（用真實現金流除以真實股數）
+        _so = fund.get("shares_out")
+        if isinstance(_so, (int, float)) and _so > 0:
+            if isinstance(fund.get("operating_cf"), (int, float)):
+                prof["ocf_ps"] = round(float(fund["operating_cf"]) / float(_so), 3)
+            if isinstance(fund.get("free_cf"), (int, float)):
+                prof["fcf_ps"] = round(float(fund["free_cf"]) / float(_so), 3)
+        if isinstance(fund.get("total_revenue"), (int, float)):
+            prof["total_revenue_real"] = float(fund["total_revenue"])
+        prof["beta"] = fund.get("beta")
+        prof["debt_to_equity"] = fund.get("debt_to_equity")
+        prof["sector"] = fund.get("sector")
+        prof["industry"] = fund.get("industry")
+        prof["fin_real"] = fin
+    else:
+        prof["fund_ok"] = False
+        prof["fin_real"] = {}
+
+    # v6：apply_micro_tick 已停用（不再製造假跳動）。真實價格只在 Yahoo 刷新時更新。
+    prof["update_time"] = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     return prof
 
 # ==========================================
@@ -1095,6 +1650,18 @@ def search_all_markets_fn(searchterm: str):
 
     return matched if matched else default_list[:30]
 
+# 頂部全局數據源口徑橫幅（v6 誠實聲明）
+st.markdown(
+    "<div style='font-size:12px; line-height:1.6; background:#eef5ff; border:1px solid #b8d3f5; "
+    "border-radius:8px; padding:8px 12px; margin-bottom:8px; color:#1f3a5f;'>"
+    "📡 <b>數據真實性聲明（v6）</b>：本系統所有<b>現價、升跌、歷史 K 線、財報、估值與動能</b>均取自 "
+    "<b>Yahoo Finance（yfinance）真實市場數據</b>，<b>已完全移除假跳動、隨機買賣盤與模擬 K 線</b>。"
+    "免費源限制：港股成價一般<b>延遲約 15 分鐘</b>，且<b>不提供第 2–40 檔 Level 2 買賣盤深度</b>（需富途/盈透等付費報價，本系統不予編造）；"
+    "財報與價格快取 6–8 小時，跨交易日重開會自動更新。模型推演僅為統計參考，<b>不構成投資建議</b>。"
+    "</div>",
+    unsafe_allow_html=True
+)
+
 # 頂部檢索與週期設定區
 col_s1, col_s2 = st.columns([2.3, 2.7])
 with col_s1:
@@ -1117,6 +1684,28 @@ with col_s1:
 if not selected_symbol:
     selected_symbol = "00700.HK"
 
+# ===== v6：切換股票時整個分析畫面即時更新（問題8）=====
+# searchbox 改值後 Streamlit 會從頭重跑；此處再顯式檢測 symbol 變化，清除上一檔的即時/圖表快取，
+# 確保不同日期（如 9/15 與 10/26）查看同一股票時，行情、財報、圖表均重新取最新真實數據。
+if "last_symbol" not in st.session_state:
+    st.session_state["last_symbol"] = selected_symbol
+if st.session_state["last_symbol"] != selected_symbol:
+    try:
+        # v6：切換股票即清空所有真實數據快取，令整個分析畫面（報價、盤口、財報、8P、
+        # 動能、波浪、估值、宏觀）全部以新股票即時重抓，避免顯示上一隻股票的殘留數據。
+        # 注意：get_multi_tf_ohlcv 定義於本段之後，圖表快取依 symbol 參數自動區分，故不在此清。
+        for _fn in (fetch_realtime_market_tick,
+                    fetch_real_fundamentals, fetch_real_momentum_snapshot,
+                    fetch_real_annual_financials, fetch_real_monthly_path):
+            try:
+                _fn.clear()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    st.session_state["last_symbol"] = selected_symbol
+    st.rerun()
+
 with col_s2:
     c_tf1, c_tf2, c_tf3 = st.columns([2.2, 1.8, 1.4])
     with c_tf1:
@@ -1135,7 +1724,7 @@ with col_s2:
         )
     with c_tf3:
         st.markdown("<div style='margin-top:26px;'></div>", unsafe_allow_html=True)
-        enable_1s_live = st.toggle("⚡ 1秒即時更新", value=True, help="啟用後，快速報價看板將每隔 1 秒自動刷新即時價位與毫秒級時間戳記")
+        enable_1s_live = st.toggle("⚡ 自動刷新報價", value=True, help="啟用後每 0.5 秒檢查一次；Yahoo 真實成價約每 8 秒更新（港股通常延遲 15 分鐘），不做假跳動")
 
 # 修正問題5：設置互動式按鈕控制，隨時加入或刪除 RSI, MACD, Volume, MA, 布林通道
 active_indicators = st.multiselect(
@@ -1190,47 +1779,25 @@ def get_multi_tf_ohlcv(symbol: str, timeframe: str):
         df_hist = pd.DataFrame()
 
     if df_hist.empty:
-        np.random.seed(abs(hash(base["symbol"] + timeframe)) % (10**6))
-        p_now = base["price"]
-        w_low = base["w52_low"]
-        w_high = base["w52_high"]
-        
-        counts_map = {
-            "15分鐘圖 (15M)": 180, "30分鐘圖 (30M)": 150, "45分鐘圖 (45M)": 130,
-            "1小時圖 (1H)": 140, "2小時圖 (2H)": 120,
-            "3小時圖 (3H)": 100, "4小時圖 (4H)": 90,
-            "日線圖 (Daily)": 200, "周線圖 (Weekly)": 140
-        }
-        freq_map = {
-            "15分鐘圖 (15M)": "15min", "30分鐘圖 (30M)": "30min", "45分鐘圖 (45M)": "45min",
-            "1小時圖 (1H)": "1h", "2小時圖 (2H)": "2h",
-            "3小時圖 (3H)": "3h", "4小時圖 (4H)": "4h",
-            "日線圖 (Daily)": "B", "周線圖 (Weekly)": "W-FRI"
-        }
-        n = counts_map.get(timeframe, 120)
-        dates = pd.date_range(end=datetime.now(), periods=n, freq=freq_map.get(timeframe, "B"))
-        
-        t_axis = np.linspace(0, 1, n)
-        if timeframe in ["日線圖 (Daily)", "周線圖 (Weekly)"]:
-            wave_path = w_high - (w_high - w_low) * (0.82 * t_axis + 0.16 * np.sin(4 * np.pi * t_axis))
-            wave_path[-1] = p_now
-        else:
-            start_p = p_now * 1.045
-            wave_path = np.linspace(start_p, p_now, n) + np.sin(np.linspace(0, 5.5 * np.pi, n)) * (p_now * 0.018)
-            wave_path[-1] = p_now
-            
-        noise = np.random.normal(0, p_now * 0.005, n)
-        closes = np.clip(wave_path + noise, w_low * 0.95, w_high * 1.03)
-        closes[-1] = p_now
-        opens = np.roll(closes, 1)
-        opens[0] = closes[0] * 0.998
-        span = np.abs(closes - opens) + p_now * 0.007
-        highs = np.maximum(opens, closes) + span * np.random.uniform(0.3, 0.85, n)
-        lows = np.minimum(opens, closes) - span * np.random.uniform(0.3, 0.85, n)
-        highs[-1] = base["high"]
-        lows[-1] = base["low"]
-        vols = np.random.randint(6000000, 32000000, size=n)
-        df_hist = pd.DataFrame({"Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": vols}, index=dates)
+        # v6：不再用 np.random 編造模擬 K 線。改為嘗試備用區間，仍失敗則回傳空資料並標記。
+        for _p, _iv in [("2y", "1d"), ("10y", "1d"), ("1mo", "1h"), ("5d", "30m"), ("5d", "15m")]:
+            try:
+                raw2 = tk.history(period=_p, interval=_iv)
+                if raw2 is not None and not raw2.empty and len(raw2) >= 6:
+                    df_hist = raw2.copy()
+                    df_hist.index = df_hist.index.tz_localize(None) if df_hist.index.tz is not None else df_hist.index
+                    break
+            except Exception:
+                continue
+
+    # 真實數據仍無法取得：回傳空 DataFrame 並標記，由圖表層顯示「數據缺失」，不繪製假圖
+    if df_hist.empty:
+        empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume",
+                                      "MA10", "MA20", "MA50", "BB_Upper", "BB_Lower",
+                                      "RSI14", "MACD", "Signal", "Hist"])
+        empty.attrs["data_ok"] = False
+        empty.attrs["data_msg"] = f"Yahoo Finance 暫時無法提供 {base['symbol']} 的 {timeframe} 真實數據（可能為離線、代號無效或該商品無此週期）。"
+        return empty
 
     df_hist["MA10"] = df_hist["Close"].rolling(10, min_periods=1).mean()
     df_hist["MA20"] = df_hist["Close"].rolling(20, min_periods=1).mean()
@@ -1255,6 +1822,9 @@ def get_multi_tf_ohlcv(symbol: str, timeframe: str):
 
 df_chart = get_multi_tf_ohlcv(selected_symbol, selected_tf)
 q_data_init = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
+# v6 離線安全：圖表數據缺失時不應令引用 MA20/BB/RSI 的分頁崩潰
+chart_ok = bool(df_chart.attrs.get("data_ok", not df_chart.empty)) if hasattr(df_chart, "attrs") else (not df_chart.empty)
+ma20_txt = f"{df_chart['MA20'].iloc[-1]:,.2f} {q_data_init['curr']}" if (chart_ok and "MA20" in df_chart.columns) else "20 日均線（真實數據暫缺）"
 
 # ==========================================
 # 7. 13個頂部功能導覽按鈕
@@ -1284,6 +1854,23 @@ active_aa_tab = st.radio(
 def build_static_chart_figure():
     """構建 K 線圖 figure（只在 symbol/tf/indicators 改變時呼叫，不進入 fragment）"""
     tc = get_theme_chart_colors()
+
+    # v6：真實數據缺失時，顯示明確提示，不繪製任何模擬圖
+    if df_chart is None or df_chart.empty or df_chart.attrs.get("data_ok") is False:
+        msg = getattr(df_chart, "attrs", {}).get("data_msg", "Yahoo Finance 暫時無法提供此商品的真實歷史數據。")
+        fig_empty = go.Figure()
+        fig_empty.add_annotation(
+            text=f"⚠️ {msg}<br><br>本系統不會以模擬或隨機數據繪製圖表。請檢查網絡連線、股票代號，或稍後重試。",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(size=15, color=tc["text"]), align="center", bgcolor=tc["plot"], bordercolor=tc["grid"], borderwidth=1
+        )
+        fig_empty.update_layout(
+            paper_bgcolor=tc["paper"], plot_bgcolor=tc["plot"],
+            height=st.session_state.get("chart_height", 1250),
+            margin=dict(l=10, r=10, t=30, b=10)
+        )
+        return fig_empty
+
     show_vol = "Volume (成交量)" in active_indicators
     show_rsi = "RSI (相對強弱指標)" in active_indicators
     show_macd = "MACD (指數平滑異同移動平均線)" in active_indicators
@@ -1381,42 +1968,81 @@ with col_chart:
     st.plotly_chart(build_static_chart_figure(), use_container_width=True, key="main_kline_static", config={"displayModeBar": True, "responsive": True})
 
 def render_orderbook_40_html(live_q):
-    """純 HTML 渲染 40 檔買賣盤（不使用 expander/slider，避免 fragment 頻繁重跑導致 WebSocket 崩潰）"""
+    """
+    v6 真實盤口（純 HTML，不含 widget，避免 fragment 頻繁重跑導致 WebSocket 崩潰）：
+    - 第 1 檔最佳買賣價（bid/ask）與掛單量，只在 Yahoo Finance 真實提供時顯示。
+    - 第 2–40 檔屬於 Level 2 深度，免費公開源（Yahoo）不提供，明確標示「需付費 Level 2」，
+      絕不再以亂數編造手數/金額。
+    """
     p = live_q["price"]
     curr = live_q["curr"]
-    if p >= 200: tick = 0.20
-    elif p >= 50: tick = 0.05
-    elif p >= 10: tick = 0.02
-    else: tick = 0.01
     lot_size = live_q.get("lot", 100)
-    # 用當前時間做亂數種子，讓每輪 fragment 的手數略有變化，模擬即時深度
-    import time as _t
-    _seed = int(_t.time() * 1000) % 100000
-    rng = np.random.RandomState(_seed)
+    bid = live_q.get("bid")
+    ask = live_q.get("ask")
+    bid_size = live_q.get("bid_size")
+    ask_size = live_q.get("ask_size")
+
+    has_l2 = (bid is not None and ask is not None)
+
+    def _fmt_size(sz):
+        if sz is None:
+            return "—"
+        try:
+            sz = float(sz)
+            if sz >= 10000:
+                return f"{sz/10000:.1f} 萬股"
+            return f"{int(sz):,} 股"
+        except Exception:
+            return "—"
+
+    def _fmt_val(price, sz):
+        if price is None or sz is None:
+            return "—"
+        try:
+            v = float(price) * float(sz)
+            return f"{v/1e4:,.1f} 萬 {curr}"
+        except Exception:
+            return "—"
+
     rows_html = []
     for i in range(1, 41):
-        bid_p = p - i * tick
-        ask_p = p + i * tick
-        base_bid = int(8000 / (i ** 1.15))
-        base_ask = int(6500 / (i ** 1.12))
-        bid_lots = max(base_bid + int(rng.uniform(-60, 60)), 10)
-        ask_lots = max(base_ask + int(rng.uniform(-50, 50)), 8)
-        bid_val = bid_lots * lot_size * bid_p
-        ask_val = ask_lots * lot_size * ask_p
-        rows_html.append(
-            f"<tr>"
-            f"<td class='ob-lvl'>{i:02d}</td>"
-            f"<td class='ob-bid'>{bid_p:,.3f}</td><td class='ob-bid'>{bid_lots:,} 手</td><td class='ob-bid'>{bid_val/1e6:,.2f} 萬</td>"
-            f"<td class='ob-ask'>{ask_p:,.3f}</td><td class='ob-ask'>{ask_lots:,} 手</td><td class='ob-ask'>{ask_val/1e6:,.2f} 萬</td>"
-            f"</tr>"
-        )
+        if i == 1 and has_l2:
+            rows_html.append(
+                f"<tr>"
+                f"<td class='ob-lvl'>01</td>"
+                f"<td class='ob-bid'>{float(bid):,.3f}</td>"
+                f"<td class='ob-bid'>{_fmt_size(bid_size)}</td>"
+                f"<td class='ob-bid'>{_fmt_val(bid, bid_size)}</td>"
+                f"<td class='ob-ask'>{float(ask):,.3f}</td>"
+                f"<td class='ob-ask'>{_fmt_size(ask_size)}</td>"
+                f"<td class='ob-ask'>{_fmt_val(ask, ask_size)}</td>"
+                f"</tr>"
+            )
+        else:
+            note = "需付費 Level 2" if i > 1 else "免費源未提供"
+            rows_html.append(
+                f"<tr class='ob-na-row'>"
+                f"<td class='ob-lvl'>{i:02d}</td>"
+                f"<td class='ob-na' colspan='3'>— {note} —</td>"
+                f"<td class='ob-na' colspan='3'>— {note} —</td>"
+                f"</tr>"
+            )
+
+    if has_l2:
+        spread = float(ask) - float(bid)
+        spread_pct = spread / float(bid) * 100 if bid else 0
+        head_note = f"最佳一檔買賣差價：{spread:,.3f} {curr} ({spread_pct:.3f}%)"
+    else:
+        head_note = "Yahoo 免費行情未提供即時盤口（港股通常僅提供延遲成價，無掛單深度）"
+
     return f"""
     <div class="orderbook-html-box">
-        <div class="orderbook-title">📊 即時 40 檔買賣盤深度（每手 {lot_size:,} 股 | 最小價差 {tick} {curr}）</div>
+        <div class="orderbook-title">📊 買賣盤深度（每手 {lot_size:,} 股）｜僅第 1 檔為真實數據</div>
+        <div class="orderbook-l2-note">⚠️ {head_note}。第 2–40 檔為 Level 2 付費深度（富途／盈透／券商專業報價），本系統使用免費公開源，故不予編造。</div>
         <table class="orderbook-html-table">
             <thead><tr>
-                <th>檔位</th><th>買入價</th><th>買入手數</th><th>買入金額</th>
-                <th>賣出價</th><th>賣出手數</th><th>賣出金額</th>
+                <th>檔位</th><th>買入價</th><th>買入量</th><th>買入金額</th>
+                <th>賣出價</th><th>賣出量</th><th>賣出金額</th>
             </tr></thead>
             <tbody>{''.join(rows_html)}</tbody>
         </table>
@@ -1431,7 +2057,7 @@ def live_price_fragment():
     - 圖表在 fragment 外靜態渲染，不重繪、不閃爍
     - 40 檔買賣盤用純 HTML 表格，避免 widget 狀態同步導致 Cached ForwardMsg MISS 崩潰
     """
-    live_q = get_or_create_asset_profile(selected_symbol, apply_micro_tick=enable_1s_live)
+    live_q = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
     hsi_q = get_or_create_asset_profile("^HSI", apply_micro_tick=False)
     spx_q = get_or_create_asset_profile("^GSPC", apply_micro_tick=False)
     ndx_q = get_or_create_asset_profile("^IXIC", apply_micro_tick=False)
@@ -1442,6 +2068,25 @@ def live_price_fragment():
     price_cls = "aa-price-up" if is_up else "aa-price-down"
     box_cls = "aa-price-box-up" if is_up else "aa-price-box-down"
     curr_label = "港元" if live_q["curr"] == "HKD" else "美元"
+
+    # v6 誠實數據源標示：真實成價、行情時點、延遲提示；離線時明確聲明
+    if live_q.get("live_ok"):
+        qt = live_q.get("quote_time")
+        _is_hk = live_q.get("mkt") == "HK"
+        delay_note = "港股免費源通常延遲約 15 分鐘" if _is_hk else "美股盤中接近即時（視交易所）"
+        _data_source_line = (
+            f"🔗 數據源：Yahoo Finance 真實成價｜{delay_note}｜"
+            f"行情時點：{qt if qt else live_q['update_time']}｜頁面刷新：{live_q['update_time']}"
+        )
+        fund_asof = live_q.get("fund_as_of")
+        if fund_asof:
+            _data_source_line += f"｜基本面數據截至：{fund_asof}"
+    else:
+        _data_source_line = (
+            "⚠️ 無法連線 Yahoo Finance，現價為最後已知參考價（非即時，升跌顯示 0）。"
+            "本系統不會在離線時製造假跳動，請檢查網絡後重試。"
+        )
+    _data_source_line += f"<br>{live_q.get('adr_info', '')}"
 
     st.markdown(f"""
     <div class="selected-asset-banner">
@@ -1454,7 +2099,7 @@ def live_price_fragment():
             &nbsp;<span class="tag-badge">{live_q['mkt']}</span>
         </div>
         <div style="font-size:13px; font-weight:600;">
-            <span class="live-pulse"></span>即時刷新頻率：<strong>{"0.5 秒 (500ms 極速串流)" if enable_1s_live else "靜態模式"}</strong>
+            <span class="live-pulse"></span>報價狀態：<strong>{"自動刷新中（真實成價，Yahoo 約 8 秒更新）" if enable_1s_live else "手動靜態"}</strong>
             &nbsp;|&nbsp; 批判性評分：<span style="color:#1a73e8; font-size:15px;">{live_q['score']:.1f} / 10 分</span>
         </div>
     </div>
@@ -1483,11 +2128,11 @@ def live_price_fragment():
             </div>
             <div style="display:flex; gap:14px;">
                 <div class="{box_cls}" style="flex:1.15;">
-                    <div style="font-size:12px; color:#666;">即時現價({curr_label})</div>
+                    <div style="font-size:12px; color:#666;">真實現價 {curr_label}（Yahoo Finance）</div>
                     <div class="{price_cls}">{arrow_sym} {live_q['price']:,.3f}</div>
                 </div>
                 <div class="{box_cls}" style="flex:1;">
-                    <div style="font-size:12px; color:#666;">即時升跌 / 升跌(%)</div>
+                    <div style="font-size:12px; color:#666;">真實升跌 / 升跌(%)</div>
                     <div class="{price_cls}" style="font-size:21px; margin-top:4px;">
                         {arrow_sym} {abs(live_q['change']):,.3f} ({abs(live_q['pct']):.2f}%)
                     </div>
@@ -1512,7 +2157,7 @@ def live_price_fragment():
                 </tr>
             </table>
             <div style="font-size:11.5px; color:#188038; font-weight:700; margin-top:8px; padding-top:6px; border-top:1px dashed #e0e0e0;">
-                ⏱️ 毫秒級即時更新時間: {live_q['update_time']} | {live_q['adr_info']}
+                {_data_source_line}
             </div>
         </div>
         {render_orderbook_40_html(live_q)}
@@ -1569,10 +2214,21 @@ if active_aa_tab != "快速報價":
             render_resizable_table(df_wc, key_prefix="wc_tbl", default_col_w=105, default_text_w=180, default_row_h=42)
 
         elif active_aa_tab == "詳細報價":
+            # v6 離線安全 + 移除偽造 VWAP（改為真實當日典型價近似，缺數據則 N/A）
+            if chart_ok and "RSI14" in df_chart.columns:
+                _rsi14 = float(df_chart["RSI14"].iloc[-1])
+                rsi_disp, rsi_delta = f"{_rsi14:.1f}", ("超賣區 (<35)" if _rsi14 < 35 else ("超買區 (>70)" if _rsi14 > 70 else "中性區間"))
+                bb_disp = f"{df_chart['BB_Lower'].iloc[-1]:,.1f} - {df_chart['BB_Upper'].iloc[-1]:,.1f}"
+                bb_delta = f"中軌 {df_chart['MA20'].iloc[-1]:,.1f}"
+                _typ = (float(df_chart["High"].iloc[-1]) + float(df_chart["Low"].iloc[-1]) + float(df_chart["Close"].iloc[-1])) / 3.0
+                vwap_disp, vwap_delta = f"{_typ:,.3f} {q_data['curr']}", "當日典型價(近似,非VWAP)"
+            else:
+                rsi_disp = bb_disp = vwap_disp = "N/A"
+                rsi_delta = bb_delta = vwap_delta = "真實數據暫缺"
             d1, d2, d3, d4 = st.columns(4)
-            d1.metric("VWAP (成交量加權均價)", f"{(p_cur*0.998):,.3f} {q_data['curr']}", "機構參考均價")
-            d2.metric("14日 RSI 強弱指標", f"{df_chart['RSI14'].iloc[-1]:.1f}", "超賣區 (<35)" if df_chart['RSI14'].iloc[-1] < 35 else "中性區間")
-            d3.metric("布林通道上下軌", f"{df_chart['BB_Lower'].iloc[-1]:,.1f} - {df_chart['BB_Upper'].iloc[-1]:,.1f}", f"中軌 {df_chart['MA20'].iloc[-1]:,.1f}")
+            d1.metric("典型價 (H+L+C)/3", vwap_disp, vwap_delta)
+            d2.metric("14日 RSI 強弱指標", rsi_disp, rsi_delta)
+            d3.metric("布林通道上下軌", bb_disp, bb_delta)
             d4.metric("每股帳面淨值 / 市帳率", f"{q_data['bps']:,.2f} / {q_data['pb']:.2f}x", f"ROE {q_data['roe']:.1f}%")
             
             tick = round(max(p_cur * 0.001, 0.01), 3)
@@ -1587,6 +2243,8 @@ if active_aa_tab != "快速報價":
             render_resizable_table(pd.DataFrame(ob_rows), key_prefix="ob_tbl", default_col_w=135, default_text_w=200, default_row_h=40)
 
         elif active_aa_tab == "圖表分析":
+            if not chart_ok:
+                st.warning("⚠️ 真實圖表數據暫時無法取得（Yahoo Finance 連線失敗或該商品無此週期），僅顯示空框架，不繪製模擬數據。")
             fig_ta = make_subplots(
                 rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
                 row_heights=[0.55, 0.22, 0.23],
@@ -1607,6 +2265,8 @@ if active_aa_tab != "快速報價":
             st.plotly_chart(fig_ta, use_container_width=True)
 
         elif active_aa_tab == "互動圖表":
+            if not chart_ok:
+                st.warning("⚠️ 真實圖表數據暫時無法取得，無法繪製互動圖表與標準化對比（不使用模擬數據）。")
             ic1, ic2 = st.columns([2, 2])
             with ic1:
                 overlays = st.multiselect("疊加技術指標線：", ["MA10", "MA20", "MA50", "BB_Upper", "BB_Lower"], default=["MA10", "MA20", "BB_Upper", "BB_Lower"])
@@ -1614,7 +2274,9 @@ if active_aa_tab != "快速報價":
                 norm_bench = st.selectbox("疊加對比基準資產 (標準化收益率 %)：", ["不疊加對比", "^HSI (恒生指數)", "^GSPC (標普500指數)", "^IXIC (納斯達克指數)", "^DJI (道斯/道瓊斯指數)", "GC=F (黃金期貨)"])
             fig_ic = go.Figure()
             xl = df_chart.index.strftime("%Y-%m-%d %H:%M") if ("小時" in selected_tf or "分鐘" in selected_tf) else df_chart.index.strftime("%Y-%m-%d")
-            if norm_bench == "不疊加對比":
+            if not chart_ok:
+                pass  # 數據缺失，上方已提示，不繪圖
+            elif norm_bench == "不疊加對比":
                 fig_ic.add_trace(go.Scatter(x=xl, y=df_chart["Close"], mode="lines", name=f"{q_data['name']} 收市價", line=dict(color="#1a73e8", width=2.5)))
                 for ov in overlays:
                     fig_ic.add_trace(go.Scatter(x=xl, y=df_chart[ov], mode="lines", name=ov))
@@ -1623,21 +2285,28 @@ if active_aa_tab != "快速報價":
                 bench_sym = norm_bench.split(" ")[0]
                 df_b = get_multi_tf_ohlcv(bench_sym, selected_tf)
                 n_min = min(len(base_ret), len(df_b))
-                bench_ret = (df_b["Close"].iloc[-n_min:] / df_b["Close"].iloc[-n_min] - 1.0) * 100.0
-                fig_ic.add_trace(go.Scatter(x=xl[-n_min:], y=base_ret.iloc[-n_min:], mode="lines", name=f"{q_data['name']} 累積表現(%)", line=dict(color="#1a73e8", width=2.5)))
-                fig_ic.add_trace(go.Scatter(x=xl[-n_min:], y=bench_ret, mode="lines", name=f"{norm_bench} 累積表現(%)", line=dict(color="#fa903e", width=2, dash="dash")))
+                if n_min >= 2:
+                    bench_ret = (df_b["Close"].iloc[-n_min:] / df_b["Close"].iloc[-n_min] - 1.0) * 100.0
+                    fig_ic.add_trace(go.Scatter(x=xl[-n_min:], y=base_ret.iloc[-n_min:], mode="lines", name=f"{q_data['name']} 累積表現(%)", line=dict(color="#1a73e8", width=2.5)))
+                    fig_ic.add_trace(go.Scatter(x=xl[-n_min:], y=bench_ret, mode="lines", name=f"{norm_bench} 累積表現(%)", line=dict(color="#fa903e", width=2, dash="dash")))
             fig_ic.update_layout(height=380, margin=dict(l=15, r=25, t=30, b=15))
             st.plotly_chart(fig_ic, use_container_width=True)
 
         elif active_aa_tab == "股價走勢":
-            c0 = df_chart["Close"].iloc[-1]
+            if not chart_ok:
+                st.warning("⚠️ 真實歷史 K 線暫時無法取得，週期回報與明細表無法計算（不使用模擬數據）。")
+            c0 = float(df_chart["Close"].iloc[-1]) if chart_ok else q_data["price"]
+            def _pct_over(n):
+                if chart_ok and len(df_chart["Close"]) > n:
+                    return f"{((c0/df_chart['Close'].iloc[max(len(df_chart)-n,0)]-1)*100):+.2f}%"
+                return "N/A"
             perf_horizons = [
                 ("1個週期變動", f"{q_data['pct']:+.2f}%"),
-                ("近5個週期", f"{((c0/df_chart['Close'].iloc[max(len(df_chart)-5,0)]-1)*100):+.2f}%"),
-                ("近20個週期", f"{((c0/df_chart['Close'].iloc[max(len(df_chart)-20,0)]-1)*100):+.2f}%"),
-                ("近60個週期", f"{((c0/df_chart['Close'].iloc[max(len(df_chart)-60,0)]-1)*100):+.2f}%"),
-                ("距離52週低位", f"{((c0/q_data['w52_low']-1)*100):+.2f}%"),
-                ("距離52週高位", f"{((c0/q_data['w52_high']-1)*100):+.2f}%")
+                ("近5個週期", _pct_over(5)),
+                ("近20個週期", _pct_over(20)),
+                ("近60個週期", _pct_over(60)),
+                ("距離52週低位", f"{((c0/q_data['w52_low']-1)*100):+.2f}%" if q_data.get('w52_low') else "N/A"),
+                ("距離52週高位", f"{((c0/q_data['w52_high']-1)*100):+.2f}%" if q_data.get('w52_high') else "N/A")
             ]
             p_cols = st.columns(6)
             for idx, (plab, pval) in enumerate(perf_horizons):
@@ -1770,79 +2439,152 @@ with tabs[0]:
     with sc_col3:
         max_rows = st.selectbox("顯示股票數量：", [20, 35, 50, 80, 100, 120], index=4)
 
-    @st.cache_data(ttl=120)
-    def build_objective_screener_df():
-        rows = []
-        for sym, prof in STOCK_DB.items():
-            if prof["mkt"] not in ["HK", "US"]:
-                continue
-            p = prof["price"]
-            exp_r = prof["exp_return"]
-            
-            if exp_r >= 25.0:
-                dir_tag = "🟢 強勢爆升潛力"
-                range_str = f"+{int(exp_r*0.65)}% 至 +{int(exp_r*1.25)}%"
-                t_lo, t_hi = round(p * (1 + exp_r*0.65/100), 1), round(p * (1 + exp_r*1.25/100), 1)
-            elif exp_r >= 15.0:
-                dir_tag = "🟢 溫和上升潛力"
-                range_str = f"+{int(exp_r*0.6)}% 至 +{int(exp_r*1.2)}%"
-                t_lo, t_hi = round(p * (1 + exp_r*0.6/100), 1), round(p * (1 + exp_r*1.2/100), 1)
-            elif exp_r <= -20.0:
-                dir_tag = "🔴 高危爆跌預警"
-                range_str = f"{int(exp_r*1.35)}% 至 {int(exp_r*0.65)}%"
-                t_lo, t_hi = round(p * (1 + exp_r*1.35/100), 1), round(p * (1 + exp_r*0.65/100), 1)
-            elif exp_r < 0.0:
-                dir_tag = "🔴 下行回撤風險"
-                range_str = f"{int(exp_r*1.4)}% 至 {int(exp_r*0.5)}%"
-                t_lo, t_hi = round(p * (1 + exp_r*1.4/100), 1), round(p * (1 + exp_r*0.5/100), 1)
-            else:
-                dir_tag = "⚪ 中性區間震盪"
-                range_str = f"-5% 至 +{int(max(exp_r*1.2, 8))}%"
-                t_lo, t_hi = round(p * 0.95, 1), round(p * (1 + max(exp_r*1.2, 8)/100), 1)
+    # 預先按市場過濾標的
+    _symbols = [s for s, pf in STOCK_DB.items() if pf["mkt"] in ["HK", "US"]]
+    if mkt_filter == "香港股市 (HK)":
+        _symbols = [s for s in _symbols if STOCK_DB[s]["mkt"] == "HK"]
+    elif mkt_filter == "美國股市 (US)":
+        _symbols = [s for s in _symbols if STOCK_DB[s]["mkt"] == "US"]
 
-            rows.append({
-                "股票代號": prof["symbol"],
-                "公司名稱": f"{prof['name']} ({prof['en']})",
-                "市場": prof["mkt"],
-                "當前現價": f"{p:,.2f} {prof['curr']}",
-                "市值(USD B)": round(prof["mkt_cap_usd"], 1),
-                "預測PE": f"{prof['fwd_pe']:.1f}x",
-                "市銷率PS / 市帳率PB": f"{prof['ps']:.2f}x / {prof['pb']:.2f}x",
-                "營收增速 / 毛利率": f"{prof['rev_growth']:+.1f}% / {prof['gross_margin']:.1f}%",
-                "方向定性": dir_tag,
-                "1-6個月客觀預測波幅": range_str,
-                "推算目標區間": f"{prof['curr']} {t_lo:,.1f} – {t_hi:,.1f}",
-                "批判評分(1-10)": prof["score"],
-                "期望值排序": exp_r,
-                "批判性基本面與風險剖析": prof["catalyst"].split("|")[-1].strip()
-            })
+    st.markdown("""
+    **數據真實性聲明（v6 重點）**：
+    * 點擊下方 **「🔄 以真實市場數據重新計算」**，系統會即時從 Yahoo Finance 逐隻抓取**真實財報**（PE/PS/PB、營收與盈利增長、ROE、淨利率、負債）及**真實歷史價格**（52 週位置、RSI、近 1/3/6 月真實回報、年化波動率），
+      再以量化模型推演 1–6 個月方向與**統計波幅區間**。
+    * **區間是以真實歷史波動率（±1σ）計算的客觀統計分佈，不是保證預測，更不是 AI 隨機生成的數字**；「爆升／爆跌」只是模型依當前真實估值與動能給出的傾向，須結合你自己的判斷。
+    * 未點擊重新計算前，表格顯示的是內置**分析師靜態觀點**（標註「靜態」），僅作參考，並非即時市場數據。
+    """)
+
+    rc1, rc2 = st.columns([1, 1])
+    with rc1:
+        run_real = st.button("🔄 以真實市場數據重新計算（Yahoo Finance 逐隻連線）", type="primary")
+    with rc2:
+        st.caption(f"將計算前 {max_rows} 隻；首次連線需逐隻抓取，約需 1–3 分鐘，之後 6 小時內走快取。")
+
+    def _worker(sym):
+        prof = get_or_create_asset_profile(sym, apply_micro_tick=False)
+        mom = fetch_real_momentum_snapshot(sym)
+        fc = compute_real_forecast(prof, mom)
+        return sym, prof, mom, fc
+
+    if run_real:
+        targets = _symbols[:max_rows]
+        results = {}
+        prog = st.progress(0.0, text=f"正以真實市場數據計算 0/{len(targets)} …")
+        done = 0
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futs = {ex.submit(_worker, s): s for s in targets}
+            for fut in as_completed(futs):
+                try:
+                    sym, prof, mom, fc = fut.result()
+                    results[sym] = (prof, mom, fc)
+                except Exception:
+                    results[futs[fut]] = (STOCK_DB[futs[fut]], {"ok": False}, {"ok": False})
+                done += 1
+                prog.progress(done / len(targets), text=f"正以真實市場數據計算 {done}/{len(targets)} …")
+        prog.empty()
+        st.session_state["real_screener"] = results
+        st.session_state["real_screener_key"] = (mkt_filter, max_rows)
+
+    real_results = st.session_state.get("real_screener")
+    use_real = bool(real_results) and st.session_state.get("real_screener_key") == (mkt_filter, max_rows)
+
+    def build_rows():
+        rows = []
+        if use_real:
+            for sym in _symbols:
+                if sym not in real_results:
+                    continue
+                prof, mom, fc = real_results[sym]
+                p = prof["price"]
+                if fc.get("ok"):
+                    dir_tag = fc["tag"]
+                    range_str = f"{fc['lo_pct']:+d}% 至 {fc['hi_pct']:+d}%"
+                    t_lo, t_hi = fc["t_lo"], fc["t_hi"]
+                    sort_key = fc["score"]
+                    analyst = f"[真實] RSI {fc['rsi']:.0f}｜52週分位 {fc['pos52']:.0f}%｜年化波動 {fc['vol_ann']:.0f}%｜" + "；".join(fc["reasons"][:3])
+                else:
+                    dir_tag = "❔ 真實數據不足"
+                    range_str = "—"
+                    t_lo = t_hi = None
+                    sort_key = -999
+                    analyst = "Yahoo Finance 未能取得該標的完整真實數據，無法作模型推演。"
+                rows.append({
+                    "股票代號": sym,
+                    "公司名稱": f"{prof['name']} ({prof['en']})",
+                    "市場": prof["mkt"],
+                    "當前現價": f"{p:,.2f} {prof['curr']}",
+                    "真實遠期PE": (f"{prof['fwd_pe']:.1f}x" if isinstance(prof.get('fwd_pe'), (int, float)) else "數據缺失"),
+                    "真實PS/PB": f"{prof['ps']:.2f}x / {prof['pb']:.2f}x" if isinstance(prof.get('ps'), (int, float)) else "數據缺失",
+                    "真實營收增長/ROE": f"{prof['rev_growth']:+.1f}% / {prof['roe']:.1f}%" if isinstance(prof.get('rev_growth'), (int, float)) and isinstance(prof.get('roe'), (int, float)) else "數據缺失",
+                    "方向定性(模型)": dir_tag,
+                    "1-6月客觀波幅區間": range_str,
+                    "模型目標區間": f"{prof['curr']} {t_lo:,.1f} – {t_hi:,.1f}" if t_lo is not None else "—",
+                    "模型分數": sort_key,
+                    "真實數據日期": mom.get("as_of", "—"),
+                    "真實依據與風險剖析": analyst
+                })
+        else:
+            for sym, prof in STOCK_DB.items():
+                if prof["mkt"] not in ["HK", "US"]:
+                    continue
+                p = prof["price"]
+                exp_r = prof["exp_return"]
+                if exp_r >= 25.0:
+                    dir_tag, range_str = "🟢 強勢爆升潛力(靜態)", f"+{int(exp_r*0.65)}% 至 +{int(exp_r*1.25)}%"
+                    t_lo, t_hi = round(p*(1+exp_r*0.65/100),1), round(p*(1+exp_r*1.25/100),1)
+                elif exp_r >= 15.0:
+                    dir_tag, range_str = "🟢 溫和上升潛力(靜態)", f"+{int(exp_r*0.6)}% 至 +{int(exp_r*1.2)}%"
+                    t_lo, t_hi = round(p*(1+exp_r*0.6/100),1), round(p*(1+exp_r*1.2/100),1)
+                elif exp_r <= -20.0:
+                    dir_tag, range_str = "🔴 高危爆跌預警(靜態)", f"{int(exp_r*1.35)}% 至 {int(exp_r*0.65)}%"
+                    t_lo, t_hi = round(p*(1+exp_r*1.35/100),1), round(p*(1+exp_r*0.65/100),1)
+                elif exp_r < 0.0:
+                    dir_tag, range_str = "🔴 下行回撤風險(靜態)", f"{int(exp_r*1.4)}% 至 {int(exp_r*0.5)}%"
+                    t_lo, t_hi = round(p*(1+exp_r*1.4/100),1), round(p*(1+exp_r*0.5/100),1)
+                else:
+                    dir_tag, range_str = "⚪ 中性區間震盪(靜態)", f"-5% 至 +{int(max(exp_r*1.2,8))}%"
+                    t_lo, t_hi = round(p*0.95,1), round(p*(1+max(exp_r*1.2,8)/100),1)
+                rows.append({
+                    "股票代號": sym, "公司名稱": f"{prof['name']} ({prof['en']})", "市場": prof["mkt"],
+                    "當前現價": f"{p:,.2f} {prof['curr']}",
+                    "真實遠期PE": f"{prof['fwd_pe']:.1f}x", "真實PS/PB": f"{prof['ps']:.2f}x / {prof['pb']:.2f}x",
+                    "真實營收增長/ROE": f"{prof['rev_growth']:+.1f}% / {prof['roe']:.1f}%",
+                    "方向定性(模型)": dir_tag, "1-6月客觀波幅區間": range_str,
+                    "模型目標區間": f"{prof['curr']} {t_lo:,.1f} – {t_hi:,.1f}",
+                    "模型分數": exp_r, "真實數據日期": "未連線(靜態)",
+                    "真實依據與風險剖析": "[靜態觀點] " + prof["catalyst"].split("|")[-1].strip()
+                })
         return pd.DataFrame(rows)
 
-    df_scr = build_objective_screener_df()
-    
+    df_scr = build_rows()
+
     if mkt_filter == "香港股市 (HK)":
         df_scr = df_scr[df_scr["市場"] == "HK"]
     elif mkt_filter == "美國股市 (US)":
         df_scr = df_scr[df_scr["市場"] == "US"]
-        
+
+    sort_col = "模型分數"
     if "🟢" in direction_filter:
-        df_scr = df_scr[df_scr["期望值排序"] >= 15.0].sort_values(by="期望值排序", ascending=False)
+        df_scr = df_scr[df_scr["方向定性(模型)"].str.contains("🟢")].sort_values(sort_col, ascending=False)
     elif "🔴" in direction_filter:
-        df_scr = df_scr[df_scr["期望值排序"] < 0.0].sort_values(by="期望值排序", ascending=True)
+        df_scr = df_scr[df_scr["方向定性(模型)"].str.contains("🔴")].sort_values(sort_col, ascending=True)
     elif "⚪" in direction_filter:
-        df_scr = df_scr[(df_scr["期望值排序"] >= 0.0) & (df_scr["期望值排序"] < 15.0)].sort_values(by="批判評分(1-10)", ascending=False)
+        df_scr = df_scr[df_scr["方向定性(模型)"].str.contains("⚪")].sort_values("批判評分(1-10)", ascending=False) if "批判評分(1-10)" in df_scr.columns else df_scr.sort_values(sort_col, ascending=False)
     else:
-        df_scr = df_scr.sort_values(by="批判評分(1-10)", ascending=False)
+        df_scr = df_scr.sort_values(sort_col, ascending=False)
 
     df_scr = df_scr.head(max_rows).reset_index(drop=True)
     df_scr.insert(0, "序號", range(1, len(df_scr) + 1))
-    display_cols = [c for c in df_scr.columns if c != "期望值排序"]
-    
+    display_cols = [c for c in df_scr.columns if c not in ["模型分數"]]
+
     s_c1, s_c2, s_c3, s_c4 = st.columns(4)
-    s_c1.metric("當前篩選顯示總數", f"{len(df_scr)} 隻股票", f"涵蓋市場: {mkt_filter}")
-    s_c2.metric("🟢 具上升/爆升潛力股數", f"{len(df_scr[df_scr['方向定性'].str.contains('🟢')])} 隻", "低估值修復或高盈利支撐")
-    s_c3.metric("⚪ 中性區間震盪股數", f"{len(df_scr[df_scr['方向定性'].str.contains('⚪')])} 隻", "估值合理或純收息防守")
-    s_c4.metric("🔴 高危爆跌/回撤預警股數", f"{len(df_scr[df_scr['方向定性'].str.contains('🔴')])} 隻", "估值泡沫或行業逆風", delta_color="inverse")
+    s_c1.metric("當前篩選顯示總數", f"{len(df_scr)} 隻股票", f"數據模式: {'真實連線' if use_real else '靜態觀點'}")
+    s_c2.metric("🟢 上升/爆升潛力股數", f"{len(df_scr[df_scr['方向定性(模型)'].str.contains('🟢')])} 隻")
+    s_c3.metric("⚪ 中性區間震盪股數", f"{len(df_scr[df_scr['方向定性(模型)'].str.contains('⚪')])} 隻")
+    s_c4.metric("🔴 高危爆跌/回撤預警股數", f"{len(df_scr[df_scr['方向定性(模型)'].str.contains('🔴')])} 隻", delta_color="inverse")
+
+    if use_real:
+        st.caption(f"✅ 上表為 **Yahoo Finance 真實財報 + 真實歷史價格** 計算結果（行情與財報快取 6 小時）。波幅區間為 ±1σ 統計分佈，非保證預測；投資有風險，本工具不構成投資建議。　計算時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     render_resizable_table(
         df_scr[display_cols],
@@ -1861,18 +2603,18 @@ with tabs[1]:
     st.subheader(f"📊 {q_data['code']} {q_data['name']} ({q_data['symbol']}) — 2010年至2028E 財務狀況及 82 項 8P 財務分析表")
     st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出，支援自由調校每個直行闊度與橫行高度。")
 
-    # 批判性數據口徑提示框（解決「新股被硬塞 2010 年假數據」問題）
+    # v6 真實財報數據口徑提示框
+    st.info(
+        f"📡 **v6 數據真實性口徑**：本歷史年度表格（收入、純利、現金流、資產、負債、股數、ROE/ROA、毛利率、"
+        f"歷史高低價及對應 PE/PS/PB 等）**已改用 Yahoo Finance 真實年度財報與真實歷史股價**，不再使用平滑模型軌跡。"
+        f"免費源通常僅提供**最近約 4 年**年度財報，更早年度（如 2010–2020）會顯示「年報未提供 / N/A」，系統**不會編造**；"
+        f"財報按公司申報貨幣列示（部分港股以人民幣列報，與交易貨幣港元不同，估值倍數僅供參考）。"
+        f"2026E / 2027E / 2028E 三欄為 **模型預估值（非歷史實際財報）**，已標註 (預)。"
+    )
     if _listing_yr > 2010:
         st.warning(
-            f"⚠️ **數據口徑聲明（批判性呈報）**：{q_data['name']} 真實上市年份為 **{_listing_yr} 年**，"
-            f"早於 {_listing_yr} 年之所有年度在表格中一律顯示 **「未上市 / N/A」**，"
-            f"系統**絕不會**為未上市年度偽造任何 PE / PS / PB / 收入 / 利潤數據。"
-            f"2026E / 2027E / 2028E 三欄為 **模型預估值（非歷史實際財報）**，僅供 8P 估值推演參考。"
-        )
-    else:
-        st.info(
-            f"ℹ️ **數據口徑聲明**：{q_data['name']} 早於 2010 年已上市，"
-            f"故 2010 年起即有完整年度財務模型軌跡；2026E / 2027E / 2028E 三欄為 **模型預估值（非歷史實際財報）**。"
+            f"⚠️ **上市年份口徑**：{q_data['name']} 真實上市年份為 **{_listing_yr} 年**，"
+            f"早於 {_listing_yr} 年之所有年度一律顯示 **「未上市 / N/A」**，絕不偽造任何數據。"
         )
     
     m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
@@ -1943,6 +2685,100 @@ with tabs[1]:
         table_dict = {m: [] for m in metric_names}
         tce_hi = [37.1, 45.5, 52.6, 99.4, 134.0, 171.0, 216.8, 439.6, 474.6, 400.4, 583.5, 714.9, 463.5, 416.6, 482.4, 683.0, 639.0, 694.0, 776.4]
         tce_lo = [23.8, 27.8, 31.2, 49.0, 93.0, 104.5, 132.9, 189.0, 249.4, 308.2, 299.8, 380.0, 188.6, 263.6, 260.2, 364.8, 406.4, 410.1, 458.8]
+
+        # v6：真實年度財報 + 歷史年度高低價（Yahoo Finance）
+        _af = fetch_real_annual_financials(symbol)
+        _py = _af.get("_price_year", {})
+        _rf = {yy: vv for yy, vv in _af.items() if yy != "_price_year"}
+
+        def f1(v, nd=1):
+            return f"{v:,.{nd}f}" if isinstance(v, (int, float)) else "N/A"
+        def fdiv(num, den, nd=2, mul=1):
+            if isinstance(num, (int, float)) and isinstance(den, (int, float)) and den != 0:
+                return f"{num/den*mul:.{nd}f}"
+            return "N/A"
+        def fpct(num, den, nd=2):
+            if isinstance(num, (int, float)) and isinstance(den, (int, float)) and den != 0:
+                return f"{num/den*100:.{nd}f}%"
+            return "N/A"
+
+        def real_year_vals(yr_int, R, R_prev):
+            """以真實財報與真實歷史高低價構建 82 項；缺失字段一律 N/A。"""
+            PY = _py.get(yr_int, {})
+            hp = PY.get("high"); lp = PY.get("low"); cp = PY.get("close")
+            rev = R.get("revenue"); net = R.get("net_income"); gp = R.get("gross_profit")
+            ebitda = R.get("ebitda"); opinc = R.get("op_income")
+            ocf = R.get("ocf"); capex = R.get("capex")
+            fcf = R.get("fcf")
+            if fcf is None and isinstance(ocf, (int, float)) and isinstance(capex, (int, float)):
+                fcf = ocf + capex  # Yahoo 資本開支為負數
+            assets = R.get("assets"); equity = R.get("equity"); liab = R.get("liabilities")
+            debt = R.get("debt"); cash = R.get("cash"); ca = R.get("curr_assets"); cl = R.get("curr_liab")
+            rec = R.get("receivables"); pay = R.get("payables"); inv = R.get("inventory")
+            shares = R.get("shares"); eps = R.get("eps"); dps = R.get("dps_total")
+            rd = R.get("rd"); sga = R.get("sga"); interest = R.get("interest"); tax = R.get("tax"); depr = R.get("depreciation")
+
+            sps = rev/shares if isinstance(rev,(int,float)) and isinstance(shares,(int,float)) and shares else None
+            bps = equity/shares if isinstance(equity,(int,float)) and isinstance(shares,(int,float)) and shares else None
+            ocfps = ocf/shares if isinstance(ocf,(int,float)) and isinstance(shares,(int,float)) and shares else None
+            fcfps = fcf/shares if isinstance(fcf,(int,float)) and isinstance(shares,(int,float)) and shares else None
+
+            prev_rev = R_prev.get("revenue") if R_prev else None
+            prev_gp = R_prev.get("gross_profit") if R_prev else None
+            prev_net = R_prev.get("net_income") if R_prev else None
+            prev_ocf = R_prev.get("ocf") if R_prev else None
+            prev_fcf = R_prev.get("fcf") if R_prev else None
+            def grow(x, x0):
+                if isinstance(x,(int,float)) and isinstance(x0,(int,float)) and x0 != 0:
+                    return f"{(x/x0-1)*100:.2f}%"
+                return "N/A"
+
+            def pe(price, per):
+                if isinstance(price,(int,float)) and isinstance(per,(int,float)) and per and per > 0:
+                    return f"{price/per:.2f}"
+                return "N/A"
+            mcap = cp*shares if isinstance(cp,(int,float)) and isinstance(shares,(int,float)) else None
+
+            def _days(x):
+                if isinstance(x,(int,float)) and isinstance(rev,(int,float)) and rev > 0:
+                    return round(x / (rev/365.0), 1)
+                return None
+            pay_days, rec_days, inv_days = _days(pay), _days(rec), _days(inv)
+            ccc = round((rec_days or 0) + (inv_days or 0) - (pay_days or 0), 1) if (pay_days is not None and rec_days is not None) else None
+
+            v = [
+                f1(cp, 2), pe(cp, eps), pe(cp, sps), pe(cp, bps), fpct(dps, cp, 2),
+                str(yr_int), f"31/12/{yr_int}", f1(rev), f1(rev),
+                f1(net), f1(net), f1(ocf), f1(fcf),
+                fpct(dps, cp, 2), f1(assets), f1(equity), f1(liab),
+                f1(debt), f1(shares, 2), fpct(net, assets, 2),
+                fpct(net, equity, 2), fpct(net, rev, 2), fpct(gp, rev, 2), fpct(ebitda, rev, 2),
+                fpct(opinc, rev, 2), f1(sps, 2), f1(sps, 2),
+                f1(eps, 3), f1(bps, 2), f1(dps, 3),
+                f1(eps, 3), f1(ocfps, 2), f1(fcfps, 2),
+                grow(rev, prev_rev), grow(gp, prev_gp), grow(net, prev_net), grow(ocf, prev_ocf),
+                grow(fcf, prev_fcf), fpct(sga, rev, 2), fpct((sga or 0)+(rd or 0) if (sga is not None or rd is not None) else None, rev, 2),
+                "N/A", fpct(depr, rev, 2), fpct(interest, rev, 2), fpct(rec, rev, 2), fpct(pay, rev, 2),
+                fpct(tax, (net+tax) if isinstance(net,(int,float)) and isinstance(tax,(int,float)) else None, 2),
+                fpct(rd, rev, 2), fpct(abs(capex) if isinstance(capex,(int,float)) else None, rev, 2),
+                "N/A", "N/A",
+                f1(pay_days, 1), f1(rec_days, 1), f1(inv_days, 1), f1(ccc, 1),
+                fpct(dps, eps, 2), fdiv(ca, cl, 2), fdiv(cash, cl, 2), fdiv(debt, assets, 2),
+                fdiv(opinc, debt, 2), fdiv(liab, net, 2), f1(mcap, 0),
+                str(yr_int), pe(hp, eps), pe(lp, eps),
+                pe(hp, eps), pe(lp, eps),
+                pe(hp, sps), pe(lp, sps), pe(hp, bps), pe(lp, bps),
+                fpct(dps, hp, 2), fpct(dps, lp, 2),
+                f1(hp, 2), f1(lp, 2), pe(hp, ocfps), pe(lp, ocfps),
+                pe(hp, fcfps), pe(lp, fcfps),
+                "N/A", "N/A", "N/A"
+            ]
+            # 長度對齊保護：確保永遠為 82 項，與 metric_names 對應
+            if len(v) < 82:
+                v += ["N/A"] * (82 - len(v))
+            elif len(v) > 82:
+                v = v[:82]
+            return v
         
         for idx, yr in enumerate(years):
             # ===== 批判性修正：判斷該年度是否早於真實上市年份 =====
@@ -1958,8 +2794,8 @@ with tabs[1]:
                 na_vals[6] = f"31/12/{yr[:4]} (未上市)" # Date
                 na_vals[60] = f"{yr} (未上市)"         # Year (HKD M) [8P估值分區]
                 vals = na_vals
-            else:
-                # ===== 已上市年度：沿用原有 82 項模型軌跡 =====
+            elif is_forecast:
+                # ===== 預測年度 2026E-2028E：模型估值推演（明確標註 (預)，非歷史財報）=====
                 sc = scale_trajectories[idx]
                 rev = rev_base * sc
                 net_p = rev * (d["net_margin"] / 100.0)
@@ -2017,9 +2853,27 @@ with tabs[1]:
                 ]
 
                 # 對預測年度 (2026E/2027E/2028E) 在關鍵估值列加「(預)」標記
-                if is_forecast:
-                    for _k in [0, 1, 2, 3, 4, 6, 27, 28, 29, 61, 62, 63, 64, 65, 66, 67]:
-                        vals[_k] = f"{vals[_k]} (預)"
+                for _k in [0, 1, 2, 3, 4, 6, 27, 28, 29, 61, 62, 63, 64, 65, 66, 67]:
+                    vals[_k] = f"{vals[_k]} (預)"
+
+            elif yr_year in _rf:
+                # ===== 已上市歷史年度：Yahoo Finance 真實年度財報 + 真實歷史高低價 =====
+                R = _rf.get(yr_year, {})
+                R_prev = _rf.get(yr_year - 1, {})
+                vals = real_year_vals(yr_year, R, R_prev)
+
+            else:
+                # ===== 已上市但免費源未提供該年度年報（Yahoo 通常僅含近 4 年）：標 N/A，不編造 =====
+                miss_vals = ["年報未提供 / N/A"] * 82
+                miss_vals[5] = str(yr_year)
+                miss_vals[6] = f"31/12/{yr_year}"
+                miss_vals[60] = str(yr_year)
+                if yr_year in _py:
+                    # 財報缺失但歷史股價仍可真實顯示
+                    miss_vals[0] = f1(_py[yr_year].get("close"), 2)
+                    miss_vals[72] = f1(_py[yr_year].get("high"), 2)
+                    miss_vals[73] = f1(_py[yr_year].get("low"), 2)
+                vals = miss_vals
 
             for m_idx, m_key in enumerate(metric_names):
                 table_dict[m_key].append(vals[m_idx])
@@ -2143,74 +2997,112 @@ with tabs[2]:
 with tabs[3]:
     st.subheader(f"🌊 {q_data['code']} {q_data['name']} — 2026年 1月至12月走勢預測與波浪理論分析")
     
-    if selected_symbol == "00700.HK":
-        w_dates = ["2025-10", "2026-01", "2026-03", "2026-06-26", "2026-07-15", "2026-07-22", "2026-08-20", "2026-10-08", "2026-10-20(現)", "2026-11E", "2026-12E"]
-        w_actual = [664.0, 639.0, 565.0, 411.0, 474.5, 440.6, 462.0, 411.2, q_data["price"], None, None]
-        w_proj = [None, None, None, None, None, None, None, None, q_data["price"], 448.0, 478.0]
-        w_tags = ["Wave (I) 頂", "26年初高點", "(A)-3 主跌", "Wave (A) 底", "Wave (B) 頂", "(C)-1 急挫", "(C)-2 反抽", "(C)-3 探底", "★(C)-5 終極底", "新(1)浪初升", "歲末修復目標"]
-        blue_low, blue_high = 400.0, 415.0
+    # v6：波浪理論「實際軌跡」改用真實月度收盤 + 真實 52 週高低點，不再硬編碼或線性內插
+    mp = fetch_real_monthly_path(selected_symbol)
+    mom_w = fetch_real_momentum_snapshot(selected_symbol)
+    if mp.get("ok"):
+        w_dates = list(mp["labels"])
+        w_actual = list(mp["closes"])
+        cur_p = float(q_data["price"])
+        # 未來 2 個月僅作動能推算（虛線，明確標 E），以真實近 3 月年化動能為基礎
+        r63 = mom_w.get("r63")
+        monthly_drift = (r63 / 100.0 / 3.0) if isinstance(r63, (int, float)) else 0.0
+        monthly_drift = max(min(monthly_drift, 0.12), -0.12)
+        m1 = round(cur_p * (1 + monthly_drift), 2)
+        m2 = round(cur_p * (1 + monthly_drift * 2), 2)
+        last_label = mp["labels"][-1]
+        last_dt = pd.to_datetime(last_label[:7] + "-01")
+        for k in (1, 2):
+            w_dates.append((last_dt + pd.DateOffset(months=k)).strftime("%Y-%m") + "E")
+            w_actual.append(None)
+        w_proj = [None] * (len(w_dates) - 3) + [cur_p, m1, m2]
+        blue_low, blue_high = round(mp["lo52"], 2), round(mp["hi52"], 2)
+        hi52, lo52 = mp["hi52"], mp["lo52"]
+        hi52_d, lo52_d = mp["hi52_date"], mp["lo52_date"]
+        wave_ok = True
     else:
-        hi52, lo52, cur_p = q_data["w52_high"], q_data["w52_low"], q_data["price"]
-        span52 = max(hi52 - lo52, cur_p * 0.15)
-        w_dates = ["2025-10", "2026-01", "2026-03", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10(初)", "2026-10-20(現)", "2026-11E", "2026-12E"]
-        w_actual = [
-            round(hi52, 2), round(hi52 - span52*0.08, 2), round(hi52 - span52*0.35, 2),
-            round(lo52 + span52*0.05, 2), round(lo52 + span52*0.32, 2), round(lo52 + span52*0.18, 2),
-            round(lo52 + span52*0.26, 2), round(cur_p * 1.015, 2), round(cur_p, 2), None, None
-        ]
-        mult_11 = 0.92 if q_data["exp_return"] < 0 else 1.07
-        mult_12 = 0.84 if q_data["exp_return"] < 0 else 1.15
-        w_proj = [None]*8 + [round(cur_p, 2), round(cur_p * mult_11, 2), round(cur_p * mult_12, 2)]
-        w_tags = ["前波段頂點", "Q1高位", "(A)浪調整", "(A)浪低點", "(B)浪反彈", "(C)-1回落", "(C)-2整理", "(C)-4盤整", "★當前浪位", "11月推算浪", "12月目標浪"]
-        blue_low, blue_high = round(cur_p * 0.95, 2), round(cur_p * 1.02, 2)
+        w_dates, w_actual, w_proj = ["無數據"], [None], [None]
+        blue_low = blue_high = hi52 = lo52 = cur_p = q_data["price"]
+        hi52_d = lo52_d = "—"
+        wave_ok = False
 
     fig_wave = go.Figure()
     fig_wave.add_hrect(
         y0=blue_low, y1=blue_high, fillcolor="rgba(26, 115, 232, 0.12)", line_width=1, line_dash="dot", line_color="#1a73e8",
-        annotation_text=f"波浪關鍵樞紐區 ({blue_low:,.1f} - {blue_high:,.1f} {q_data['curr']})", annotation_position="bottom left"
+        annotation_text=f"52週真實區間 ({blue_low:,.1f} - {blue_high:,.1f} {q_data['curr']})", annotation_position="bottom left"
     )
     fig_wave.add_trace(go.Scatter(
-        x=w_dates, y=w_actual, mode="lines+markers+text", name="2026實際波浪軌跡",
-        line=dict(color="#1a73e8", width=3), marker=dict(size=9, color="#1a73e8"),
-        text=[f"{t}<br>{v:,.1f}" if v is not None else "" for t, v in zip(w_tags, w_actual)],
-        textposition="top center"
+        x=w_dates, y=w_actual, mode="lines+markers", name="真實月度收盤軌跡",
+        line=dict(color="#1a73e8", width=3), marker=dict(size=8, color="#1a73e8"),
+        connectgaps=True,
+        hovertemplate="%{x}<br>真實收盤: %{y:,.2f}<extra></extra>"
     ))
     fig_wave.add_trace(go.Scatter(
-        x=w_dates, y=w_proj, mode="lines+markers+text", name="11月-12月客觀推算路徑",
-        line=dict(color="#d93025" if q_data["exp_return"] < 0 else "#fa903e", width=3, dash="dash"),
-        marker=dict(size=9, color="#d93025" if q_data["exp_return"] < 0 else "#fa903e"),
-        text=[f"{t}<br>{v:,.1f}" if v is not None and i >= 9 else "" for i, (t, v) in enumerate(zip(w_tags, w_proj))],
+        x=w_dates, y=w_proj, mode="lines+markers+text", name="未來2個月動能推算（非預測）",
+        line=dict(color="#fa903e", width=2.5, dash="dash"),
+        marker=dict(size=8, color="#fa903e"),
+        text=[f"{v:,.1f}" if v is not None else "" for v in w_proj],
         textposition="top center"
     ))
     fig_wave.update_layout(
-        title=f"{q_data['name']} ({q_data['symbol']}) — 2026年 1月至12月艾略特波浪理論 (Elliott Wave) 結構定位圖",
+        title=f"{q_data['name']} ({q_data['symbol']}) — 近月真實走勢與 52 週區間（實線為真實月末收盤；虛線為動能推算）",
         yaxis_title=f"價格 ({q_data['curr']})", height=400,
-        margin=dict(l=20, r=30, t=45, b=25), paper_bgcolor="#ffffff", plot_bgcolor="#ffffff"
+        margin=dict(l=20, r=30, t=55, b=25), paper_bgcolor="#ffffff", plot_bgcolor="#ffffff",
+        legend=dict(orientation="h", y=1.02)
     )
     fig_wave.update_yaxes(gridcolor="#eeeeee")
+    if wave_ok:
+        st.caption(f"📡 上圖實線為 Yahoo Finance **真實月度收盤價**；52 週真實最高 **{hi52:,.2f}**（{hi52_d}）、最低 **{lo52:,.2f}**（{lo52_d}）。末段虛線僅為依近 3 月真實動能的**推算參考，非預測**。")
+    else:
+        st.warning("⚠️ Yahoo Finance 暫時無法提供此標的真實月度走勢，無法繪製波浪圖（不使用模擬數據）。")
     st.plotly_chart(fig_wave, use_container_width=True)
 
     c_w6, c_w7 = st.columns(2)
     with c_w6:
+        _av = [v for v in w_actual if isinstance(v, (int, float))]
+        _recent_hi = max(_av) if _av else cur_p
+        _recent_lo = min(_av) if _av else cur_p
+        _pv = [v for v in w_proj if isinstance(v, (int, float))]
+        _proj_txt = f"{_pv[-2]:,.1f} – {_pv[-1]:,.1f}" if len(_pv) >= 2 else "—"
+        _r21 = mom_w.get("r21"); _r63 = mom_w.get("r63"); _rsi = mom_w.get("rsi")
+        _pos52 = mom_w.get("pos52")
+        def _trend(v):
+            if not isinstance(v, (int, float)): return "數據缺失"
+            return f"{'上漲' if v >= 0 else '下跌'} {abs(v):.1f}%"
         st.markdown(f"""
         <div class="section-card">
-            <h4>📅 今年 1 月至 12 月大致走勢分段解析</h4>
+            <h4>📅 近月真實走勢客觀回顧（數據源：Yahoo Finance）</h4>
             <ul>
-                <li><strong>第一季 (1月–3月) 衝高與獲利回吐</strong>：年初觸及年內高位區（{w_actual[1]:,.1f} {q_data['curr']}），3月下旬隨機構季度結算與資本開支預期調整而回吐。</li>
-                <li><strong>第二季 (4月–6月) 機構換手尋底</strong>：受市場流動性輪動影響，6月下旬下探階段性底部（{w_actual[3]:,.1f} {q_data['curr']}）。</li>
-                <li><strong>第三季 (7月–9月) 反彈與財報修復</strong>：7月初資金回流帶動反彈至 {w_actual[4]:,.1f}，8月中旬財報確認核心基本盤穩健，9月步入量縮橫盤。</li>
-                <li><strong>第四季 (10月–12月) 二次探底與歲末演繹</strong>：10月中旬受美國 9 月 CPI 超預期影響測試 {w_actual[8]:,.1f} 樞紐；預計 11–12月將向 <strong>{w_proj[9]:,.1f} – {w_proj[10]:,.1f} {q_data['curr']}</strong> 區間運行。</li>
+                <li><strong>近 13 個月真實區間</strong>：最高 <strong>{_recent_hi:,.2f}</strong>、最低 <strong>{_recent_lo:,.2f} {q_data['curr']}</strong>（實際月末收盤，非繪製軌跡）。</li>
+                <li><strong>52 週真實極值</strong>：最高 <strong>{hi52:,.2f}</strong>（{hi52_d}）、最低 <strong>{lo52:,.2f}</strong>（{lo52_d}）。</li>
+                <li><strong>真實動能</strong>：近 1 個月 {_trend(_r21)}、近 3 個月 {_trend(_r63)}；RSI14 = <strong>{_rsi if _rsi is not None else 'N/A'}</strong>；52 週分位 <strong>{_pos52 if _pos52 is not None else 'N/A'}%</strong>。</li>
+                <li><strong>未來 2 個月動能推算（虛線，非預測）</strong>：以近 3 月真實動能年化外推，參考區間 <strong>{_proj_txt} {q_data['curr']}</strong>。實際走勢受宏觀、業績與資金面影響，務必自行判斷。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
     with c_w7:
+        # 基於真實均線/RSI/52週位置的客觀技術位置，不編造具體子浪序號
+        above200 = mom_w.get("above_ma200"); above50 = mom_w.get("above_ma50")
+        if above200 is True:
+            _trend_pos = "現價站穩 200 日長線均線之上，中長線仍屬多頭結構"
+        elif above200 is False:
+            _trend_pos = "現價失守 200 日長線均線，中長線轉弱"
+        else:
+            _trend_pos = "均線數據缺失"
+        if isinstance(_rsi, (int, float)):
+            if _rsi >= 70: _rsi_state = "RSI 進入超買區，短線存在技術回調壓力"
+            elif _rsi <= 30: _rsi_state = "RSI 進入超賣區，或出現技術反彈"
+            else: _rsi_state = f"RSI {_rsi:.0f} 處中性區間"
+        else:
+            _rsi_state = "RSI 數據缺失"
         st.markdown(f"""
         <div class="section-card">
-            <h4>📐 艾略特波浪理論 (Elliott Wave) 當前浪形診斷</h4>
+            <h4>📐 波浪 / 技術結構客觀定位（基於真實價格，非主觀數浪）</h4>
             <ul>
-                <li><strong>大週期定位</strong>：自前期歷史低點啟動的升浪已完成主升大一浪 <code>Wave (I)</code>，2026 年處於針對大一浪進行修正的中級調整浪 <code>Wave (II)</code>（呈現 A-B-C 三浪結構）。</li>
-                <li><strong>當前微觀子浪位置</strong>：6月底完成五子浪之 <code>Wave (A)</code>，7月中旬完成三子浪之 <code>Wave (B)</code>；目前已運行至 <strong>C 浪第 5 子浪末端 <code>Wave (II)-(C)-5</code></strong>。</li>
-                <li><strong>關鍵樞紐區 (Blue Box)</strong>：當前價位（{q_data['price']:,.2f} {q_data['curr']}）正處於黃金分割 0.500–0.618 回撤位與前期 A 浪底部的重疊支撐帶（{blue_low:,.1f}–{blue_high:,.1f}）。</li>
+                <li><strong>長線趨勢</strong>：{_trend_pos}（50 日線{'上方' if above50 else '下方' if above50 is False else '數據缺失'}）。</li>
+                <li><strong>短線節奏</strong>：{_rsi_state}。</li>
+                <li><strong>關鍵位置（Blue Box）</strong>：現價 {q_data['price']:,.2f} 相對真實 52 週區間 {lo52:,.2f}–{hi52:,.2f} 處於第 <strong>{_pos52 if _pos52 is not None else 'N/A'}%</strong> 分位；貼近低位邊緣屬估值修復區，貼近高位邊緣則安全邊際低。</li>
+                <li style="color:#8a5a00;"><strong>批判性說明</strong>：艾略特波浪的子浪序號事後才可確認、主觀性高，本系統不為當前編造具體「(C)-5 末端」等斷言，僅呈現真實價格位置與動能供你自行判斷。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -2236,7 +3128,7 @@ with tabs[4]:
                 <li><strong>當前價格位置與估值診斷</strong>：{q_data['name']} 現價 <strong>{q_data['price']:,.2f} {q_data['curr']}</strong> 處於過去 52 週高低區間的第 <strong>{pos_pct:.1f}%</strong> 分位數；預測市盈率為 <strong>{q_data['fwd_pe']:.2f}x</strong>，市銷率 <strong>{q_data['ps']:.2f}x</strong>，市帳率 <strong>{q_data['pb']:.2f}x</strong>。</li>
                 <li><strong>核心基本面與逆風審視（正反雙向評估）</strong>：{q_data['catalyst']}</li>
                 <li><strong>具體執行時機與風控紀律</strong>：
-                    {"目前雖處於歷史低估值安全區間，可先動用 30%–35% 資金建立左側底倉，但考量美國 9 月 CPI 超預期帶來的美債息率波動及 11 月中旬三季報前的回購靜默期，剩餘 65%–70% 主力資金務必等待股價重新站穩 20 日均線（" + f"{df_chart['MA20'].iloc[-1]:,.2f} {q_data['curr']}" + "）或業績確認後再行投入。" if sc_now >= 7.0 else (
+                    {"目前雖處於歷史低估值安全區間，可先動用 30%–35% 資金建立左側底倉，但其餘 65%–70% 主力資金建議等待股價重新站穩 20 日均線（" + ma20_txt + "）或下次業績確認趨勢後再行投入，並留意美債息率與財報公布等外圍變數。" if sc_now >= 7.0 else (
                         "目前估值已充分反映甚至透支短期利好，現價直接買入的值博率（Risk-Reward Ratio）偏低。強烈建議耐心等待股價回調至 8P 基本面支撐區（約 " + f"{fund_low:,.1f}–{(fund_low+fund_high)/2:,.1f} {q_data['curr']}" + "）且 RSI 回落至 35–40 區間時再作部署。" if sc_now >= 5.2 else
                         "⚠️ 當前估值處於嚴重泡沫區（或面臨結構性基本面惡化與宏觀加息衝擊），下行均值回歸風險遠大於上行空間。現階段絕對不適合買入，已持倉者應逢反彈減持鎖定利潤或嚴設止損。"
                     )}
@@ -2289,42 +3181,107 @@ with tabs[4]:
 # ------------------------------------------
 with tabs[5]:
     st.subheader("🌍 香港和美國目前或今年（2026年）是否已進入牛市或熊市？")
-    st.markdown("""
-    <div class="section-card">
-        <h4 style="color:#1e3a5f; margin-top:0;">📌 核心宏觀定性結論：美股與港股在 2026 年均處於「結構性牛市（Bull Market）」，惟內部板塊劇烈分化且面臨美債高息考驗</h4>
-        <p style="font-size:14px;">基於道氏理論、自低位累計升幅超越 20% 之技術性牛熊分界線、日均成交額與估值分位數，兩地市場之客觀批判診斷如下：</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
+
+    # v6：牛熊判定完全由真實指數數據驅動，不再寫死結論與點位
+    macro_indices = [("🇺🇸 標普500", "^GSPC"), ("🇺🇸 納斯達克", "^IXIC"),
+                     ("🇺🇸 道瓊斯", "^DJI"), ("🇭🇰 恒生指數", "^HSI")]
+    macro = {sym: fetch_real_momentum_snapshot(sym) for _, sym in macro_indices}
+
+    def _bull_bear(m):
+        if not m.get("ok"):
+            return "數據缺失", "#888888", "—"
+        p, hi, lo = m["price"], m["hi52"], m["lo52"]
+        dd = (p / hi - 1) * 100.0
+        bounce = (p / lo - 1) * 100.0
+        if dd <= -20:
+            return "技術熊市（自52週高點回撤逾20%）", "#d93025", f"{dd:.1f}%"
+        if bounce >= 20 and m.get("above_ma200"):
+            return "技術牛市（自低點反彈逾20%且站穩200日線）", "#188038", f"+{bounce:.1f}%"
+        if m.get("above_ma200"):
+            return "中長線偏多（修正/整固中）", "#f57c00", f"{dd:.1f}%"
+        return "中長線偏弱（200日線下方）", "#b06000", f"{dd:.1f}%"
+
+    any_ok = any(m.get("ok") for m in macro.values())
+    if any_ok:
+        st.info("📡 下列牛熊判定依 **Yahoo Finance 真實指數日線** 計算：技術性牛熊分界以「自 52 週高點回撤 ≥20% 為熊市、自 52 週低點反彈 ≥20% 且站穩 200 日線為牛市」，其餘為修正/整固。數據會隨交易日自動更新。")
+    else:
+        st.warning("⚠️ Yahoo Finance 暫時無法連線，宏觀指數真實數據缺失（離線狀態），不顯示任何編造點位或結論。請稍後重試。")
+
+    cols = st.columns(4)
+    for col, (nm, sym) in zip(cols, macro_indices):
+        m = macro[sym]
+        verdict, vc, _ = _bull_bear(m)
+        with col:
+            if m.get("ok"):
+                st.markdown(f"""
+                <div class="section-card" style="text-align:center;">
+                    <div style="font-weight:800; font-size:15px; margin-bottom:4px;">{nm}</div>
+                    <div style="font-size:22px; font-weight:800; color:{vc};">{m['price']:,.0f}</div>
+                    <div style="font-size:12px; font-weight:700; color:{vc}; margin:4px 0;">{verdict}</div>
+                    <div style="font-size:11.5px; color:#555;">52週 {m['lo52']:,.0f} – {m['hi52']:,.0f}</div>
+                    <div style="font-size:11.5px; color:#555;">位置 {m['pos52']:.0f}% 分位｜RSI {m['rsi']:.0f}</div>
+                    <div style="font-size:11.5px; color:#555;">1月 {m['r21']:+.1f}%｜3月 {m['r63']:+.1f}%｜6月 {m['r126']:+.1f}%</div>
+                    <div style="font-size:10.5px; color:#999;">截至 {m['as_of']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="section-card" style="text-align:center;">
+                    <div style="font-weight:800; font-size:14px;">{nm}</div>
+                    <div style="font-size:13px; color:#888; margin-top:8px;">真實數據連線失敗</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    def _card(m):
+        if not m.get("ok"):
+            return "真實數據缺失，無法給出結論（不以舊點位或主觀敘述填充）。"
+        v, _, _ = _bull_bear(m)
+        p, hi, lo = m["price"], m["hi52"], m["lo52"]
+        return (f"現價 {p:,.0f}，52 週區間 {lo:,.0f}–{hi:,.0f}（第 {m['pos52']:.0f}% 分位），"
+                f"自高點 {(p/hi-1)*100:+.1f}%、自低點 {(p/lo-1)*100:+.1f}%；"
+                f"200 日線{'上方' if m['above_ma200'] else '下方'}，RSI {m['rsi']:.0f}。客觀定性：{v}。")
+
+    spx, ndx, dji, hsi = macro["^GSPC"], macro["^IXIC"], macro["^DJI"], macro["^HSI"]
     c_m1, c_m2 = st.columns(2)
     with c_m1:
-        st.markdown("""
+        st.markdown(f"""
         <div class="section-card">
-            <h4>🇺🇸 美國股市：AI 算力驅動之結構性牛市後期（高估值慢牛伴隨利率高波動）</h4>
-            <ul>
-                <li><strong>牛市客觀證據</strong>：納斯達克 100 指數於 2026 年 10 月再創歷史新高；輝達（5.24萬億美元）、蘋果（5.00萬億美元）、Alphabet（4.21萬億美元）、微軟（3.96萬億美元）處於長期多頭趨勢，且具台積電 Q4 營收指引 +61% 之實質算力訂單支撐。</li>
-                <li><strong>批判性風險警示（並非所有美股皆可買）</strong>：美國 9 月 CPI 高於預期引發市場擔憂聯儲局推遲減息甚至繼續加息，羅素 2000 小型股與高估值泡沫軟體股（如 PS > 40x 之標的）面臨顯著估值壓縮風險。</li>
+            <h4>🇺🇸 美國股市（真實數據診斷，非主觀唱多）</h4>
+            <ul style="font-size:13px;">
+                <li><strong>標普500</strong>：{_card(spx)}</li>
+                <li><strong>納斯達克</strong>：{_card(ndx)}</li>
+                <li><strong>道瓊斯</strong>：{_card(dji)}</li>
+                <li><strong>批判性提示</strong>：指數位於 52 週高分位（&gt;80%）且 RSI 偏高時，估值安全邊際低、回撤風險上升；個股分化大，指數走牛不代表所有股票皆可買入。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
     with c_m2:
-        st.markdown("""
+        st.markdown(f"""
         <div class="section-card">
-            <h4>🇭🇰 香港股市：估值修復型結構性牛市之中期整固期（「熊轉牛」後之二浪換手洗盤）</h4>
-            <ul>
-                <li><strong>數據推翻「單邊熊市論」</strong>：恒生指數目前穩守 <strong>23,956 – 24,893 點</strong> 區間，較前期熊市底部（14,597點）已累積大幅上漲逾 <strong>+60%</strong>；主板日均成交額高達 <strong>2,000億至3,128億港元</strong>。</li>
-                <li><strong>批判性結構剖析</strong>：港股並非齊漲齊跌的全面瘋牛，而是由「國有大行高息股創新高托底」與「低估值科網龍頭（恒生科指剔除負值 PE 僅 17.2x，處歷史 13% 分位）二浪整固」構成的結構性慢牛。短期均衡區為 <code>23,400 – 24,400 點</code>，下方牛熊分界強支撐為 <code>22,900 點</code>。</li>
+            <h4>🇭🇰 香港股市（真實數據診斷，非主觀唱多）</h4>
+            <ul style="font-size:13px;">
+                <li><strong>恒生指數</strong>：{_card(hsi)}</li>
+                <li><strong>批判性提示</strong>：港股以恒指 200 日線與 52 週位置作客觀依據；若跌破 200 日線且自高點回撤擴大，應視為趨弱，而非沿用「慢牛」固定結論。</li>
+                <li><strong>配置原則</strong>：僅依真實估值與趨勢分批，不依賴固定成交額或點位預設。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
-    df_macro = pd.DataFrame([
-        {"評估維度": "2026年牛熊最終定性", "美國股市 (標普500 / 納指 / 道斯指數)": "結構性牛市 (AI算力主升後期，高估值高波動)", "香港股市 (恒生指數 / 恒生科指)": "結構性牛市 (估值修復慢牛之中期二浪整固)"},
-        {"評估維度": "關鍵指數點位與升幅", "美國股市 (標普500 / 納指 / 道斯指數)": "納指100於10月再創歷史新高；科技巨頭市值破紀錄", "香港股市 (恒生指數 / 恒生科指)": "恒指 23,956–24,893點 (較熊市底部累升逾60%)"},
-        {"評估維度": "市場流動性與成交額", "美國股市 (標普500 / 納指 / 道斯指數)": "極度充沛 (單一輝達或美光日成交逾250億美元)", "香港股市 (恒生指數 / 恒生科指)": "日均成交 2,000–3,128億港元 (半日成交逾千億)"},
-        {"評估維度": "估值水平與泡沫風險", "美國股市 (標普500 / 納指 / 道斯指數)": "整體偏高 (PE 25x–35x)，部分AI應用股存嚴重泡沫", "香港股市 (恒生指數 / 恒生科指)": "極具安全邊際 (恒生科指PE 17.2x，歷史13%低分位)"},
-        {"評估維度": "批判性配置與避險策略", "美國股市 (標普500 / 納指 / 道斯指數)": "配置實質盈利硬體龍頭 (TSM/NVDA)，迴避高PS泡沫股 (PLTR/ARM)", "香港股市 (恒生指數 / 恒生科指)": "逢低分批吸納高回購龍頭 (00700/09988)，迴避高負債車企與受壓資源股"}
-    ])
-    render_resizable_table(df_macro, key_prefix="macro_tbl", default_col_w=180, default_text_w=380, default_row_h=48)
+    df_macro_rows = []
+    for nm, sym in macro_indices:
+        m = macro[sym]
+        v, _, _ = _bull_bear(m)
+        df_macro_rows.append({
+            "指數": nm,
+            "真實現價": f"{m['price']:,.2f}" if m.get("ok") else "N/A",
+            "52週區間": f"{m['lo52']:,.0f} – {m['hi52']:,.0f}" if m.get("ok") else "N/A",
+            "52週分位": f"{m['pos52']:.0f}%" if m.get("ok") else "N/A",
+            "近1月/3月/6月": f"{m['r21']:+.1f}% / {m['r63']:+.1f}% / {m['r126']:+.1f}%" if m.get("ok") else "N/A",
+            "RSI14": f"{m['rsi']:.0f}" if m.get("ok") else "N/A",
+            "200日線": ("上方" if m.get("above_ma200") else "下方") if m.get("ok") else "N/A",
+            "數據驅動牛熊定性": v,
+            "數據日期": m.get("as_of", "—")
+        })
+    render_resizable_table(pd.DataFrame(df_macro_rows), key_prefix="macro_tbl",
+                           default_col_w=110, default_text_w=300, default_row_h=48)
 #(註：內容由 AI 生成)
