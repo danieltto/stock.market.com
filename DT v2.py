@@ -9,6 +9,8 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import html
 import io
+import json
+import re
 import urllib.request
 
 try:
@@ -969,12 +971,195 @@ def fetch_stooq_ohlc(symbol: str, stooq_interval: str = "d", days: int = 2600):
     return out
 
 
+# ============================================================
+# 騰訊財經行情源（v7 第三數據源）：qt.gtimg.cn 報價 + web.ifzq.gtimg.cn K線
+#   - 免費、無 key、香港可達性通常優於 Yahoo；港股 r_hk 約 78 字段、美股 us 約 71 字段
+#   - 報價覆蓋港美股現價/升跌/開高低/量/額/市值/PE/PB/52週高低
+#   - K線覆蓋日/週/月線與 m15/m30/m60 分鐘線（45分/2H/3H/4H 由調用方 resample）
+#   - 全部採防禦式解析，任何異常或欄位缺失即回空/None，絕不拋出、絕不造假
+# ============================================================
+_TENCENT_IDX = {
+    "^HSI": ("hkHSI", "hkHSI"),
+    "^HSCEI": ("hkHSCEI", "hkHSCEI"),
+    "^HSTECH": ("hkHSTECH", "hkHSTECH"),
+    "^GSPC": ("usINX", "usINX"),
+    "^SPX": ("usINX", "usINX"),
+    "^IXIC": ("usIXIC", "usIXIC"),
+    "^NDX": ("usNDX", "usNDX"),
+    "^DJI": ("usDJI", "usDJI"),
+    "^RUT": ("usRUT", "usRUT"),
+    "^VIX": ("usVIX", "usVIX"),
+}
+
+
+def _http_get_text(url: str, encoding: str = "utf-8", timeout: int = 10):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Referer": "https://gu.qq.com/"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode(encoding, errors="ignore")
+
+
+def tencent_quote_code(symbol: str):
+    """Yahoo 代號 → (騰訊報價代號, 市場 hk/us/index)；不支援回傳 (None, None)。"""
+    s = str(symbol).strip().upper()
+    if s in _TENCENT_IDX:
+        return _TENCENT_IDX[s][0], "index"
+    if s.endswith(".HK"):
+        digits = s[:-3]
+        if digits.isdigit() and (len(digits) <= 4 or (len(digits) == 5 and digits.startswith("0"))):
+            return "r_hk" + digits.zfill(5), "hk"
+        return None, None
+    if "." not in s and "=" not in s and s.isalnum() and any(c.isalpha() for c in s):
+        return "us" + s, "us"
+    return None, None
+
+
+def tencent_kline_codes(symbol: str):
+    """Yahoo 代號 → (騰訊 K線代號候選清單, 市場)；不支援回傳 ([], None)。"""
+    s = str(symbol).strip().upper()
+    if s in _TENCENT_IDX:
+        return [_TENCENT_IDX[s][1]], "index"
+    if s.endswith(".HK"):
+        digits = s[:-3]
+        if digits.isdigit() and (len(digits) <= 4 or (len(digits) == 5 and digits.startswith("0"))):
+            return ["hk" + digits.zfill(5)], "hk"
+        return [], None
+    if "." not in s and "=" not in s and s.isalnum() and any(c.isalpha() for c in s):
+        return [f"us{s}.OQ", f"us{s}.UN", f"us{s}.N", f"us{s}"], "us"
+    return [], None
+
+
+def yf_to_tencent_period(interval: str):
+    """Yahoo 區間 → 騰訊 K線週期；45m/2h/3h/4h 等由調用方以 m15/m60 resample。"""
+    return {"15m": "m15", "30m": "m30", "45m": "m15",
+            "60m": "m60", "1h": "m60", "2h": "m60", "3h": "m60", "4h": "m60",
+            "1d": "day", "1wk": "week", "1mo": "month"}.get(interval)
+
+
+@st.cache_data(ttl=8, show_spinner=False)
+def fetch_tencent_quote(symbol: str):
+    """騰訊財經即時/延遲報價。回傳與 fetch_realtime_market_tick 相容的 dict；失敗 live_ok=False。"""
+    out = {"live_ok": False, "bid": None, "ask": None, "bid_size": None, "ask_size": None,
+           "quote_time": None, "delayed": True}
+    try:
+        code, mkt = tencent_quote_code(symbol)
+        if not code:
+            return out
+        raw = _http_get_text(f"https://qt.gtimg.cn/q={code}", encoding="gbk", timeout=10)
+        m = re.search(r'"([^"]+)"', raw)
+        if not m:
+            return out
+        f = m.group(1).split("~")
+        if len(f) < 40:
+            return out
+
+        def num(i):
+            try:
+                v = f[i].strip()
+                return float(v) if v not in ("", "-", "--") else None
+            except Exception:
+                return None
+
+        price = num(3)
+        prev = num(4)
+        if price is None or price <= 0:
+            return out
+        hi, lo = num(33), num(34)
+        pct = num(32)
+        chg = (price - prev) if prev else None
+        if pct is None and prev:
+            pct = (chg / prev * 100.0) if prev else None
+        out.update({
+            "live_ok": True,
+            "price": round(price, 3),
+            "prev_close": round(prev, 3) if prev else None,
+            "change": round(chg, 3) if chg is not None else None,
+            "pct": round(pct, 2) if pct is not None else None,
+            "open": round(num(5), 3) if num(5) else None,
+            "low": round(lo, 3) if lo else round(price, 3),
+            "high": round(hi, 3) if hi else round(price, 3),
+            "vol_num": num(6) or 0.0,
+            "pe": (num(39) if mkt == "hk" else num(53)) if mkt in ("hk", "us") else None,
+            "pb": num(56) if mkt in ("hk", "us") else None,
+            "mcap_yi": num(44) if mkt in ("hk", "us") else None,   # 億（港元 / 美元）
+            "hi52": num(35),
+            "lo52": num(36),
+            "amount_raw": num(37) if mkt == "hk" else None,
+            "quote_time": f[30] if len(f) > 30 else None,
+            "delayed": True,
+            "source": "騰訊財經",
+            "currency": {"hk": "HKD", "us": "USD"}.get(mkt),
+        })
+    except Exception:
+        pass
+    return out
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_tencent_kline(symbol: str, tperiod: str, count: int = 640):
+    """騰訊財經 K 線。tperiod: day/week/month/m15/m30/m60。回傳 OHLCV DataFrame；失敗回空。"""
+    out = pd.DataFrame()
+    try:
+        codes, mkt = tencent_kline_codes(symbol)
+        if not codes:
+            return out
+        is_min = str(tperiod).startswith("m")
+        for code in codes:
+            try:
+                if is_min:
+                    url = (f"https://web.ifzq.gtimg.cn/appstock/app/kline/mkline"
+                           f"?param={code},{tperiod},,{count}")
+                elif mkt == "hk":
+                    url = (f"https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get"
+                           f"?param={code},{tperiod},,,{count},qfq")
+                else:
+                    url = (f"https://web.ifzq.gtimg.cn/appstock/app/kline/kline"
+                           f"?param={code},{tperiod},,,{count},qfq")
+                raw = _http_get_text(url, encoding="utf-8", timeout=12)
+                j = json.loads(raw)
+                node = (j.get("data") or {}).get(code)
+                if not isinstance(node, dict):
+                    continue
+                arr = node.get(f"qfq{tperiod}") or node.get(tperiod)
+                if arr is None:
+                    for k, v in node.items():
+                        if tperiod in k and isinstance(v, list) and v:
+                            arr = v
+                            break
+                if not arr:
+                    continue
+                rows = []
+                for item in arr:
+                    try:
+                        # 騰訊 K 線順序固定為：[時間, 開盤, 收盤, 最高, 最低, 成交量]
+                        o, c, h, l = float(item[1]), float(item[2]), float(item[3]), float(item[4])
+                        v = float(item[5]) if len(item) > 5 and item[5] not in ("", None) else 0.0
+                        rows.append((item[0], o, h, l, c, v))
+                    except Exception:
+                        continue
+                if len(rows) < 6:
+                    continue
+                df = pd.DataFrame(rows, columns=["t", "Open", "High", "Low", "Close", "Volume"])
+                df["dt"] = pd.to_datetime(df["t"], errors="coerce")
+                df = df.dropna(subset=["dt"]).set_index("dt").sort_index()
+                df = df[["Open", "High", "Low", "Close", "Volume"]]
+                if not df.empty:
+                    return df
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
 @st.cache_data(ttl=15, show_spinner=False)
 def get_price_history(symbol: str, interval: str, period: str, resample_rule=None):
     """
     統一歷史 K 線獲取（v7 多源）：
       1) Yahoo Finance（含分鐘/小時/日/週）；
-      2) Yahoo 失敗或空白時，日/週/月線改用 Stooq 備援。
+      2) Yahoo 失敗或空白時，改以騰訊財經 K 線（含 m15/m30/m60 與日/週/月線）；
+      3) 日/週/月線仍失敗時，再以 Stooq 備援。
     回傳 (DataFrame, source_name)；皆失敗回傳 (空 DataFrame, None)。
     """
     df = pd.DataFrame()
@@ -994,7 +1179,26 @@ def get_price_history(symbol: str, interval: str, period: str, resample_rule=Non
             source = "Yahoo Finance"
     except Exception:
         df = pd.DataFrame()
-    # 2) Stooq 備援（僅日/週/月線；分鐘/小時線 Stooq 免費源不提供）
+    # 2) 騰訊財經備援（含 m15/m30/m60 分鐘線與日/週/月線；45m/2H/3H/4H 由原始 m15/m60 resample）
+    if df.empty:
+        tp = yf_to_tencent_period(interval)
+        if tp:
+            count = {"1y": 320, "2y": 640, "3mo": 480, "5y": 1400, "10y": 2600, "max": 3000}.get(period, 640)
+            try:
+                td = fetch_tencent_kline(symbol, tp, count=count)
+                if td is not None and not td.empty and len(td) >= 6:
+                    df = td.copy()
+                    if resample_rule:
+                        df = df.resample(resample_rule).agg({
+                            "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"
+                        }).dropna()
+                    if len(df) >= 6:
+                        source = "騰訊財經（Yahoo 連線失敗時的備援源）"
+                    else:
+                        df = pd.DataFrame()
+            except Exception:
+                df = pd.DataFrame()
+    # 3) Stooq 備援（僅日/週/月線；分鐘/小時線 Stooq 免費源不提供）
     if df.empty and interval in ("1d", "1wk", "1mo"):
         si = {"1d": "d", "1wk": "w", "1mo": "m"}.get(interval, "d")
         days = {"1y": 300, "2y": 600, "5y": 1500, "10y": 3000, "max": 4000}.get(period, 300)
@@ -1178,7 +1382,35 @@ def fetch_realtime_market_tick(symbol: str):
     except Exception:
         pass
 
-    # v7：Yahoo 失敗時以 Stooq 日線最後收盤備援（明確標示為收盤價、非即時）
+    # v7：Yahoo 失敗時，先以騰訊財經報價備援（含日內高低、量、市值、PE、52週；港股約延遲15分）
+    if not result.get("live_ok"):
+        try:
+            tq = fetch_tencent_quote(symbol)
+            if tq.get("live_ok") and tq.get("price"):
+                result.update({
+                    "live_ok": True,
+                    "price": tq["price"],
+                    "prev_close": tq.get("prev_close"),
+                    "change": tq.get("change"),
+                    "pct": tq.get("pct"),
+                    "open": tq.get("open"),
+                    "low": tq.get("low"),
+                    "high": tq.get("high"),
+                    "vol_num": tq.get("vol_num", 0.0) or 0.0,
+                    "quote_time": tq.get("quote_time"),
+                    "delayed": True,
+                    "source": "騰訊財經",
+                    "pe": tq.get("pe"),
+                    "pb": tq.get("pb"),
+                    "mcap_yi": tq.get("mcap_yi"),
+                    "hi52": tq.get("hi52"),
+                    "lo52": tq.get("lo52"),
+                    "currency": tq.get("currency"),
+                })
+        except Exception:
+            pass
+
+    # v7：Yahoo 與騰訊皆失敗時，以 Stooq 日線最後收盤備援（明確標示為收盤價、非即時）
     if not result.get("live_ok"):
         try:
             sd = fetch_stooq_ohlc(symbol, "d", days=20)
@@ -1650,6 +1882,16 @@ def compute_real_forecast(prof: dict, mom: dict):
     }
 
 
+def _sf(v, spec=",.2f", suffix=""):
+    """安全格式化：None / 空 / 非數值一律回 'N/A'，避免免費源缺欄位時 f-string 崩潰。"""
+    try:
+        if v is None or v == "":
+            return "N/A"
+        return f"{float(v):{spec}}{suffix}"
+    except Exception:
+        return "N/A"
+
+
 def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
     # 先檢查是否為中文同義詞 (如「道斯指數」「納斯達克指數」「標普500指數」)
     if symbol in INDEX_SYNONYM_MAP:
@@ -1814,6 +2056,53 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
         prof["fund_ok"] = False
         prof["fin_real"] = {}
 
+    # ===== v7 最終覆蓋（去寫死）：報價表欄位一律以真實源（Yahoo／騰訊／Stooq）為準，取不到即 N/A =====
+    _src = str(live.get("source") or "")
+    _curr = prof.get("curr", "")
+    _price = live.get("price") if live.get("live_ok") else None
+
+    # 市值顯示字串：Yahoo 為絕對值（÷1e8 得億）；騰訊直接給「億」；皆無則 N/A
+    _mc = prof.get("mkt_cap_real")
+    if isinstance(_mc, (int, float)) and _mc > 0:
+        prof["mkt_cap"] = f"{_mc / 1e8:,.2f}億 {_curr}".strip()
+    elif isinstance(live.get("mcap_yi"), (int, float)) and live.get("mcap_yi"):
+        prof["mkt_cap"] = f"{live['mcap_yi']:,.0f}億 {_curr}".strip()
+    else:
+        prof["mkt_cap"] = "N/A"
+
+    if not prof.get("fund_ok"):
+        # Yahoo 基本面失敗：騰訊可補 PE/PB/52週；預測 PE/EPS、股息率免費源缺，一律 N/A，不保留寫死
+        prof["pe"] = live.get("pe") if live.get("live_ok") else None
+        prof["pb"] = live.get("pb") if live.get("live_ok") else None
+        if live.get("hi52") and live.get("lo52"):
+            prof["w52_high"], prof["w52_low"] = live["hi52"], live["lo52"]
+        else:
+            prof["w52_high"], prof["w52_low"] = None, None
+        prof["fwd_pe"] = None
+        prof["fwd_eps"] = None
+        prof["yield"] = None
+        prof["ps"] = None  # 騰訊/Stooq 免費源無市銷率，避免殘留內建寫死值
+        # 歷史 EPS 無免費欄位時，以真實「價格／歷史PE」換算（數學恆等，標註為推算）
+        if _price and isinstance(prof.get("pe"), (int, float)) and prof["pe"]:
+            prof["eps"] = round(_price / float(prof["pe"]), 4)
+            prof["eps_estimated"] = True
+        else:
+            prof["eps"] = None
+
+    # 成交量 / 成交金額：以真實成交量與價格為準；成交額以「量×價」估算並標「約」；無真實源則 N/A
+    if live.get("live_ok"):
+        vn = live.get("vol_num", 0) or 0
+        if vn and vn > 0:
+            prof["vol"] = f"{vn / 1e6:,.2f}百萬股"
+            if _price:
+                prof["turnover"] = f"約 {vn * _price / 1e8:,.2f}億 {_curr}".strip()
+        else:
+            prof["vol"] = "N/A"
+            prof["turnover"] = "N/A"
+    else:
+        prof["vol"] = "N/A"
+        prof["turnover"] = "N/A"
+
     # v6：apply_micro_tick 已停用（不再製造假跳動）。真實價格只在 Yahoo 刷新時更新。
     prof["update_time"] = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     return prof
@@ -1905,9 +2194,9 @@ st.markdown(
     "<div style='font-size:12px; line-height:1.6; background:#eef5ff; border:1px solid #b8d3f5; "
     "border-radius:8px; padding:8px 12px; margin-bottom:8px; color:#1f3a5f;'>"
     "📡 <b>數據真實性聲明（v7）</b>：現價、歷史 K 線、財報、估值與動能均取自真實市場數據，"
-    "採<b>雙數據源備援：Yahoo Finance 為主、Stooq 為備</b>（圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
-    "本版<b>取消自動更新、改為手動按鈕</b>：每個區塊右上角「🔄 更新」按一下才重抓。"
-    "免費源限制：港股成價一般延遲約 15 分鐘；分鐘線僅 Yahoo 提供、Stooq 只提供日/週/月線；"
+    "採<b>三數據源備援：Yahoo Finance → 騰訊財經（qt.gtimg.cn）→ Stooq</b>（報價與圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
+    "本版<b>取消自動更新、改為手動按鈕</b>：每個區塊的「🔄 更新」按一下才重抓。"
+    "免費源限制：港股成價一般延遲約 15 分鐘；分鐘線由 Yahoo／騰訊提供，Stooq 只提供日/週/月線；財報與預測估值仍以 Yahoo 為主；"
     "Level 2 多檔買賣深度屬付費數據，本系統已<b>移除 40 檔盤口</b>且絕不編造。模型推演僅供統計參考，<b>不構成投資建議</b>。"
     "</div>",
     unsafe_allow_html=True
@@ -1947,7 +2236,8 @@ if st.session_state["last_symbol"] != selected_symbol:
         # 注意：get_multi_tf_ohlcv 定義於本段之後，圖表快取依 symbol 參數自動區分，故不在此清。
         for _fn in (fetch_realtime_market_tick,
                     fetch_real_fundamentals, fetch_real_momentum_snapshot,
-                    fetch_real_annual_financials, fetch_real_monthly_path):
+                    fetch_real_annual_financials, fetch_real_monthly_path,
+                    fetch_tencent_quote, fetch_tencent_kline):
             try:
                 _fn.clear()
             except Exception:
@@ -1978,7 +2268,8 @@ with col_s2:
         if st.button("🔄 全部更新", help="手動清空快取並重新抓取所有真實數據（v7 已取消自動更新）", use_container_width=True):
             for _fn in (fetch_realtime_market_tick, fetch_real_fundamentals,
                         fetch_real_momentum_snapshot, fetch_real_annual_financials,
-                        fetch_real_monthly_path, get_price_history, fetch_stooq_ohlc):
+                        fetch_real_monthly_path, get_price_history, fetch_stooq_ohlc,
+                        fetch_tencent_quote, fetch_tencent_kline):
                 try:
                     _fn.clear()
                 except Exception:
@@ -2059,8 +2350,8 @@ def get_multi_tf_ohlcv(symbol: str, timeframe: str):
         empty.attrs["data_ok"] = False
         empty.attrs["data_source"] = None
         empty.attrs["data_msg"] = (
-            f"Yahoo Finance 與 Stooq 均暫時無法提供 {base['symbol']} 的 {timeframe} 真實數據"
-            f"（可能為離線、代號無效、或該商品不提供此週期）。分鐘線僅 Yahoo 提供，Stooq 僅支援日/週/月線。"
+            f"Yahoo Finance、騰訊財經與 Stooq 均暫時無法提供 {base['symbol']} 的 {timeframe} 真實數據"
+            f"（可能為離線、代號無效、或該商品不提供此週期）。分鐘線由 Yahoo／騰訊提供，Stooq 僅支援日/週/月線。"
         )
         return empty
 
@@ -2228,7 +2519,7 @@ with col_chart:
         st.markdown("<div style='height:1px;'></div>", unsafe_allow_html=True)
         if st.button("🔄 更新圖表", key="refresh_chart_btn", use_container_width=True,
                      help="按一下即清除圖表快取，重新從 Yahoo / Stooq 抓取所選時間週期的真實 K 線"):
-            for _fn in (get_multi_tf_ohlcv, get_price_history, fetch_stooq_ohlc):
+            for _fn in (get_multi_tf_ohlcv, get_price_history, fetch_stooq_ohlc, fetch_tencent_kline):
                 try:
                     _fn.clear()
                 except Exception:
@@ -2265,6 +2556,24 @@ def render_quote_panel():
     ndx_q = get_or_create_asset_profile("^IXIC", apply_micro_tick=False)
     dji_q = get_or_create_asset_profile("^DJI", apply_micro_tick=False)
 
+    def _num(v, spec=",.2f", suffix=""):
+        try:
+            if v is None:
+                return "N/A"
+            return f"{float(v):{spec}}{suffix}"
+        except Exception:
+            return "N/A"
+
+    _eps_s = _num(live_q.get("eps"), ".4f")
+    _pe_s = f"{_num(live_q.get('pe'), '.2f', 'x')} / {_num(live_q.get('fwd_pe'), '.2f', 'x')}"
+    _w52lo, _w52hi = live_q.get("w52_low"), live_q.get("w52_high")
+    if _w52lo is not None and _w52hi is not None:
+        _yldw52 = f"{_num(live_q.get('yield'), '.2f', '%')} | {_w52lo:,.1f} - {_w52hi:,.1f}"
+    else:
+        _yldw52 = "N/A"
+    _vol_s = live_q.get("vol") or "N/A"
+    _turn_s = live_q.get("turnover") or "N/A"
+
     is_up = live_q["change"] >= 0
     arrow_sym = "▲" if is_up else "▼"
     price_cls = "aa-price-up" if is_up else "aa-price-down"
@@ -2272,14 +2581,23 @@ def render_quote_panel():
     curr_label = "港元" if live_q["curr"] == "HKD" else "美元"
 
     _src_name = live_q.get("source") or "Yahoo Finance"
-    _is_stooq = bool(live_q.get("source")) and "Stooq" in str(live_q.get("source"))
-    # v7 誠實數據源標示：真實成價、來源、行情時點、延遲提示；雙源皆失敗時明確聲明
+    _src_str = str(live_q.get("source") or "")
+    _is_stooq = "Stooq" in _src_str
+    _is_tencent = "騰訊" in _src_str
+    # v7 誠實數據源標示：Yahoo／騰訊／Stooq 三源，真實成價、來源、行情時點、延遲提示；皆失敗時明確聲明
     if live_q.get("live_ok"):
         qt = live_q.get("quote_time")
         if _is_stooq:
             _data_source_line = (
-                f"🔗 數據源：<b>Stooq 備援源</b>（Yahoo 連線失敗時自動改用）｜"
-                f"顯示為<b>最近收盤價、非即時</b>（Stooq 免費源僅提供日線）｜行情日期：{qt if qt else live_q['update_time']}"
+                f"🔗 數據源：<b>Stooq 備援源</b>（Yahoo、騰訊連線失敗時自動改用）｜"
+                f"顯示為<b>最近收盤價、非即時</b>（Stooq 免費源僅提供日/週/月線）｜行情日期：{qt if qt else live_q['update_time']}"
+            )
+        elif _is_tencent:
+            _is_hk = live_q.get("mkt") == "HK"
+            delay_note = "港股免費源通常延遲約 15 分鐘" if _is_hk else "美股盤中接近即時（視交易所）"
+            _data_source_line = (
+                f"🔗 數據源：<b>騰訊財經</b>（Yahoo 連線失敗時自動改用，含報價與 K 線）｜{delay_note}｜"
+                f"行情時點：{qt if qt else live_q['update_time']}｜頁面刷新：{live_q['update_time']}"
             )
         else:
             _is_hk = live_q.get("mkt") == "HK"
@@ -2293,8 +2611,8 @@ def render_quote_panel():
             _data_source_line += f"｜基本面數據截至：{fund_asof}"
     else:
         _data_source_line = (
-            "⚠️ Yahoo Finance 與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
-            "本系統不會在離線時製造假跳動，請按「🔄 更新報價」重試。"
+            "⚠️ Yahoo Finance、騰訊財經與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
+            "本系統不會在離線時製造假跳動，請按「🔄 更新報價」或檢查網絡後重試。"
         )
     _data_source_line += f"<br>{live_q.get('adr_info', '')}"
 
@@ -2332,9 +2650,10 @@ def render_quote_panel():
 
     with col_quote:
         if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
-                     help="按一下即清除報價快取，重新從 Yahoo / Stooq 抓取最新真實成價與指數"):
+                     help="按一下即清除報價快取，依序從 Yahoo / 騰訊 / Stooq 重新抓取最新真實成價與指數"):
             for _fn in (fetch_realtime_market_tick,
-                        fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc):
+                        fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc,
+                        fetch_tencent_quote, fetch_tencent_kline):
                 try:
                     _fn.clear()
                 except Exception:
@@ -2363,16 +2682,16 @@ def render_quote_panel():
                     <td class="aa-label">市值/資產規模</td><td class="aa-val">{live_q['mkt_cap']}</td>
                 </tr>
                 <tr>
-                    <td class="aa-label">成交量</td><td class="aa-val">{live_q['vol']}</td>
-                    <td class="aa-label">每股盈利 (EPS)</td><td class="aa-val">{live_q['eps']:.4f}</td>
+                    <td class="aa-label">成交量</td><td class="aa-val">{_vol_s}</td>
+                    <td class="aa-label">每股盈利 (EPS){' <small>(價格/PE推算)</small>' if live_q.get('eps_estimated') else ''}</td><td class="aa-val">{_eps_s}</td>
                 </tr>
                 <tr>
-                    <td class="aa-label">成交金額</td><td class="aa-val">{live_q['turnover']}</td>
-                    <td class="aa-label">市盈率 (靜態 / 預測)</td><td class="aa-val">{live_q['pe']:.2f}x / {live_q['fwd_pe']:.2f}x</td>
+                    <td class="aa-label">成交金額</td><td class="aa-val">{_turn_s}</td>
+                    <td class="aa-label">市盈率 (靜態 / 預測)</td><td class="aa-val">{_pe_s}</td>
                 </tr>
                 <tr>
                     <td class="aa-label">每手單位</td><td class="aa-val">{live_q['lot']}</td>
-                    <td class="aa-label">收益率 / 52週波幅</td><td class="aa-val">{live_q['yield']:.2f}% | {live_q['w52_low']:,.1f} - {live_q['w52_high']:,.1f}</td>
+                    <td class="aa-label">收益率 / 52週波幅</td><td class="aa-val">{_yldw52}</td>
                 </tr>
             </table>
             <div style="font-size:11.5px; color:#188038; font-weight:700; margin-top:8px; padding-top:6px; border-top:1px dashed #e0e0e0;">
@@ -2444,7 +2763,7 @@ if active_aa_tab != "快速報價":
             d1.metric("典型價 (H+L+C)/3", vwap_disp, vwap_delta)
             d2.metric("14日 RSI 強弱指標", rsi_disp, rsi_delta)
             d3.metric("布林通道上下軌", bb_disp, bb_delta)
-            d4.metric("每股帳面淨值 / 市帳率", f"{q_data['bps']:,.2f} / {q_data['pb']:.2f}x", f"ROE {q_data['roe']:.1f}%")
+            d4.metric("每股帳面淨值 / 市帳率", f"{_sf(q_data['bps'], ',.2f')} / {_sf(q_data['pb'], '.2f', 'x')}", f"ROE {_sf(q_data['roe'], '.1f', '%')}")
             
             tick = round(max(p_cur * 0.001, 0.01), 3)
             ob_rows = []
@@ -2569,7 +2888,7 @@ if active_aa_tab != "快速報價":
                 pr = get_or_create_asset_profile(ps)
                 rows_p.append({
                     "代號": pr["symbol"], "名稱": pr["name"], "現價": f"{pr['price']:,.2f} {pr['curr']}",
-                    "預測PE": f"{pr['fwd_pe']:.1f}x", "市銷率PS": f"{pr['ps']:.2f}x", "市帳率PB": f"{pr['pb']:.2f}x",
+                    "預測PE": _sf(pr['fwd_pe'], ".1f", "x"), "市銷率PS": _sf(pr['ps'], ".2f", "x"), "市帳率PB": _sf(pr['pb'], ".2f", "x"),
                     "毛利率": f"{pr['gross_margin']:.1f}%", "批判評分": f"{pr['score']}/10", "估值定性": pr["verdict"]
                 })
             render_resizable_table(pd.DataFrame(rows_p), key_prefix="aa_peer_tbl", default_col_w=110, default_text_w=260, default_row_h=45)
@@ -2582,11 +2901,15 @@ if active_aa_tab != "快速報價":
             """)
 
         elif active_aa_tab == "派息紀錄":
-            if q_data["dps"] > 0 and q_data["mkt"] not in ["WARRANT", "CBBC", "FUTURES"]:
+            if q_data["dps"] and q_data["dps"] > 0 and q_data["mkt"] not in ["WARRANT", "CBBC", "FUTURES"]:
+                _y = q_data.get("yield")
+                _y0 = _sf(_y, ".2f", "%")
+                _y1 = _sf((_y * 0.85) if _y is not None else None, ".2f", "%")
+                _y2 = _sf((_y * 0.72) if _y is not None else None, ".2f", "%")
                 div_df = pd.DataFrame([
-                    {"財政年度": "2026E (預測)", "每股派息": f"{q_data['dps']:.2f} {q_data['curr']}", "除淨日": "2027-05-18 (預估)", "派息率": "20.5%", "現價股息率": f"{q_data['yield']:.2f}%"},
-                    {"財政年度": "2025 全年", "每股派息": f"{(q_data['dps']*0.85):.2f} {q_data['curr']}", "除淨日": "2026-05-20", "派息率": "19.2%", "現價股息率": f"{(q_data['yield']*0.85):.2f}%"},
-                    {"財政年度": "2024 全年", "每股派息": f"{(q_data['dps']*0.72):.2f} {q_data['curr']}", "除淨日": "2025-05-16", "派息率": "18.8%", "現價股息率": f"{(q_data['yield']*0.72):.2f}%"}
+                    {"財政年度": "2026E (預測)", "每股派息": f"{q_data['dps']:.2f} {q_data['curr']}", "除淨日": "2027-05-18 (預估)", "派息率": "20.5%", "現價股息率": _y0},
+                    {"財政年度": "2025 全年", "每股派息": f"{(q_data['dps']*0.85):.2f} {q_data['curr']}", "除淨日": "2026-05-20", "派息率": "19.2%", "現價股息率": _y1},
+                    {"財政年度": "2024 全年", "每股派息": f"{(q_data['dps']*0.72):.2f} {q_data['curr']}", "除淨日": "2025-05-16", "派息率": "18.8%", "現價股息率": _y2}
                 ])
                 render_resizable_table(div_df, key_prefix="div_tbl", default_col_w=130, default_text_w=180, default_row_h=40)
             else:
@@ -2631,7 +2954,9 @@ def tab_refresh_button(key: str, extra_fns=None, label: str = "🔄 更新本分
     """v7：每個分頁的手動更新小按鈕；按下後清除相關快取並重跑，不做任何自動更新。"""
     if st.button(label, key=key, use_container_width=True,
                  help="手動重新抓取本分頁所需的真實數據（Yahoo / Stooq）"):
-        fns = list(extra_fns or []) + [get_price_history, fetch_stooq_ohlc, fetch_realtime_market_tick]
+        fns = list(extra_fns or []) + [get_price_history, fetch_stooq_ohlc,
+                                       fetch_realtime_market_tick,
+                                       fetch_tencent_quote, fetch_tencent_kline]
         for fn in fns:
             try:
                 fn.clear()
@@ -2774,7 +3099,7 @@ with tabs[0]:
                 rows.append({
                     "股票代號": sym, "公司名稱": f"{prof['name']} ({prof['en']})", "市場": prof["mkt"],
                     "當前現價": f"{p:,.2f} {prof['curr']}",
-                    "真實遠期PE": f"{prof['fwd_pe']:.1f}x", "真實PS/PB": f"{prof['ps']:.2f}x / {prof['pb']:.2f}x",
+                    "真實遠期PE": _sf(prof['fwd_pe'], ".1f", "x"), "真實PS/PB": f"{_sf(prof['ps'], '.2f', 'x')} / {_sf(prof['pb'], '.2f', 'x')}",
                     "真實營收增長/ROE": f"{prof['rev_growth']:+.1f}% / {prof['roe']:.1f}%",
                     "方向定性(模型)": dir_tag, "1-6月客觀波幅區間": range_str,
                     "模型目標區間": f"{prof['curr']} {t_lo:,.1f} – {t_hi:,.1f}",
@@ -2847,10 +3172,10 @@ with tabs[1]:
     
     m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("C.Price (現價)", f"{q_data['price']:,.2f} {q_data['curr']}")
-    m2.metric("C.PE (靜態/預測)", f"{q_data['pe']:.2f}x / {q_data['fwd_pe']:.2f}x")
-    m3.metric("C.PS (市銷率)", f"{q_data['ps']:.2f}x")
-    m4.metric("C.PB (市帳率)", f"{q_data['pb']:.2f}x")
-    m5.metric("C.DY (現時股息)", f"{q_data['yield']:.2f}%")
+    m2.metric("C.PE (靜態/預測)", f"{_sf(q_data['pe'], '.2f', 'x')} / {_sf(q_data['fwd_pe'], '.2f', 'x')}")
+    m3.metric("C.PS (市銷率)", _sf(q_data['ps'], '.2f', 'x'))
+    m4.metric("C.PB (市帳率)", _sf(q_data['pb'], '.2f', 'x'))
+    m5.metric("C.DY (現時股息)", _sf(q_data['yield'], '.2f', '%'))
     m6.metric("C.PCF (市現率)", f"{(q_data['price']/max(q_data['ocf_ps'], 0.1)):.2f}x")
     m7.metric("C.PFCF (自由現金流比)", f"{(q_data['price']/max(q_data['fcf_ps'], 0.1)):.2f}x")
 
@@ -3140,31 +3465,42 @@ with tabs[2]:
     st.subheader(f"🎯 {q_data['code']} {q_data['name']} — 2026年基本面高低位分析與歷史倍數推算")
     tab_refresh_button("refresh_tab_fund", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
     
-    eps_26 = q_data["fwd_eps"]
-    bps_26 = q_data["bps"]
-    ocf_26 = q_data["ocf_ps"]
-    
-    if selected_symbol == "00700.HK":
-        pe_lo_mult, pe_hi_mult = 13.0, 22.0
-        pb_lo_mult, pb_hi_mult = 2.2, 3.5
-    else:
-        if q_data["score"] < 5.0:
-            pe_lo_mult = round(max(q_data["fwd_pe"] * 0.55, 10.0), 1)
-            pe_hi_mult = round(q_data["fwd_pe"] * 0.95, 1)
+    eps_26 = q_data.get("fwd_eps")
+    bps_26 = q_data.get("bps")
+    ocf_26 = q_data.get("ocf_ps")
+
+    if q_data.get("fund_ok"):
+        _fpe = q_data.get("fwd_pe") or q_data.get("pe")
+        _pb = q_data.get("pb")
+        if selected_symbol == "00700.HK":
+            pe_lo_mult, pe_hi_mult = 13.0, 22.0
+            pb_lo_mult, pb_hi_mult = 2.2, 3.5
         else:
-            pe_lo_mult = round(max(q_data["fwd_pe"] * 0.85, 6.0), 1)
-            pe_hi_mult = round(q_data["fwd_pe"] * 1.35, 1)
-        pb_lo_mult = round(max(q_data["pb"] * 0.78, 0.5), 2)
-        pb_hi_mult = round(q_data["pb"] * 1.28, 2)
-        
-    fund_low = round(eps_26 * pe_lo_mult, 2)
-    fund_high = round(eps_26 * pe_hi_mult, 2)
-    pb_low = round(bps_26 * pb_lo_mult, 2)
-    pb_high = round(bps_26 * pb_hi_mult, 2)
-    pcf_low = round(ocf_26 * (pe_lo_mult * 0.55), 2)
-    pcf_high = round(ocf_26 * (pe_hi_mult * 0.55), 2)
-    model_low = round((fund_low * 0.5 + pb_low * 0.3 + pcf_low * 0.2), 2)
-    model_high = round((fund_high * 0.5 + pb_high * 0.3 + pcf_high * 0.2), 2)
+            if q_data["score"] < 5.0:
+                pe_lo_mult = round(max(_fpe * 0.55, 10.0), 1)
+                pe_hi_mult = round(_fpe * 0.95, 1)
+            else:
+                pe_lo_mult = round(max(_fpe * 0.85, 6.0), 1)
+                pe_hi_mult = round(_fpe * 1.35, 1)
+            pb_lo_mult = round(max(_pb * 0.78, 0.5), 2)
+            pb_hi_mult = round(_pb * 1.28, 2)
+
+        fund_low = round(eps_26 * pe_lo_mult, 2)
+        fund_high = round(eps_26 * pe_hi_mult, 2)
+        pb_low = round(bps_26 * pb_lo_mult, 2)
+        pb_high = round(bps_26 * pb_hi_mult, 2)
+        pcf_low = round(ocf_26 * (pe_lo_mult * 0.55), 2)
+        pcf_high = round(ocf_26 * (pe_hi_mult * 0.55), 2)
+        model_low = round((fund_low * 0.5 + pb_low * 0.3 + pcf_low * 0.2), 2)
+        model_high = round((fund_high * 0.5 + pb_high * 0.3 + pcf_high * 0.2), 2)
+    else:
+        st.warning(
+            "⚠️ 完整基本面估值模型（預測 EPS、PE／PB／PCF 估值帶、8P 綜合區間）需要 **Yahoo 財報數據**。"
+            "目前資料源（騰訊財經／Stooq）只提供真實報價與 K 線，並無預測財報，故本頁定量估值帶**暫停計算**（不以內建或隨機數字填充）。"
+            "請按本頁「🔄 更新」並在 Yahoo 可連線時重試；上方報價、PE／PB、52 週區間與右側 K 線技術分析仍可正常使用。"
+        )
+        pe_lo_mult = pe_hi_mult = pb_lo_mult = pb_hi_mult = None
+        fund_low = fund_high = pb_low = pb_high = pcf_low = pcf_high = model_low = model_high = None
 
     col_f4, col_f5 = st.columns(2)
     with col_f4:
@@ -3173,9 +3509,9 @@ with tabs[2]:
             <h4>📌 從基本面全面分析今年（2026年）價格的高位和低位</h4>
             <ul>
                 <li><strong>核心盈利與毛利動能</strong>：{q_data['name']} 年度營收規模 <strong>{q_data['rev_b']:,.2f} 十億 ({q_data['curr']})</strong>，按年變動 <strong>{q_data['rev_growth']:+.2f}%</strong>，毛利率 <strong>{q_data['gross_margin']:.2f}%</strong>。</li>
-                <li><strong>2026E 經調整每股盈利 (EPS) 基準</strong>：預測為 <strong>{eps_26:,.2f} {q_data['curr']}</strong>（每股帳面淨值 BPS 為 <strong>{bps_26:,.2f} {q_data['curr']}</strong>）。</li>
-                <li><strong>基本面合理低位（Intrinsic Floor）</strong>：按審慎防守倍數 <strong>{pe_lo_mult}x 2026E PE</strong> 計算，基本面支撐底線為 <strong style="color:#d93025;">{fund_low:,.2f} {q_data['curr']}</strong>。</li>
-                <li><strong>基本面合理高位（Intrinsic Ceiling）</strong>：按基本面合理上限倍數 <strong>{pe_hi_mult}x 2026E PE</strong> 計算，基本面合理頂部為 <strong style="color:#188038;">{fund_high:,.2f} {q_data['curr']}</strong>。</li>
+                <li><strong>2026E 經調整每股盈利 (EPS) 基準</strong>：預測為 <strong>{_sf(eps_26, ',.2f')} {q_data['curr']}</strong>（每股帳面淨值 BPS 為 <strong>{_sf(bps_26, ',.2f')} {q_data['curr']}</strong>）。</li>
+                <li><strong>基本面合理低位（Intrinsic Floor）</strong>：按審慎防守倍數 <strong>{_sf(pe_lo_mult, '.1f', 'x')} 2026E PE</strong> 計算，基本面支撐底線為 <strong style="color:#d93025;">{_sf(fund_low, ',.2f')} {q_data['curr']}</strong>。</li>
+                <li><strong>基本面合理高位（Intrinsic Ceiling）</strong>：按基本面合理上限倍數 <strong>{_sf(pe_hi_mult, '.1f', 'x')} 2026E PE</strong> 計算，基本面合理頂部為 <strong style="color:#188038;">{_sf(fund_high, ',.2f')} {q_data['curr']}</strong>。</li>
                 <li><strong>批判性基本面風險提示</strong>：{q_data['catalyst'].split('|')[-1].strip()}</li>
             </ul>
         </div>
@@ -3187,41 +3523,58 @@ with tabs[2]:
             <h4>📌 根據過往歷史高低位倍數，推算今年價格的高位和低位</h4>
             <p style="font-size:13.5px;">擷取 2010–2025 年歷史高低估值倍數中樞（8P 模型），套用至今年每股財務數據推算：</p>
             <ul>
-                <li><strong>歷史市盈率法 (HP / LP on PE)</strong>：最低價 <strong>{fund_low:,.2f}</strong> | 最高價 <strong>{fund_high:,.2f} {q_data['curr']}</strong>。</li>
-                <li><strong>歷史市帳率法 (HP / LP on PB)</strong>：按 {pb_lo_mult}x – {pb_hi_mult}x PB 推算，最低價 <strong>{pb_low:,.2f}</strong> | 最高價 <strong>{pb_high:,.2f} {q_data['curr']}</strong>。</li>
-                <li><strong>歷史市現率法 (HP / LP on PCF)</strong>：按營運現金流推算，最低價 <strong>{pcf_low:,.2f}</strong> | 最高價 <strong>{pcf_high:,.2f} {q_data['curr']}</strong>。</li>
-                <li><strong>8P 多因子綜合加權結論</strong>：推算今年綜合高低位區間為 <strong>{model_low:,.2f} 至 {model_high:,.2f} {q_data['curr']}</strong>（過去52週實際高低位為 <strong>{q_data['w52_low']:,.2f} – {q_data['w52_high']:,.2f}</strong>）。</li>
+                <li><strong>歷史市盈率法 (HP / LP on PE)</strong>：最低價 <strong>{_sf(fund_low, ',.2f')}</strong> | 最高價 <strong>{_sf(fund_high, ',.2f')} {q_data['curr']}</strong>。</li>
+                <li><strong>歷史市帳率法 (HP / LP on PB)</strong>：按 {_sf(pb_lo_mult, '.2f', 'x')} – {_sf(pb_hi_mult, '.2f', 'x')} PB 推算，最低價 <strong>{_sf(pb_low, ',.2f')}</strong> | 最高價 <strong>{_sf(pb_high, ',.2f')} {q_data['curr']}</strong>。</li>
+                <li><strong>歷史市現率法 (HP / LP on PCF)</strong>：按營運現金流推算，最低價 <strong>{_sf(pcf_low, ',.2f')}</strong> | 最高價 <strong>{_sf(pcf_high, ',.2f')} {q_data['curr']}</strong>。</li>
+                <li><strong>8P 多因子綜合加權結論</strong>：推算今年綜合高低位區間為 <strong>{_sf(model_low, ',.2f')} 至 {_sf(model_high, ',.2f')} {q_data['curr']}</strong>（過去52週實際高低位為 <strong>{_sf(q_data['w52_low'], ',.2f')} – {_sf(q_data['w52_high'], ',.2f')}</strong>）。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
-    bands_labels = ["52週實際高低區間", f"8P PE估值帶 ({pe_lo_mult}x-{pe_hi_mult}x)", f"8P PB估值帶 ({pb_lo_mult}x-{pb_hi_mult}x)", "8P PCF現金流估值帶", "8P 綜合加權模型區間"]
+    def _mrange(a, b):
+        return f" ({a:g}x-{b:g}x)" if isinstance(a, (int, float)) and isinstance(b, (int, float)) else ""
+
+    bands_labels = ["52週實際高低區間", f"8P PE估值帶{_mrange(pe_lo_mult, pe_hi_mult)}",
+                    f"8P PB估值帶{_mrange(pb_lo_mult, pb_hi_mult)}", "8P PCF現金流估值帶",
+                    "8P 綜合加權模型區間"]
     low_vals = [q_data["w52_low"], fund_low, pb_low, pcf_low, model_low]
     high_vals = [q_data["w52_high"], fund_high, pb_high, pcf_high, model_high]
-    widths = [max(h - l, 0.05) for h, l in zip(high_vals, low_vals)]
 
-    fig_bands = go.Figure()
-    fig_bands.add_trace(go.Bar(
-        y=bands_labels, x=widths, base=low_vals, orientation="h",
-        marker=dict(color="rgba(26, 115, 232, 0.22)", line=dict(color="#1a73e8", width=1.8)),
-        text=[f"{l:,.1f} ~ {h:,.1f} {q_data['curr']}" for l, h in zip(low_vals, high_vals)],
-        textposition="outside", name="推算高低位區間"
-    ))
-    fig_bands.add_vline(
-        x=q_data["price"], line_width=2.5, line_dash="dash", line_color="#d93025",
-        annotation_text=f"現價: {q_data['price']:,.2f} {q_data['curr']}", annotation_position="top right",
-        annotation_font=dict(color="#d93025", size=13)
-    )
-    _tc = get_theme_chart_colors()
-    fig_bands.update_layout(
-        title=f"{q_data['name']} — 2026年基本面與歷史 8P 模型高低位區間 vs 當前現價對標圖",
-        xaxis_title=f"價格 ({q_data['curr']})", height=320,
-        margin=dict(l=20, r=90, t=40, b=30),
-        paper_bgcolor=_tc["paper"], plot_bgcolor=_tc["plot"], font=dict(color=_tc["text"])
-    )
-    fig_bands.update_xaxes(gridcolor=_tc["grid"], range=[min(low_vals + [q_data["price"]])*0.80, max(high_vals + [q_data["price"]])*1.18])
-    fig_bands.update_yaxes(gridcolor=_tc["grid"])
-    st.plotly_chart(fig_bands, use_container_width=True)
+    # 過濾缺資料的估值帶（Yahoo 財報未連線時 PE/PB/PCF/模型帶為 None，僅保留真實 52 週區間）
+    _pairs = [(lab, l, h) for lab, l, h in zip(bands_labels, low_vals, high_vals)
+              if isinstance(l, (int, float)) and isinstance(h, (int, float))]
+    if _pairs:
+        b_labels = [p[0] for p in _pairs]
+        b_low = [p[1] for p in _pairs]
+        b_high = [p[2] for p in _pairs]
+        b_width = [max(h - l, 0.05) for h, l in zip(b_high, b_low)]
+
+        fig_bands = go.Figure()
+        fig_bands.add_trace(go.Bar(
+            y=b_labels, x=b_width, base=b_low, orientation="h",
+            marker=dict(color="rgba(26, 115, 232, 0.22)", line=dict(color="#1a73e8", width=1.8)),
+            text=[f"{l:,.1f} ~ {h:,.1f} {q_data['curr']}" for l, h in zip(b_low, b_high)],
+            textposition="outside", name="推算高低位區間"
+        ))
+        fig_bands.add_vline(
+            x=q_data["price"], line_width=2.5, line_dash="dash", line_color="#d93025",
+            annotation_text=f"現價: {q_data['price']:,.2f} {q_data['curr']}", annotation_position="top right",
+            annotation_font=dict(color="#d93025", size=13)
+        )
+        _tc = get_theme_chart_colors()
+        fig_bands.update_layout(
+            title=f"{q_data['name']} — 2026年基本面與歷史 8P 模型高低位區間 vs 當前現價對標圖",
+            xaxis_title=f"價格 ({q_data['curr']})", height=320,
+            margin=dict(l=20, r=90, t=40, b=30),
+            paper_bgcolor=_tc["paper"], plot_bgcolor=_tc["plot"], font=dict(color=_tc["text"])
+        )
+        fig_bands.update_xaxes(gridcolor=_tc["grid"],
+                               range=[min(b_low + [q_data["price"]]) * 0.80,
+                                      max(b_high + [q_data["price"]]) * 1.18])
+        fig_bands.update_yaxes(gridcolor=_tc["grid"])
+        st.plotly_chart(fig_bands, use_container_width=True)
+    else:
+        st.info("ℹ️ 目前沒有足夠真實數據繪製估值區間（需 Yahoo 財報或真實 52 週高低點）；資料源恢復後按「🔄 更新」即可重繪。")
 
 # ------------------------------------------
 # 分頁 D：全年走勢與波浪理論分析 (已移除問題編號)
@@ -3234,9 +3587,9 @@ with tabs[3]:
     with _w_r1:
         st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
         if st.button("🔄 更新波浪分析", key="refresh_wave_btn", use_container_width=True,
-                     help="重新從 Yahoo / Stooq 抓取真實日線與月度走勢，重算擺動點與標浪"):
+                     help="重新從 Yahoo / 騰訊 / Stooq 抓取真實日線與月度走勢，重算擺動點與標浪"):
             for _fn in (fetch_real_monthly_path, fetch_real_momentum_snapshot,
-                        get_price_history, fetch_stooq_ohlc):
+                        get_price_history, fetch_stooq_ohlc, fetch_tencent_kline):
                 try:
                     _fn.clear()
                 except Exception:
@@ -3400,8 +3753,8 @@ with tabs[3]:
             st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
     else:
         st.warning(
-            "⚠️ Yahoo Finance 與 Stooq 目前均無法提供此標的足夠長的真實日線，無法計算 ZigZag 擺動點與標浪。"
-            "本系統不會在無真實數據時編造波浪，請按「🔄 更新波浪分析」或稍後重試。"
+            "⚠️ Yahoo Finance、騰訊財經與 Stooq 目前均無法提供此標的足夠長的真實日線，無法計算 ZigZag 擺動點與標浪。"
+            "本系統不會在無真實數據時編造波浪，請按「🔄 更新波浪分析」、檢查網絡或稍後重試。"
         )
 
     c_w6, c_w7 = st.columns(2)
@@ -3461,10 +3814,18 @@ with tabs[4]:
     st.subheader(f"⚖️ {q_data['code']} {q_data['name']} — 批判性入市判斷、客觀估值評分與同行比較")
     tab_refresh_button("refresh_tab_entry", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
     
-    pos_pct = (q_data["price"] - q_data["w52_low"]) / max(q_data["w52_high"] - q_data["w52_low"], 0.01) * 100.0
-    pos_pct = float(np.clip(pos_pct, 1.0, 99.0))
+    _lo52, _hi52 = q_data.get("w52_low"), q_data.get("w52_high")
+    if isinstance(_lo52, (int, float)) and isinstance(_hi52, (int, float)) and _hi52 > _lo52:
+        pos_pct = (q_data["price"] - _lo52) / max(_hi52 - _lo52, 0.01) * 100.0
+        pos_pct = float(np.clip(pos_pct, 1.0, 99.0))
+    else:
+        pos_pct = None
     sc_now = q_data["score"]
     score_color = "#188038" if sc_now >= 7.0 else ("#f57c00" if sc_now >= 5.2 else "#d93025")
+    if isinstance(fund_low, (int, float)) and isinstance(fund_high, (int, float)):
+        _support_txt = f"{fund_low:,.1f}–{(fund_low + fund_high)/2:,.1f} {q_data['curr']}"
+    else:
+        _support_txt = "待 Yahoo 財報連線後顯示"
     
     c_e8, c_e9 = st.columns([3, 2])
     with c_e8:
@@ -3473,11 +3834,11 @@ with tabs[4]:
             <h4>⏱️ 目前是否適合買入，還是應等待一段時間後再入市？（批判性分析）</h4>
             <p style="font-size:15px; font-weight:700; color:{score_color};">📌 客觀決策結論：{q_data['action_plan']}</p>
             <ul>
-                <li><strong>當前價格位置與估值診斷</strong>：{q_data['name']} 現價 <strong>{q_data['price']:,.2f} {q_data['curr']}</strong> 處於過去 52 週高低區間的第 <strong>{pos_pct:.1f}%</strong> 分位數；預測市盈率為 <strong>{q_data['fwd_pe']:.2f}x</strong>，市銷率 <strong>{q_data['ps']:.2f}x</strong>，市帳率 <strong>{q_data['pb']:.2f}x</strong>。</li>
+                <li><strong>當前價格位置與估值診斷</strong>：{q_data['name']} 現價 <strong>{q_data['price']:,.2f} {q_data['curr']}</strong> 處於過去 52 週高低區間的第 <strong>{_sf(pos_pct, '.1f', '%')}</strong> 分位數；預測市盈率為 <strong>{_sf(q_data['fwd_pe'], '.2f', 'x')}</strong>，市銷率 <strong>{_sf(q_data['ps'], '.2f', 'x')}</strong>，市帳率 <strong>{_sf(q_data['pb'], '.2f', 'x')}</strong>。</li>
                 <li><strong>核心基本面與逆風審視（正反雙向評估）</strong>：{q_data['catalyst']}</li>
                 <li><strong>具體執行時機與風控紀律</strong>：
                     {"目前雖處於歷史低估值安全區間，可先動用 30%–35% 資金建立左側底倉，但其餘 65%–70% 主力資金建議等待股價重新站穩 20 日均線（" + ma20_txt + "）或下次業績確認趨勢後再行投入，並留意美債息率與財報公布等外圍變數。" if sc_now >= 7.0 else (
-                        "目前估值已充分反映甚至透支短期利好，現價直接買入的值博率（Risk-Reward Ratio）偏低。強烈建議耐心等待股價回調至 8P 基本面支撐區（約 " + f"{fund_low:,.1f}–{(fund_low+fund_high)/2:,.1f} {q_data['curr']}" + "）且 RSI 回落至 35–40 區間時再作部署。" if sc_now >= 5.2 else
+                        "目前估值已充分反映甚至透支短期利好，現價直接買入的值博率（Risk-Reward Ratio）偏低。強烈建議耐心等待股價回調至 8P 基本面支撐區（約 " + _support_txt + "）且 RSI 回落至 35–40 區間時再作部署。" if sc_now >= 5.2 else
                         "⚠️ 當前估值處於嚴重泡沫區（或面臨結構性基本面惡化與宏觀加息衝擊），下行均值回歸風險遠大於上行空間。現階段絕對不適合買入，已持倉者應逢反彈減持鎖定利潤或嚴設止損。"
                     )}
                 </li>
@@ -3495,7 +3856,7 @@ with tabs[4]:
             <p style="font-size:13.5px; font-weight:700; margin-bottom:6px;">定性結論：{q_data['verdict']}</p>
             <ul style="font-size:13px;">
                 <li><strong>為何不給 9–10 分滿分（嚴格扣分理由 -{10.0-sc_now:.1f}分）</strong>：任何股票均存在宏觀利率、地緣政治、資本開支折舊或競爭加劇風險。本系統杜絕「無腦唱好」，即便低估值龍頭最高亦僅給予 7.8–8.4 分。</li>
-                <li><strong>PE / PS / PB 歷史對標</strong>：當前預測 PE <strong>{q_data['fwd_pe']:.1f}x</strong>、PS <strong>{q_data['ps']:.2f}x</strong>、PB <strong>{q_data['pb']:.2f}x</strong>（對照基本面合理 PE 區間為 {pe_lo_mult}x – {pe_hi_mult}x）。</li>
+                <li><strong>PE / PS / PB 歷史對標</strong>：當前預測 PE <strong>{_sf(q_data['fwd_pe'], '.1f', 'x')}</strong>、PS <strong>{_sf(q_data['ps'], '.2f', 'x')}</strong>、PB <strong>{_sf(q_data['pb'], '.2f', 'x')}</strong>（對照基本面合理 PE 區間為 {_sf(pe_lo_mult, '.1f', 'x')} – {_sf(pe_hi_mult, '.1f', 'x')}）。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -3515,8 +3876,8 @@ with tabs[4]:
             "總市值 (USD B)": pd_item["mkt_cap_usd"],
             "營收增速": f"{pd_item['rev_growth']:+.1f}%",
             "毛利率": f"{pd_item['gross_margin']:.1f}%",
-            "預測PE": f"{pd_item['fwd_pe']:.1f}x",
-            "市銷率PS": f"{pd_item['ps']:.2f}x",
+            "預測PE": _sf(pd_item['fwd_pe'], ".1f", "x"),
+            "市銷率PS": _sf(pd_item['ps'], ".2f", "x"),
             "批判評分(1-10)": pd_item["score"],
             "估值定性與入市建議": pd_item["verdict"],
             "所處階段與批判性風險剖析": pd_item["catalyst"].split("|")[-1].strip()
@@ -3539,7 +3900,9 @@ with tabs[5]:
     def _bull_bear(m):
         if not m.get("ok"):
             return "數據缺失", "#888888", "—"
-        p, hi, lo = m["price"], m["hi52"], m["lo52"]
+        p, hi, lo = m.get("price"), m.get("hi52"), m.get("lo52")
+        if not all(isinstance(x, (int, float)) for x in (p, hi, lo)) or hi <= lo:
+            return "數據不足", "#888888", "—"
         dd = (p / hi - 1) * 100.0
         bounce = (p / lo - 1) * 100.0
         if dd <= -20:
@@ -3565,12 +3928,12 @@ with tabs[5]:
                 st.markdown(f"""
                 <div class="section-card" style="text-align:center;">
                     <div style="font-weight:800; font-size:15px; margin-bottom:4px;">{nm}</div>
-                    <div style="font-size:22px; font-weight:800; color:{vc};">{m['price']:,.0f}</div>
+                    <div style="font-size:22px; font-weight:800; color:{vc};">{_sf(m.get('price'), ',.0f')}</div>
                     <div style="font-size:12px; font-weight:700; color:{vc}; margin:4px 0;">{verdict}</div>
-                    <div style="font-size:11.5px; color:#555;">52週 {m['lo52']:,.0f} – {m['hi52']:,.0f}</div>
-                    <div style="font-size:11.5px; color:#555;">位置 {m['pos52']:.0f}% 分位｜RSI {m['rsi']:.0f}</div>
-                    <div style="font-size:11.5px; color:#555;">1月 {m['r21']:+.1f}%｜3月 {m['r63']:+.1f}%｜6月 {m['r126']:+.1f}%</div>
-                    <div style="font-size:10.5px; color:#999;">截至 {m['as_of']}</div>
+                    <div style="font-size:11.5px; color:#555;">52週 {_sf(m.get('lo52'), ',.0f')} – {_sf(m.get('hi52'), ',.0f')}</div>
+                    <div style="font-size:11.5px; color:#555;">位置 {_sf(m.get('pos52'), ',.0f')}% 分位｜RSI {_sf(m.get('rsi'), ',.0f')}</div>
+                    <div style="font-size:11.5px; color:#555;">1月 {_sf(m.get('r21'), '+.1f', '%')}｜3月 {_sf(m.get('r63'), '+.1f', '%')}｜6月 {_sf(m.get('r126'), '+.1f', '%')}</div>
+                    <div style="font-size:10.5px; color:#999;">截至 {m.get('as_of') or 'N/A'}</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
@@ -3585,10 +3948,12 @@ with tabs[5]:
         if not m.get("ok"):
             return "真實數據缺失，無法給出結論（不以舊點位或主觀敘述填充）。"
         v, _, _ = _bull_bear(m)
-        p, hi, lo = m["price"], m["hi52"], m["lo52"]
-        return (f"現價 {p:,.0f}，52 週區間 {lo:,.0f}–{hi:,.0f}（第 {m['pos52']:.0f}% 分位），"
+        p, hi, lo = m.get("price"), m.get("hi52"), m.get("lo52")
+        if not all(isinstance(x, (int, float)) for x in (p, hi, lo)) or hi <= lo:
+            return "真實數據不足（52 週高低點缺失），無法計算牛熊位置（不以不完整數據填充）。"
+        return (f"現價 {p:,.0f}，52 週區間 {lo:,.0f}–{hi:,.0f}（第 {_sf(m.get('pos52'), ',.0f')}% 分位），"
                 f"自高點 {(p/hi-1)*100:+.1f}%、自低點 {(p/lo-1)*100:+.1f}%；"
-                f"200 日線{'上方' if m['above_ma200'] else '下方'}，RSI {m['rsi']:.0f}。客觀定性：{v}。")
+                f"200 日線{'上方' if m.get('above_ma200') else '下方'}，RSI {_sf(m.get('rsi'), ',.0f')}。客觀定性：{v}。")
 
     spx, ndx, dji, hsi = macro["^GSPC"], macro["^IXIC"], macro["^DJI"], macro["^HSI"]
     c_m1, c_m2 = st.columns(2)
@@ -3622,11 +3987,11 @@ with tabs[5]:
         v, _, _ = _bull_bear(m)
         df_macro_rows.append({
             "指數": nm,
-            "真實現價": f"{m['price']:,.2f}" if m.get("ok") else "N/A",
-            "52週區間": f"{m['lo52']:,.0f} – {m['hi52']:,.0f}" if m.get("ok") else "N/A",
-            "52週分位": f"{m['pos52']:.0f}%" if m.get("ok") else "N/A",
-            "近1月/3月/6月": f"{m['r21']:+.1f}% / {m['r63']:+.1f}% / {m['r126']:+.1f}%" if m.get("ok") else "N/A",
-            "RSI14": f"{m['rsi']:.0f}" if m.get("ok") else "N/A",
+            "真實現價": _sf(m.get("price"), ",.2f") if m.get("ok") else "N/A",
+            "52週區間": f"{_sf(m.get('lo52'), ',.0f')} – {_sf(m.get('hi52'), ',.0f')}" if m.get("ok") else "N/A",
+            "52週分位": _sf(m.get("pos52"), ".0f", "%") if m.get("ok") else "N/A",
+            "近1月/3月/6月": (f"{_sf(m.get('r21'), '+.1f', '%')} / {_sf(m.get('r63'), '+.1f', '%')} / {_sf(m.get('r126'), '+.1f', '%')}" if m.get("ok") else "N/A"),
+            "RSI14": _sf(m.get("rsi"), ".0f") if m.get("ok") else "N/A",
             "200日線": ("上方" if m.get("above_ma200") else "下方") if m.get("ok") else "N/A",
             "數據驅動牛熊定性": v,
             "數據日期": m.get("as_of", "—")
