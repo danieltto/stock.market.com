@@ -145,6 +145,24 @@ def inject_security_and_styles():
         .aa-metric-table td { padding: 7px 10px; border-bottom: 1px solid #eeeeee; }
         .aa-label { color: #666666; font-weight: 500; }
         .aa-val { color: #111111; font-weight: 700; text-align: right; }
+
+        /* ===== v8：手機報價 App 樣式（大價格 + 左右兩欄成對欄位）===== */
+        .qa-card { background-color:#ffffff; border:1px solid #d9d9d9; border-radius:8px;
+                   padding:14px 16px 12px; height:100%; box-shadow:0 1px 3px rgba(0,0,0,0.05); }
+        .qa-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+                   border-bottom:1px solid #eeeeee; padding-bottom:12px; margin-bottom:4px; }
+        .qa-big { font-size:34px; font-weight:800; line-height:1.05; white-space:nowrap; }
+        .qa-big .qa-chg { font-size:18px; font-weight:800; margin-left:8px; }
+        .qa-name { font-size:14px; color:#333; font-weight:700; margin-bottom:4px; }
+        .qa-status { font-size:12.5px; color:#888; text-align:right; white-space:nowrap; padding-top:6px; }
+        .qa-grid { display:grid; grid-template-columns:1fr auto 1fr auto; column-gap:14px; }
+        .qa-lab { color:#666666; font-size:13.5px; padding:9px 2px; border-bottom:1px solid #f0f0f0; }
+        .qa-val { font-weight:700; font-size:15px; text-align:right; padding:9px 2px;
+                  border-bottom:1px solid #f0f0f0; white-space:nowrap; }
+        .qa-up { color:#188038; } .qa-down { color:#d93025; } .qa-mid { color:#111111; }
+        .qa-na { color:#b0b0b0; font-weight:600; }
+        .qa-foot { font-size:11.5px; font-weight:700; margin-top:10px; padding-top:8px;
+                   border-top:1px dashed #d9d9d9; line-height:1.6; }
         .tag-badge {
             background-color: #ffece8; color: #d93025; border: 1px solid #f5c2b8;
             font-size: 11px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 600;
@@ -412,6 +430,26 @@ def inject_security_and_styles():
             background-color: rgba(239,83,80,0.18) !important; color:#ff9b97 !important;
             border-color: rgba(239,83,80,0.4) !important;
         }
+
+        /* v8 手機報價卡片：深色主題覆蓋 */
+        body.theme-darkblue .qa-card, body.theme-dark .qa-card {
+            background-color: var(--panel) !important; border-color: var(--border) !important;
+        }
+        body.theme-darkblue .qa-head, body.theme-dark .qa-head { border-color: var(--border) !important; }
+        body.theme-darkblue .qa-name, body.theme-dark .qa-name { color: var(--text) !important; }
+        body.theme-darkblue .qa-sub, body.theme-dark .qa-sub,
+        body.theme-darkblue .qa-status, body.theme-dark .qa-status { color: var(--muted) !important; }
+        body.theme-darkblue .qa-lab, body.theme-dark .qa-lab {
+            color: var(--muted) !important; border-color: var(--border) !important;
+        }
+        body.theme-darkblue .qa-val, body.theme-dark .qa-val {
+            color: var(--text) !important; border-color: var(--border) !important;
+        }
+        body.theme-darkblue .qa-up, body.theme-dark .qa-up { color:#26a69a !important; }
+        body.theme-darkblue .qa-down, body.theme-dark .qa-down { color:#ef5350 !important; }
+        body.theme-darkblue .qa-mid, body.theme-dark .qa-mid { color: var(--text) !important; }
+        body.theme-darkblue .qa-na, body.theme-dark .qa-na { color:#6b7689 !important; }
+        body.theme-darkblue .qa-foot, body.theme-dark .qa-foot { border-color: var(--border) !important; }
 
         /* 程式碼 / 分隔線 / 引用 */
         body.theme-darkblue code, body.theme-dark code {
@@ -2064,11 +2102,36 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
     # 市值顯示字串：Yahoo 為絕對值（÷1e8 得億）；騰訊直接給「億」；皆無則 N/A
     _mc = prof.get("mkt_cap_real")
     if isinstance(_mc, (int, float)) and _mc > 0:
-        prof["mkt_cap"] = f"{_mc / 1e8:,.2f}億 {_curr}".strip()
+        mcap_yi = _mc / 1e8
+        prof["mkt_cap"] = f"{mcap_yi:,.2f}億 {_curr}".strip()
     elif isinstance(live.get("mcap_yi"), (int, float)) and live.get("mcap_yi"):
-        prof["mkt_cap"] = f"{live['mcap_yi']:,.0f}億 {_curr}".strip()
+        mcap_yi = float(live["mcap_yi"])
+        prof["mkt_cap"] = f"{mcap_yi:,.0f}億 {_curr}".strip()
     else:
+        mcap_yi = None
         prof["mkt_cap"] = "N/A"
+    prof["mcap_yi_real"] = mcap_yi
+
+    # 開盤價 / 成交量（股數）
+    if live.get("live_ok"):
+        prof["open"] = live.get("open")
+        prof["vol_num"] = live.get("vol_num", 0) or 0
+
+    # 總股本（億股）：Yahoo shares_out（百萬股 ÷100 得億股），免費源缺時以「市值 ÷ 真實價格」推算
+    shares_yi = None
+    if prof.get("fund_ok") and isinstance(prof.get("shares_m"), (int, float)) and prof["shares_m"] > 0:
+        shares_yi = prof["shares_m"] / 100.0
+    elif mcap_yi and _price:
+        shares_yi = mcap_yi / _price
+    prof["shares_yi"] = shares_yi
+
+    # 成交額（本幣）：以免費源「真實成交量(股) × 真實成交價」估算（不依賴未經證實的欄位單位）
+    amount_real = None
+    if live.get("live_ok") and _price:
+        _vn0 = live.get("vol_num", 0) or 0
+        if _vn0 > 0:
+            amount_real = _vn0 * _price
+    prof["amount_real"] = amount_real
 
     if not prof.get("fund_ok"):
         # Yahoo 基本面失敗：騰訊可補 PE/PB/52週；預測 PE/EPS、股息率免費源缺，一律 N/A，不保留寫死
@@ -2082,6 +2145,7 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
         prof["fwd_eps"] = None
         prof["yield"] = None
         prof["ps"] = None  # 騰訊/Stooq 免費源無市銷率，避免殘留內建寫死值
+        prof["beta"] = None  # 騰訊/Stooq 免費報價無 Beta，僅 Yahoo 提供
         # 歷史 EPS 無免費欄位時，以真實「價格／歷史PE」換算（數學恆等，標註為推算）
         if _price and isinstance(prof.get("pe"), (int, float)) and prof["pe"]:
             prof["eps"] = round(_price / float(prof["pe"]), 4)
@@ -2574,6 +2638,104 @@ def render_quote_panel():
     _vol_s = live_q.get("vol") or "N/A"
     _turn_s = live_q.get("turnover") or "N/A"
 
+    # ===== v8：手機報價 App 樣式欄位（全部源自真實數據；衍生計算包 try；免費源缺的欄位一律 N/A，不編造）=====
+    def _qcell(v, spec, suffix="", cls="mid"):
+        if v is None:
+            return '<span class="qa-na">N/A</span>'
+        try:
+            return f'<span class="qa-{cls}">{float(v):{spec}}{suffix}</span>'
+        except Exception:
+            return '<span class="qa-na">N/A</span>'
+
+    def _qtcell(text, cls="mid"):
+        if text is None or text == "":
+            return '<span class="qa-na">N/A</span>'
+        return f'<span class="qa-{cls}">{text}</span>'
+
+    px = live_q.get("price"); op = live_q.get("open"); pv = live_q.get("prev_close")
+    hi = live_q.get("high"); lo = live_q.get("low")
+    voln = live_q.get("vol_num") or 0
+    mkt = live_q.get("mkt"); is_hk = mkt == "HK"
+    fund_ok = live_q.get("fund_ok")
+    _dp = ".3f" if is_hk else ".2f"
+
+    # 真實日線：歷史高低（max 真實區間）與量比（今日量 ÷ 前 5 日均量）
+    hist_hi = hist_lo = vol_ratio = None
+    try:
+        _dfh, _ = get_price_history(selected_symbol, "1d", "max")
+        if _dfh is not None and not _dfh.empty:
+            hist_hi = float(_dfh["High"].max()); hist_lo = float(_dfh["Low"].min())
+            try:
+                _vs = _dfh["Volume"].dropna()
+                if len(_vs) >= 6:
+                    _avg5 = float(_vs.iloc[-6:-1].mean())
+                    if _avg5 > 0:
+                        vol_ratio = float(_vs.iloc[-1]) / _avg5
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    mcap_yi = live_q.get("mcap_yi_real")
+    shares_yi = live_q.get("shares_yi")
+    amount_real = live_q.get("amount_real")
+    pe = live_q.get("pe"); fwd_pe = live_q.get("fwd_pe"); pb = live_q.get("pb")
+    beta = live_q.get("beta")
+    yld = live_q.get("yield") if fund_ok else None
+    h52 = live_q.get("w52_high"); l52 = live_q.get("w52_low")
+
+    amp = ((hi - lo) / pv * 100.0) if (hi and lo and pv) else None
+    turnover_rate = (voln / (shares_yi * 1e8) * 100.0) if (voln and shares_yi) else None
+    avg_price = ((hi + lo + px) / 3.0) if (hi and lo and px) else None
+    dps_ttm = (px * yld / 100.0) if (px and yld is not None) else None
+
+    def _mcap_fmt(v):
+        if v is None:
+            return None
+        return f"{v/1e4:.2f}萬億" if abs(v) >= 10000 else f"{v:,.0f}億"
+
+    if voln and voln > 0:
+        # 騰訊/免費源成交量單位為「股」；照報價 App 以「萬股」呈現（港股、美股一致）
+        vol_str = f"{voln/1e4:,.2f}萬股"
+    else:
+        vol_str = None
+    amt_str = f"約 {amount_real/1e8:,.2f}億" if amount_real else None
+    shares_str = f"{shares_yi:,.2f}億" if shares_yi else None
+    lot = live_q.get("lot")
+    lot_str = (f"{lot}股/手" if (is_hk and lot) else (f"{lot}股" if lot else None))
+
+    op_cls = "up" if (op and pv and op >= pv) else ("down" if op else "mid")
+    avg_cls = "down" if (avg_price and px and avg_price >= px) else "up"
+    # 港股全流通：流通值/流通股 ≈ 總值/總股本；美股流通股數免費源無，標 N/A
+    float_mcap = _mcap_fmt(mcap_yi) if is_hk else None
+    float_shares = shares_str if is_hk else None
+    static_pe = pe if fund_ok else None   # 靜態市盈率僅 Yahoo 提供 trailingPE，騰訊源標 N/A
+    # 每行：(左標籤, 左值html, 右標籤, 右值html)
+    _qa_rows = [
+        ("最高", _qcell(hi, _dp, cls="up"), "最低", _qcell(lo, _dp, cls="down")),
+        ("開市", _qcell(op, _dp, cls=op_cls), "前收", _qcell(pv, _dp, cls="mid")),
+        ("成交量", _qtcell(vol_str), "成交額", _qtcell(amt_str)),
+        ("市值", _qtcell(_mcap_fmt(mcap_yi)), "總股本", _qtcell(shares_str)),
+        ("流通值", _qtcell(float_mcap), "流通股", _qtcell(float_shares)),
+        ("市盈率TTM", _qcell(pe, ".2f"), "市盈率(靜)", _qcell(static_pe, ".2f")),
+        ("市淨率", _qcell(pb, ".3f"), "市盈率(動)", _qcell(fwd_pe, ".2f")),
+        ("委比", '<span class="qa-na">N/A</span>', "量比", _qcell(vol_ratio, ".2f")),
+        ("股息TTM", _qcell(dps_ttm, ".3f"), "股息率TTM", _qcell(yld, ".2f", "%")),
+        ("股息LFY", '<span class="qa-na">N/A</span>', "股息率LFY", '<span class="qa-na">N/A</span>'),
+        ("52週最高", _qcell(h52, _dp, cls="up"), "52週最低", _qcell(l52, _dp, cls="down")),
+        ("歷史最高", _qcell(hist_hi, _dp, cls="up"), "歷史最低", _qcell(hist_lo, _dp, cls="down")),
+        ("平均價", _qcell(avg_price, _dp, cls=avg_cls), "振幅", _qcell(amp, ".2f", "%")),
+        ("換手率", _qcell(turnover_rate, ".2f", "%"), "每手", _qtcell(lot_str)),
+        ("Beta", _qcell(beta, ".3f"), "", ""),
+    ]
+    _qa_rows_html = "".join(
+        f'<div class="qa-lab">{a}</div><div class="qa-val">{b}</div>'
+        f'<div class="qa-lab">{c}</div><div class="qa-val">{d}</div>'
+        for a, b, c, d in _qa_rows
+    )
+    _qt_status = live_q.get("quote_time") or live_q.get("update_time") or "N/A"
+    _qa_state = "已收盤 · 最近成價" if live_q.get("live_ok") else "離線 · 最後已知參考值"
+
     is_up = live_q["change"] >= 0
     arrow_sym = "▲" if is_up else "▼"
     price_cls = "aa-price-up" if is_up else "aa-price-down"
@@ -2659,43 +2821,33 @@ def render_quote_panel():
                 except Exception:
                     pass
             st.rerun()
+        _qa_cls = "qa-up" if is_up else "qa-down"
+        _qa_price_dp = ",.3f" if is_hk else ",.2f"
         st.markdown(f"""
-        <div class="aa-quote-container">
-            <div style="font-size:13px; color:#1a73e8; margin-bottom:10px; font-weight:600;">
-                {live_q['news']}
-            </div>
-            <div style="display:flex; gap:14px;">
-                <div class="{box_cls}" style="flex:1.15;">
-                    <div style="font-size:12px; color:#666;">真實現價 {curr_label}（{_src_name}）</div>
-                    <div class="{price_cls}">{arrow_sym} {live_q['price']:,.3f}</div>
-                </div>
-                <div class="{box_cls}" style="flex:1;">
-                    <div style="font-size:12px; color:#666;">真實升跌 / 升跌(%)</div>
-                    <div class="{price_cls}" style="font-size:21px; margin-top:4px;">
-                        {arrow_sym} {abs(live_q['change']):,.3f} ({abs(live_q['pct']):.2f}%)
+        <div class="qa-card">
+            <div class="qa-head">
+                <div>
+                    <div class="qa-name">{live_q['code']} {live_q['name']}（{live_q['symbol']}）</div>
+                    <div class="qa-big {_qa_cls}">
+                        {live_q['price']:{_qa_price_dp}}
+                        <span class="qa-chg">{arrow_sym} {abs(live_q['change']):,.3f} &nbsp;{abs(live_q['pct']):.2f}%</span>
                     </div>
                 </div>
+                <div class="qa-status">
+                    <div style="font-weight:700;">{_qa_state}</div>
+                    <div>⏱ {_qt_status}</div>
+                    <div style="margin-top:3px;">{curr_label} · {_src_name}</div>
+                </div>
             </div>
-            <table class="aa-metric-table">
-                <tr>
-                    <td class="aa-label">日內波幅</td><td class="aa-val">{live_q['low']:,.2f} - {live_q['high']:,.2f}</td>
-                    <td class="aa-label">市值/資產規模</td><td class="aa-val">{live_q['mkt_cap']}</td>
-                </tr>
-                <tr>
-                    <td class="aa-label">成交量</td><td class="aa-val">{_vol_s}</td>
-                    <td class="aa-label">每股盈利 (EPS){' <small>(價格/PE推算)</small>' if live_q.get('eps_estimated') else ''}</td><td class="aa-val">{_eps_s}</td>
-                </tr>
-                <tr>
-                    <td class="aa-label">成交金額</td><td class="aa-val">{_turn_s}</td>
-                    <td class="aa-label">市盈率 (靜態 / 預測)</td><td class="aa-val">{_pe_s}</td>
-                </tr>
-                <tr>
-                    <td class="aa-label">每手單位</td><td class="aa-val">{live_q['lot']}</td>
-                    <td class="aa-label">收益率 / 52週波幅</td><td class="aa-val">{_yldw52}</td>
-                </tr>
-            </table>
-            <div style="font-size:11.5px; color:#188038; font-weight:700; margin-top:8px; padding-top:6px; border-top:1px dashed #e0e0e0;">
+            <div class="qa-grid">
+                {_qa_rows_html}
+            </div>
+            <div style="font-size:12px; color:#1a73e8; margin:9px 0 2px; font-weight:600;">
+                {live_q['news']}
+            </div>
+            <div class="qa-foot" style="color:#188038;">
                 {_data_source_line}
+                <br><b>誠實說明：</b>委比屬 Level 2 付費盤口；股息 LFY、靜態/預測 PE、Beta、流通股數等僅部分數據源提供，免費源缺失時一律顯示 <b>N/A</b>，系統不予編造；總股本、換手率、振幅、平均價、量比為真實數據的算術衍生；成交額以「真實成交量×真實價格」估算（標「約」）。
             </div>
         </div>
         """, unsafe_allow_html=True)
