@@ -477,37 +477,6 @@ def inject_security_and_styles():
             background: rgba(20,30,60,0.95);
             border-color: #2a4580;
         }
-
-        /* v8：AAStocks 風格面板 */
-        .aa-full-panel { background:#fff; border:1px solid #d9d9d9; border-radius:6px; margin-bottom:14px; overflow:hidden; }
-        .aa-full-topbar { background:linear-gradient(135deg,#f8f9fa,#e9ecef); padding:10px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1a73e8; }
-        .aa-full-price-row { display:flex; align-items:center; gap:20px; padding:16px; border-bottom:1px solid #e9ecef; flex-wrap:wrap; }
-        .aa-full-price { font-size:42px; font-weight:800; line-height:1; }
-        .aa-full-chg-block { display:flex; flex-direction:column; gap:2px; }
-        .aa-full-stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:#e9ecef; padding:1px; }
-        .aa-full-stat-cell { background:#fff; padding:10px 14px; }
-        .aa-full-stat-label { color:#666; font-size:12px; margin-bottom:4px; }
-        .aa-full-stat-value { color:#111; font-size:14px; font-weight:700; }
-        .aa-full-section { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#e9ecef; padding:1px; }
-        .aa-full-section-box { background:#fff; padding:14px 16px; }
-        .aa-full-section-title { font-size:14px; font-weight:700; color:#1e3a5f; border-bottom:2px solid #1a73e8; padding-bottom:6px; margin-bottom:10px; }
-        .aa-full-table { width:100%; border-collapse:collapse; font-size:13px; }
-        .aa-full-table td { padding:5px 8px; border-bottom:1px solid #f0f0f0; }
-        .aa-full-table td:first-child { color:#666; }
-        .aa-full-table td:last-child { text-align:right; font-weight:600; }
-        .aa-full-pos { color:#d93025; font-weight:700; }
-        .aa-full-neg { color:#188038; font-weight:700; }
-        .aa-full-neutral { color:#111; font-weight:600; }
-        .aa-full-na { color:#b0b0b0; }
-        body.theme-darkblue .aa-full-panel, body.theme-dark .aa-full-panel { background:var(--panel); border-color:var(--border); }
-        body.theme-darkblue .aa-full-topbar, body.theme-dark .aa-full-topbar { background:var(--panel2); border-bottom-color:var(--accent); }
-        body.theme-darkblue .aa-full-stats-grid, body.theme-dark .aa-full-stats-grid, body.theme-darkblue .aa-full-section, body.theme-dark .aa-full-section { background:var(--border); }
-        body.theme-darkblue .aa-full-stat-cell, body.theme-dark .aa-full-stat-cell, body.theme-darkblue .aa-full-section-box, body.theme-dark .aa-full-section-box { background:var(--panel); }
-        body.theme-darkblue .aa-full-stat-label, body.theme-dark .aa-full-stat-label { color:var(--muted); }
-        body.theme-darkblue .aa-full-stat-value, body.theme-dark .aa-full-stat-value { color:var(--text); }
-        body.theme-darkblue .aa-full-section-title, body.theme-dark .aa-full-section-title { color:var(--text); border-bottom-color:var(--accent); }
-        body.theme-darkblue .aa-full-table td, body.theme-dark .aa-full-table td { border-color:var(--border); color:var(--text); }
-        body.theme-darkblue .aa-full-table td:first-child, body.theme-dark .aa-full-table td:first-child { color:var(--muted); }
         </style>
     """, unsafe_allow_html=True)
     
@@ -1041,169 +1010,6 @@ def fetch_stooq_ohlc(symbol: str, stooq_interval: str = "d", days: int = 2600):
 
 
 # ============================================================
-# AAStocks 行情源（v7.1 第四數據源）：港股正股 / 窩輪 / 牛熊證即時(延遲)報價備援
-#   - 端點：https://www.aastocks.com/tc/resources/datafeed/getrtqsymbol.ashx?s=<code>
-#   - 回傳 JSON 陣列，單筆欄位：a=最新價、b=升跌(HTML)、c=最高-最低、d=成交量文字、e=報價時間
-#   - 誠實範圍：僅支援港股純數字代號（正股/窩輪/牛熊證）；美股與指數代號回傳 "a":"N/A"，故回 live_ok=False，不硬接
-#   - 成交量 d 為文字（如「34.34億」），只保留為 vol_str 顯示，不硬換算成假股數，避免污染成交額
-#   - 全部採防禦式解析，任何異常或欄位缺失即回空/None，絕不拋出、絕不造假
-# ============================================================
-def to_aastocks_code(symbol: str):
-    """Yahoo 代號 → AAStocks 港股 5 位純數字代號；無法對應（美股/指數）回傳 None。"""
-    s = str(symbol).strip().upper()
-    if s.endswith(".HK"):
-        digits = s[:-3]
-        if digits.isdigit():
-            return digits.zfill(5)
-        return None
-    if s.isdigit():
-        return s.zfill(5)
-    return None
-
-
-@st.cache_data(ttl=8, show_spinner=False)
-def fetch_aastocks_quote(symbol: str):
-    """AAStocks 港股即時/延遲報價備援。回傳與 fetch_realtime_market_tick 相容的 dict；失敗或非港股 live_ok=False。"""
-    out = {"live_ok": False, "bid": None, "ask": None, "bid_size": None, "ask_size": None,
-           "quote_time": None, "delayed": True}
-    try:
-        aa_code = to_aastocks_code(symbol)
-        if not aa_code:
-            return out
-
-        url = f"https://www.aastocks.com/tc/resources/datafeed/getrtqsymbol.ashx?s={aa_code}"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Referer": "https://www.aastocks.com/"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("utf-8", errors="ignore")
-        j = json.loads(raw)
-        if not isinstance(j, list) or not j:
-            return out
-
-        f = j[0]
-        price_raw = str(f.get("a", "")).strip()
-        if not price_raw or price_raw.upper() == "N/A":
-            return out
-        p = float(price_raw)
-
-        # b 欄位為帶 HTML 的升跌字串，例：<span class='neg'>-5.800(1.496%)</span>
-        b_text = re.sub(r"<[^>]+>", "", str(f.get("b", "")))
-        m_chg = re.search(r"([-+]?\d+(?:\.\d+)?)\s*\(([-+]?\d+(?:\.\d+)?)\s*%\)", b_text)
-        chg = float(m_chg.group(1)) if m_chg else 0.0
-        pct = float(m_chg.group(2)) if m_chg else 0.0
-        prev = round(p - chg, 3)
-
-        # c 欄位為「最高-最低」字串，例：379.800-386.400
-        hi = lo = None
-        c_raw = str(f.get("c", ""))
-        if "-" in c_raw:
-            parts = c_raw.split("-")
-            try:
-                hi, lo = float(parts[0]), float(parts[-1])
-            except Exception:
-                hi = lo = None
-
-        out.update({
-            "live_ok": True,
-            "price": round(p, 3),
-            "prev_close": prev,
-            "change": round(chg, 3),
-            "pct": round(pct, 2),
-            "open": None,
-            "low": round(lo, 3) if lo is not None else round(p, 3),
-            "high": round(hi, 3) if hi is not None else round(p, 3),
-            "vol_num": None,
-            "vol_str": str(f.get("d", "")),
-            "quote_time": str(f.get("e", "")),
-            "delayed": True,
-            "source": "AAStocks",
-            "currency": "HKD",
-        })
-    except Exception:
-        pass
-    return out
-
-
-
-# ============================================================
-# AAStocks 詳細數據源（v8 增強）
-# ============================================================
-@st.cache_data(ttl=15, show_spinner=False)
-def fetch_aastocks_full_detail(symbol: str):
-    """從 AAStocks 網頁抓取完整港股報價明細（對應 Err 1.jpg 格式）。"""
-    out = {}
-    try:
-        aa_code = to_aastocks_code(symbol)
-        if not aa_code:
-            return out
-        url = f"https://www.aastocks.com/tc/stocks/analysis/stock-aafn/{aa_code}/0/all/1"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://www.aastocks.com/"})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            html_raw = resp.read().decode("utf-8", errors="ignore")
-        if not html_raw or len(html_raw) < 5000:
-            return out
-
-        def _ex_num(pattern, text, group=1, cast=float):
-            m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-            if m:
-                try:
-                    return cast(m.group(group).strip().replace(",", ""))
-                except Exception:
-                    return None
-            return None
-
-        def _ex_str(pattern, text, group=1):
-            m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-            if m:
-                return m.group(group).strip()
-            return None
-
-        out["bid"] = _ex_num(r"買價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["ask"] = _ex_num(r"賣價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["prev_close"] = _ex_num(r"前收市價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["open"] = _ex_num(r"開市[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        range_m = re.search(r"波幅[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)\s*-\s*([\d,.]+)", html_raw)
-        if range_m:
-            try:
-                out["low"] = float(range_m.group(1).replace(",", ""))
-                out["high"] = float(range_m.group(2).replace(",", ""))
-            except Exception:
-                pass
-        out["avg_price"] = _ex_num(r"均價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["pe_static"] = _ex_num(r"市盈率\(倍\)[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["pe_ttm"] = _ex_num(r"TTM[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["eps"] = _ex_num(r"每股盈利[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["div_yield"] = _ex_num(r"收益率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
-        out["payout_ratio"] = _ex_num(r"派息比率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
-        out["dps"] = _ex_num(r"每股派息[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["pb"] = _ex_num(r"市賬率\(倍\)[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["nav"] = _ex_num(r"資產淨值[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["fund_flow"] = _ex_str(r"資金流向[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
-        out["vol_ratio"] = _ex_num(r"量比[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["bid_ratio"] = _ex_num(r"委比[^<]*</[^>]*>\s*<[^>]*>\s*([-\d,.]+)%", html_raw)
-        out["turnover_rate"] = _ex_num(r"換手[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
-        out["amplitude"] = _ex_num(r"振幅[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
-        out["avg_vol_3m"] = _ex_str(r"平均成交量[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+千萬)", html_raw)
-        out["mcap"] = _ex_str(r"市值/流通市值[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
-        out["exchange"] = _ex_str(r"交易所[^<]*</[^>]*>\s*<[^>]*>\s*([^<]+)", html_raw)
-        out["lot_size"] = _ex_num(r"每手股數[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw, cast=int)
-        out["spread"] = _ex_num(r"差價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
-        out["short_sell_amt"] = _ex_str(r"沽空額/比率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
-        out["short_sell_ratio"] = _ex_num(r"沽空額/比率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
-        out["ex_div_date"] = _ex_str(r"除淨日[^<]*</[^>]*>\s*<[^>]*>\s*([\d-]+)", html_raw)
-        out["div_pay_date"] = _ex_str(r"派息日期[^<]*</[^>]*>\s*<[^>]*>\s*([\d-]+)", html_raw)
-        out["vol_str"] = _ex_str(r"成交量[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+百萬)", html_raw)
-        out["amount_str"] = _ex_str(r"成交金額[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
-        out["ok"] = True
-        out["source"] = "AAStocks"
-    except Exception:
-        pass
-    return out
-
-# ============================================================
 # 騰訊財經行情源（v7 第三數據源）：qt.gtimg.cn 報價 + web.ifzq.gtimg.cn K線
 #   - 免費、無 key、香港可達性通常優於 Yahoo；港股 r_hk 約 78 字段、美股 us 約 71 字段
 #   - 報價覆蓋港美股現價/升跌/開高低/量/額/市值/PE/PB/52週高低
@@ -1614,16 +1420,7 @@ def fetch_realtime_market_tick(symbol: str):
     except Exception:
         pass
 
-    # v8：Yahoo 失敗時，港股優先以 AAStocks 報價備援（互補備援機制）
-    if not result.get("live_ok"):
-        try:
-            aq0 = fetch_aastocks_quote(symbol)
-            if aq0.get("live_ok") and aq0.get("price"):
-                result.update(aq0)
-        except Exception:
-            pass
-
-    # v8：AAStocks 失敗或非港股時，以騰訊財經報價備援
+    # v7：Yahoo 失敗時，先以騰訊財經報價備援（含日內高低、量、市值、PE、52週；港股約延遲15分）
     if not result.get("live_ok"):
         try:
             tq = fetch_tencent_quote(symbol)
@@ -1673,15 +1470,6 @@ def fetch_realtime_market_tick(symbol: str):
                     "delayed": True,
                     "source": "Stooq"
                 })
-        except Exception:
-            pass
-
-    # v8：最終備援（若前面 AAStocks 早備援失敗，此處再試一次；僅港股純數字代號）
-    if not result.get("live_ok"):
-        try:
-            aq = fetch_aastocks_quote(symbol)
-            if aq.get("live_ok") and aq.get("price"):
-                result.update(aq)
         except Exception:
             pass
     return result
@@ -2470,7 +2258,7 @@ st.markdown(
     "<div style='font-size:12px; line-height:1.6; background:#eef5ff; border:1px solid #b8d3f5; "
     "border-radius:8px; padding:8px 12px; margin-bottom:8px; color:#1f3a5f;'>"
     "📡 <b>數據真實性聲明（v7）</b>：現價、歷史 K 線、財報、估值與動能均取自真實市場數據，"
-    "採<b>五數據源互補備援：Yahoo Finance → AAStocks（港股優先）→ 騰訊財經 → Stooq</b>（報價與圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
+    "採<b>三數據源備援：Yahoo Finance → 騰訊財經（qt.gtimg.cn）→ Stooq</b>（報價與圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
     "本版<b>取消自動更新、改為手動按鈕</b>：每個區塊的「🔄 更新」按一下才重抓。"
     "免費源限制：港股成價一般延遲約 15 分鐘；分鐘線由 Yahoo／騰訊提供，Stooq 只提供日/週/月線；財報與預測估值仍以 Yahoo 為主；"
     "Level 2 多檔買賣深度屬付費數據，本系統已<b>移除 40 檔盤口</b>且絕不編造。模型推演僅供統計參考，<b>不構成投資建議</b>。"
@@ -2819,166 +2607,6 @@ with col_chart:
     st.plotly_chart(build_static_chart_figure(), use_container_width=True, key="main_kline_static", config={"displayModeBar": True, "responsive": True})
 
 
-def render_aastocks_style_panel():
-    """v8：AAStocks 風格完整報價面板（對應 Err 1.jpg）。"""
-    try:
-        prof = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
-    except Exception:
-        return
-    if not prof.get("live_ok"):
-        return
-    px = prof.get("price")
-    if px is None:
-        return
-
-    is_up = prof.get("change", 0) >= 0
-    arrow = "▲" if is_up else "▼"
-    chg = prof.get("change", 0)
-    pct = prof.get("pct", 0)
-    price_cls = "aa-full-pos" if is_up else "aa-full-neg"
-    _dp = ".3f" if prof.get("mkt") == "HK" else ".2f"
-
-    def _v(val, spec=",.2f", suffix=""):
-        if val is None or val == "":
-            return '<span class="aa-full-na">N/A</span>'
-        try:
-            return f'<span class="aa-full-neutral">{float(val):{spec}}{suffix}</span>'
-        except Exception:
-            return f'<span class="aa-full-neutral">{val}</span>'
-
-    def _t(val):
-        if val is None or val == "":
-            return '<span class="aa-full-na">N/A</span>'
-        return f'<span class="aa-full-neutral">{val}</span>'
-
-    # 取得 AAStocks 詳細數據
-    aa_detail = {}
-    try:
-        if prof.get("mkt") in ("HK", "WARRANT", "CBBC"):
-            aa_detail = fetch_aastocks_full_detail(selected_symbol) or {}
-    except Exception:
-        aa_detail = {}
-
-    # 合併數據
-    bid = aa_detail.get("bid") or prof.get("bid")
-    ask = aa_detail.get("ask") or prof.get("ask")
-    prev_close = aa_detail.get("prev_close") or prof.get("prev_close")
-    open_p = aa_detail.get("open") or prof.get("open")
-    high = aa_detail.get("high") or prof.get("high")
-    low = aa_detail.get("low") or prof.get("low")
-    avg_price = aa_detail.get("avg_price")
-    if avg_price is None and high and low and px:
-        avg_price = (high + low + px) / 3.0
-    pe_static = aa_detail.get("pe_static") or prof.get("pe")
-    pe_ttm = aa_detail.get("pe_ttm") or prof.get("pe")
-    eps = aa_detail.get("eps") or prof.get("eps")
-    div_yield = aa_detail.get("div_yield") or prof.get("yield")
-    payout_ratio = aa_detail.get("payout_ratio")
-    dps = aa_detail.get("dps") or prof.get("dps")
-    pb = aa_detail.get("pb") or prof.get("pb")
-    nav = aa_detail.get("nav")
-    fund_flow = aa_detail.get("fund_flow")
-    vol_ratio = aa_detail.get("vol_ratio")
-    bid_ratio = aa_detail.get("bid_ratio")
-    turnover_rate = aa_detail.get("turnover_rate")
-    amplitude = aa_detail.get("amplitude")
-    if amplitude is None and high and low and prev_close:
-        amplitude = (high - low) / prev_close * 100.0
-    avg_vol_3m = aa_detail.get("avg_vol_3m")
-    mcap = aa_detail.get("mcap")
-    if not mcap and prof.get("mcap_yi_real"):
-        mcap = f"{prof['mcap_yi_real']:,.2f}億"
-    exchange = aa_detail.get("exchange") or ("港交所" if prof.get("mkt") == "HK" else "NYSE/NASDAQ")
-    lot_size = aa_detail.get("lot_size") or prof.get("lot")
-    spread = aa_detail.get("spread")
-    short_sell_amt = aa_detail.get("short_sell_amt")
-    short_sell_ratio = aa_detail.get("short_sell_ratio")
-    ex_div_date = aa_detail.get("ex_div_date")
-    div_pay_date = aa_detail.get("div_pay_date")
-    vol_str = aa_detail.get("vol_str")
-    if not vol_str and prof.get("vol_num"):
-        vol_str = f"{prof['vol_num']/1e6:.2f}百萬"
-    amount_str = aa_detail.get("amount_str")
-    if not amount_str and prof.get("amount_real"):
-        amount_str = f"{prof['amount_real']/1e8:.2f}億"
-
-    # 過往表現
-    perf_rows_html = ""
-    sma_rows_html = ""
-    try:
-        df_hist, _ = get_price_history(selected_symbol, "1d", "2y")
-        if df_hist is not None and not df_hist.empty and len(df_hist) > 60:
-            close = df_hist["Close"]
-            cur_p = float(close.iloc[-1])
-            for label, days in [("1個月", 21), ("2個月", 42), ("3個月", 63), ("52週", 252)]:
-                if len(close) > days:
-                    base = float(close.iloc[-days])
-                    ret = (cur_p / base - 1) * 100
-                    hi_r = float(df_hist["High"].tail(days).max())
-                    lo_r = float(df_hist["Low"].tail(days).min())
-                    rc = "aa-full-pos" if ret >= 0 else "aa-full-neg"
-                    perf_rows_html += f'<tr><td>{label}</td><td>{lo_r:,.3f} - {hi_r:,.3f}</td><td class="{rc}">{ret:+.2f}%</td></tr>'
-            if len(close) > 250:
-                for label, window in [("10天SMA", 10), ("50天SMA", 50), ("100天SMA", 100), ("250天SMA", 250)]:
-                    sma_val = float(close.tail(window).mean())
-                    prem = (cur_p / sma_val - 1) * 100
-                    pc = "aa-full-pos" if prem >= 0 else "aa-full-neg"
-                    sma_rows_html += f'<tr><td>{label}</td><td>{sma_val:,.3f}</td><td class="{pc}">{prem:+.2f}%</td></tr>'
-    except Exception:
-        pass
-
-    arrow_cls = "aa-full-pos" if is_up else "aa-full-neg"
-    curr_label = "港元" if prof.get("curr") == "HKD" else "美元"
-
-    html_parts = []
-    html_parts.append(f'<div class="aa-full-panel">')
-    html_parts.append(f'<div class="aa-full-topbar"><div><span style="font-size:16px;font-weight:700;color:#1e3a5f;">{prof["code"]}</span> &nbsp; <span style="font-size:16px;font-weight:700;">{prof["name"]} ({prof["symbol"]})</span></div><div style="font-size:12px;color:#666;">數據源：{prof.get("source", "Yahoo Finance")}</div></div>')
-    html_parts.append(f'<div class="aa-full-price-row">')
-    html_parts.append(f'<div><div style="font-size:12px;color:#666;margin-bottom:2px;">現價 ({curr_label})</div><div class="aa-full-price {price_cls}">{arrow} {px:{_dp}}</div></div>')
-    html_parts.append(f'<div class="aa-full-chg-block"><div style="font-size:12px;color:#666;">升跌</div><div class="aa-full-neutral" style="font-size:20px;font-weight:700;">{chg:+.3f}</div><div class="aa-full-neutral" style="font-size:16px;font-weight:600;">{pct:+.2f}%</div></div>')
-    html_parts.append(f'<div style="display:flex;gap:24px;"><div><div style="font-size:12px;color:#666;">成交量</div><div style="font-size:16px;font-weight:700;">{vol_str or "N/A"}</div></div><div><div style="font-size:12px;color:#666;">成交金額</div><div style="font-size:16px;font-weight:700;">{amount_str or "N/A"}</div></div></div>')
-    html_parts.append(f'<div style="display:flex;gap:24px;"><div><div style="font-size:12px;color:#666;">買價(延遲)</div><div style="font-size:16px;font-weight:700;">{_v(bid, _dp)}</div></div><div><div style="font-size:12px;color:#666;">賣價(延遲)</div><div style="font-size:16px;font-weight:700;">{_v(ask, _dp)}</div></div></div>')
-    html_parts.append(f'<div><div style="font-size:12px;color:#666;">前收市價/開市</div><div style="font-size:16px;font-weight:700;">{_v(prev_close, _dp)} / {_v(open_p, _dp)}</div></div>')
-    html_parts.append(f'<div><div style="font-size:12px;color:#666;">波幅</div><div style="font-size:16px;font-weight:700;">{_v(low, _dp)} - {_v(high, _dp)}</div></div>')
-    html_parts.append(f'</div>')
-
-    html_parts.append(f'<div class="aa-full-stats-grid">')
-    stats_items = [
-        ("均價", _v(avg_price, _dp)),
-        ("市盈率(倍)/TTM", f"{_v(pe_static, ".2f")} / {_v(pe_ttm, ".2f")}"),
-        ("每股盈利", _v(eps, ".4f")),
-        ("收益率/TTM", f"{_v(div_yield, ".2f", "%")} / {_v(div_yield, ".2f", "%")}"),
-        ("派息比率/每股派息", f"{_v(payout_ratio, ".2f", "%")} / {_v(dps, ".4f")}"),
-        ("市賬率/資產淨值", f"{_v(pb, ".3f")} / {_v(nav, ".2f")}"),
-        ("資金流向", _t(fund_flow)),
-        ("量比/委比", f"{_v(vol_ratio, ".2f")} / {_v(bid_ratio, ".2f", "%")}"),
-        ("換手率(%)", _v(turnover_rate, ".2f", "%")),
-        ("振幅(%)", _v(amplitude, ".2f", "%")),
-        ("平均成交量(3個月)", _t(avg_vol_3m)),
-        ("市值/流通市值", _t(mcap)),
-        ("交易所", _t(exchange)),
-        ("每手股數", _v(lot_size, "d") if lot_size else "N/A"),
-        ("差價", _v(spread, _dp)),
-        ("沽空額/比率(%)", f"{_t(short_sell_amt)} / {_v(short_sell_ratio, ".2f", "%")}"),
-    ]
-    for lbl, val in stats_items:
-        html_parts.append(f'<div class="aa-full-stat-cell"><div class="aa-full-stat-label">{lbl}</div><div class="aa-full-stat-value">{val}</div></div>')
-    html_parts.append(f'</div>')
-
-    html_parts.append(f'<div class="aa-full-section">')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">過往表現</div><table class="aa-full-table"><tr><td>時期</td><td>波幅</td><td>升跌(%)</td></tr>{perf_rows_html if perf_rows_html else '<tr><td colspan="3" style="text-align:center;color:#b0b0b0;">數據計算中</td></tr>'}</table></div>')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">最新統計數字 (均線)</div><table class="aa-full-table"><tr><td>時期</td><td>價格</td><td>溢價(%)</td></tr>{sma_rows_html if sma_rows_html else '<tr><td colspan="3" style="text-align:center;color:#b0b0b0;">數據計算中</td></tr>'}</table></div>')
-    html_parts.append(f'</div>')
-
-    html_parts.append(f'<div class="aa-full-section">')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">最近派息</div><table class="aa-full-table"><tr><td>除淨日</td><td>{_t(ex_div_date)}</td></tr><tr><td>派息日期</td><td>{_t(div_pay_date)}</td></tr><tr><td>每股派息</td><td>{_v(dps, ".4f")}</td></tr></table></div>')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">大手成交</div><div style="font-size:12px;color:#666;padding:8px 0;"><div>📊 大手買盤：<span style="color:#d93025;font-weight:700;">成交額佔總成交約 42%</span></div><div>📊 大手賣盤：<span style="color:#188038;font-weight:700;">成交額佔總成交約 34%</span></div><div>📊 其他成交：<span style="color:#666;font-weight:700;">佔約 24%</span></div><div style="margin-top:6px;font-size:11px;">（免費數據源僅提供近似比例，實際以交易所公布為準）</div></div></div>')
-    html_parts.append(f'</div>')
-    html_parts.append(f'</div>')
-
-    st.markdown("".join(html_parts), unsafe_allow_html=True)
-
-
 def render_quote_panel():
     """
     v7 手動刷新報價面板（已取消 @st.fragment 自動更新）：
@@ -3118,20 +2746,13 @@ def render_quote_panel():
     _src_str = str(live_q.get("source") or "")
     _is_stooq = "Stooq" in _src_str
     _is_tencent = "騰訊" in _src_str
-    _is_aastocks = "AAStocks" in _src_str
-    # v7 誠實數據源標示：Yahoo／騰訊／Stooq／AAStocks 四源，真實成價、來源、行情時點、延遲提示；皆失敗時明確聲明
+    # v7 誠實數據源標示：Yahoo／騰訊／Stooq 三源，真實成價、來源、行情時點、延遲提示；皆失敗時明確聲明
     if live_q.get("live_ok"):
         qt = live_q.get("quote_time")
         if _is_stooq:
             _data_source_line = (
                 f"🔗 數據源：<b>Stooq 備援源</b>（Yahoo、騰訊連線失敗時自動改用）｜"
                 f"顯示為<b>最近收盤價、非即時</b>（Stooq 免費源僅提供日/週/月線）｜行情日期：{qt if qt else live_q['update_time']}"
-            )
-        elif _is_aastocks:
-            _data_source_line = (
-                f"🔗 數據源：<b>AAStocks 備援源</b>（Yahoo、騰訊、Stooq 連線失敗時自動改用）｜"
-                f"僅適用港股正股／窩輪／牛熊證；港股免費源通常延遲約 15 分鐘｜"
-                f"行情時點：{qt if qt else live_q['update_time']}"
             )
         elif _is_tencent:
             _is_hk = live_q.get("mkt") == "HK"
@@ -3152,7 +2773,7 @@ def render_quote_panel():
             _data_source_line += f"｜基本面數據截至：{fund_asof}"
     else:
         _data_source_line = (
-            "⚠️ Yahoo Finance、AAStocks、騰訊財經與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
+            "⚠️ Yahoo Finance、騰訊財經與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
             "本系統不會在離線時製造假跳動，請按「🔄 更新報價」或檢查網絡後重試。"
         )
     _data_source_line += f"<br>{live_q.get('adr_info', '')}"
@@ -3191,10 +2812,10 @@ def render_quote_panel():
 
     with col_quote:
         if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
-                     help="按一下即清除報價快取，依序從 Yahoo / AAStocks（港股優先）/ 騰訊 / Stooq 重新抓取最新真實成價與指數"):
+                     help="按一下即清除報價快取，依序從 Yahoo / 騰訊 / Stooq 重新抓取最新真實成價與指數"):
             for _fn in (fetch_realtime_market_tick,
                         fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc,
-                        fetch_tencent_quote, fetch_tencent_kline, fetch_aastocks_quote, fetch_aastocks_full_detail):
+                        fetch_tencent_quote, fetch_tencent_kline):
                 try:
                     _fn.clear()
                 except Exception:
@@ -3233,9 +2854,6 @@ def render_quote_panel():
 
 # v7：統一以手動面板渲染（不再有自動/靜態分支）
 render_quote_panel()
-
-# v8：AAStocks 風格完整報價面板（對應 Err 1.jpg）
-render_aastocks_style_panel()
 
 q_data = q_data_init
 
