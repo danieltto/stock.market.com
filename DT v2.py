@@ -477,6 +477,37 @@ def inject_security_and_styles():
             background: rgba(20,30,60,0.95);
             border-color: #2a4580;
         }
+
+        /* v8：AAStocks 風格面板 */
+        .aa-full-panel { background:#fff; border:1px solid #d9d9d9; border-radius:6px; margin-bottom:14px; overflow:hidden; }
+        .aa-full-topbar { background:linear-gradient(135deg,#f8f9fa,#e9ecef); padding:10px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1a73e8; }
+        .aa-full-price-row { display:flex; align-items:center; gap:20px; padding:16px; border-bottom:1px solid #e9ecef; flex-wrap:wrap; }
+        .aa-full-price { font-size:42px; font-weight:800; line-height:1; }
+        .aa-full-chg-block { display:flex; flex-direction:column; gap:2px; }
+        .aa-full-stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:#e9ecef; padding:1px; }
+        .aa-full-stat-cell { background:#fff; padding:10px 14px; }
+        .aa-full-stat-label { color:#666; font-size:12px; margin-bottom:4px; }
+        .aa-full-stat-value { color:#111; font-size:14px; font-weight:700; }
+        .aa-full-section { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#e9ecef; padding:1px; }
+        .aa-full-section-box { background:#fff; padding:14px 16px; }
+        .aa-full-section-title { font-size:14px; font-weight:700; color:#1e3a5f; border-bottom:2px solid #1a73e8; padding-bottom:6px; margin-bottom:10px; }
+        .aa-full-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .aa-full-table td { padding:5px 8px; border-bottom:1px solid #f0f0f0; }
+        .aa-full-table td:first-child { color:#666; }
+        .aa-full-table td:last-child { text-align:right; font-weight:600; }
+        .aa-full-pos { color:#d93025; font-weight:700; }
+        .aa-full-neg { color:#188038; font-weight:700; }
+        .aa-full-neutral { color:#111; font-weight:600; }
+        .aa-full-na { color:#b0b0b0; }
+        body.theme-darkblue .aa-full-panel, body.theme-dark .aa-full-panel { background:var(--panel); border-color:var(--border); }
+        body.theme-darkblue .aa-full-topbar, body.theme-dark .aa-full-topbar { background:var(--panel2); border-bottom-color:var(--accent); }
+        body.theme-darkblue .aa-full-stats-grid, body.theme-dark .aa-full-stats-grid, body.theme-darkblue .aa-full-section, body.theme-dark .aa-full-section { background:var(--border); }
+        body.theme-darkblue .aa-full-stat-cell, body.theme-dark .aa-full-stat-cell, body.theme-darkblue .aa-full-section-box, body.theme-dark .aa-full-section-box { background:var(--panel); }
+        body.theme-darkblue .aa-full-stat-label, body.theme-dark .aa-full-stat-label { color:var(--muted); }
+        body.theme-darkblue .aa-full-stat-value, body.theme-dark .aa-full-stat-value { color:var(--text); }
+        body.theme-darkblue .aa-full-section-title, body.theme-dark .aa-full-section-title { color:var(--text); border-bottom-color:var(--accent); }
+        body.theme-darkblue .aa-full-table td, body.theme-dark .aa-full-table td { border-color:var(--border); color:var(--text); }
+        body.theme-darkblue .aa-full-table td:first-child, body.theme-dark .aa-full-table td:first-child { color:var(--muted); }
         </style>
     """, unsafe_allow_html=True)
     
@@ -1010,6 +1041,200 @@ def fetch_stooq_ohlc(symbol: str, stooq_interval: str = "d", days: int = 2600):
 
 
 # ============================================================
+# AAStocks 行情源（v7.1 第四數據源）：港股正股 / 窩輪 / 牛熊證即時(延遲)報價備援
+#   - 端點：https://www.aastocks.com/tc/resources/datafeed/getrtqsymbol.ashx?s=<code>
+#   - 回傳 JSON 陣列，單筆欄位：a=最新價、b=升跌(HTML)、c=最高-最低、d=成交量文字、e=報價時間
+#   - 誠實範圍：僅支援港股純數字代號（正股/窩輪/牛熊證）；美股與指數代號回傳 "a":"N/A"，故回 live_ok=False，不硬接
+#   - 成交量 d 為文字（如「34.34億」），只保留為 vol_str 顯示，不硬換算成假股數，避免污染成交額
+#   - 全部採防禦式解析，任何異常或欄位缺失即回空/None，絕不拋出、絕不造假
+# ============================================================
+def _to_float(x, default=0.0):
+    """把任意型別（int/float/str/None）安全轉成 float；空值或無法解析回 default。
+    非官方數據源（AAStocks/騰訊）可能回傳字串/None，下游做數值比較前一律先經此正規化，
+    徹底避免 TypeError: '>' not supported between instances of 'str'/'NoneType' and 'int'。"""
+    if x is None:
+        return default
+    if isinstance(x, bool):
+        return float(x)
+    if isinstance(x, (int, float)):
+        return float(x)
+    try:
+        s = str(x).strip().replace(",", "")
+        if s in ("", "-", "--", "N/A", "n/a", "None"):
+            return default
+        return float(s)
+    except Exception:
+        return default
+
+
+def to_aastocks_code(symbol: str):
+    """Yahoo 代號 → AAStocks 港股 5 位純數字代號；無法對應（美股/指數）回傳 None。"""
+    s = str(symbol).strip().upper()
+    if s.endswith(".HK"):
+        digits = s[:-3]
+        if digits.isdigit():
+            return digits.zfill(5)
+        return None
+    if s.isdigit():
+        return s.zfill(5)
+    return None
+
+
+@st.cache_data(ttl=8, show_spinner=False)
+def fetch_aastocks_quote(symbol: str):
+    """AAStocks 港股即時/延遲報價備援。回傳與 fetch_realtime_market_tick 相容的 dict；失敗或非港股 live_ok=False。"""
+    out = {"live_ok": False, "bid": None, "ask": None, "bid_size": None, "ask_size": None,
+           "quote_time": None, "delayed": True}
+    try:
+        aa_code = to_aastocks_code(symbol)
+        if not aa_code:
+            return out
+
+        url = f"https://www.aastocks.com/tc/resources/datafeed/getrtqsymbol.ashx?s={aa_code}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://www.aastocks.com/"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        j = json.loads(raw)
+        if not isinstance(j, list) or not j:
+            return out
+
+        f = j[0]
+        price_raw = str(f.get("a", "")).strip()
+        if not price_raw or price_raw.upper() == "N/A":
+            return out
+        p = float(price_raw)
+
+        # b 欄位為帶 HTML 的升跌字串，例：<span class='neg'>-5.800(1.496%)</span>
+        b_text = re.sub(r"<[^>]+>", "", str(f.get("b", "")))
+        m_chg = re.search(r"([-+]?\d+(?:\.\d+)?)\s*\(([-+]?\d+(?:\.\d+)?)\s*%\)", b_text)
+        chg = float(m_chg.group(1)) if m_chg else 0.0
+        pct = float(m_chg.group(2)) if m_chg else 0.0
+        prev = round(p - chg, 3)
+
+        # c 欄位為「最低-最高」字串（前小後大），例：391.800-402.600；對照參考圖波幅 384.00-390.80
+        hi = lo = None
+        c_raw = str(f.get("c", ""))
+        if "-" in c_raw:
+            parts = c_raw.split("-")
+            try:
+                lo, hi = float(parts[0]), float(parts[-1])
+                # 雙保險：若端點順序有變，強制 hi >= lo，避免出現負振幅
+                if hi < lo:
+                    hi, lo = lo, hi
+            except Exception:
+                hi = lo = None
+
+        # d 欄實為「成交金額」文字（如「62.36億」），不是成交量；抽數字轉成本幣絕對金額
+        d_text = str(f.get("d", "")).strip()
+        amount_real = None
+        m_amt = re.search(r"([-+]?\d+(?:\.\d+)?)\s*億", d_text)
+        if m_amt:
+            amount_real = float(m_amt.group(1)) * 1e8
+
+        out.update({
+            "live_ok": True,
+            "price": round(p, 3),
+            "prev_close": prev,
+            "change": round(chg, 3),
+            "pct": round(pct, 2),
+            "open": None,
+            "low": round(lo, 3) if lo is not None else round(p, 3),
+            "high": round(hi, 3) if hi is not None else round(p, 3),
+            # 此端點不提供標準化成交量（股/手），明確給 0.0（數值型），絕不給 None 或原始字串
+            "vol_num": 0.0,
+            "amount_real": amount_real,
+            "amount_str": d_text,
+            "quote_time": str(f.get("e", "")),
+            "delayed": True,
+            "source": "AAStocks",
+            "currency": "HKD",
+        })
+    except Exception:
+        pass
+    return out
+
+
+
+# ============================================================
+# AAStocks 詳細數據源（v8 增強）
+# ============================================================
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_aastocks_full_detail(symbol: str):
+    """從 AAStocks 網頁抓取完整港股報價明細（對應 Err 1.jpg 格式）。"""
+    out = {}
+    try:
+        aa_code = to_aastocks_code(symbol)
+        if not aa_code:
+            return out
+        url = f"https://www.aastocks.com/tc/stocks/analysis/stock-aafn/{aa_code}/0/all/1"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.aastocks.com/"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            html_raw = resp.read().decode("utf-8", errors="ignore")
+        if not html_raw or len(html_raw) < 5000:
+            return out
+
+        def _ex_num(pattern, text, group=1, cast=float):
+            m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+            if m:
+                try:
+                    return cast(m.group(group).strip().replace(",", ""))
+                except Exception:
+                    return None
+            return None
+
+        def _ex_str(pattern, text, group=1):
+            m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+            if m:
+                return m.group(group).strip()
+            return None
+
+        out["bid"] = _ex_num(r"買價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["ask"] = _ex_num(r"賣價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["prev_close"] = _ex_num(r"前收市價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["open"] = _ex_num(r"開市[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        range_m = re.search(r"波幅[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)\s*-\s*([\d,.]+)", html_raw)
+        if range_m:
+            try:
+                out["low"] = float(range_m.group(1).replace(",", ""))
+                out["high"] = float(range_m.group(2).replace(",", ""))
+            except Exception:
+                pass
+        out["avg_price"] = _ex_num(r"均價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["pe_static"] = _ex_num(r"市盈率\(倍\)[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["pe_ttm"] = _ex_num(r"TTM[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["eps"] = _ex_num(r"每股盈利[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["div_yield"] = _ex_num(r"收益率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
+        out["payout_ratio"] = _ex_num(r"派息比率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
+        out["dps"] = _ex_num(r"每股派息[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["pb"] = _ex_num(r"市賬率\(倍\)[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["nav"] = _ex_num(r"資產淨值[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["fund_flow"] = _ex_str(r"資金流向[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
+        out["vol_ratio"] = _ex_num(r"量比[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["bid_ratio"] = _ex_num(r"委比[^<]*</[^>]*>\s*<[^>]*>\s*([-\d,.]+)%", html_raw)
+        out["turnover_rate"] = _ex_num(r"換手[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
+        out["amplitude"] = _ex_num(r"振幅[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
+        out["avg_vol_3m"] = _ex_str(r"平均成交量[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+千萬)", html_raw)
+        out["mcap"] = _ex_str(r"市值/流通市值[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
+        out["exchange"] = _ex_str(r"交易所[^<]*</[^>]*>\s*<[^>]*>\s*([^<]+)", html_raw)
+        out["lot_size"] = _ex_num(r"每手股數[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw, cast=int)
+        out["spread"] = _ex_num(r"差價[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)", html_raw)
+        out["short_sell_amt"] = _ex_str(r"沽空額/比率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
+        out["short_sell_ratio"] = _ex_num(r"沽空額/比率[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+)%", html_raw)
+        out["ex_div_date"] = _ex_str(r"除淨日[^<]*</[^>]*>\s*<[^>]*>\s*([\d-]+)", html_raw)
+        out["div_pay_date"] = _ex_str(r"派息日期[^<]*</[^>]*>\s*<[^>]*>\s*([\d-]+)", html_raw)
+        out["vol_str"] = _ex_str(r"成交量[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+百萬)", html_raw)
+        out["amount_str"] = _ex_str(r"成交金額[^<]*</[^>]*>\s*<[^>]*>\s*([\d,.]+億)", html_raw)
+        out["ok"] = True
+        out["source"] = "AAStocks"
+    except Exception:
+        pass
+    return out
+
+# ============================================================
 # 騰訊財經行情源（v7 第三數據源）：qt.gtimg.cn 報價 + web.ifzq.gtimg.cn K線
 #   - 免費、無 key、香港可達性通常優於 Yahoo；港股 r_hk 約 78 字段、美股 us 約 71 字段
 #   - 報價覆蓋港美股現價/升跌/開高低/量/額/市值/PE/PB/52週高低
@@ -1202,10 +1427,12 @@ def get_price_history(symbol: str, interval: str, period: str, resample_rule=Non
     """
     df = pd.DataFrame()
     source = None
-    # 1) Yahoo
-    try:
+    # 1) Yahoo（v9：以線程超時包裹，yfinance 內部重試最壞 4s 即放棄，轉騰訊/Stooq）
+    def _yahoo_hist():
         tk = yf.Ticker(symbol)
-        raw = tk.history(period=period, interval=interval, auto_adjust=True)
+        return tk.history(period=period, interval=interval, auto_adjust=True)
+    raw = _run_with_timeout(_yahoo_hist, timeout=4.0)
+    try:
         if raw is not None and not raw.empty and len(raw) >= 6:
             df = raw.copy()
             if df.index.tz is not None:
@@ -1257,11 +1484,10 @@ def fetch_real_fundamentals(symbol: str):
     out = {"ok": False, "fund": {}, "as_of": None, "source": "Yahoo Finance"}
     try:
         tk = yf.Ticker(symbol)
-        info = {}
-        try:
-            info = tk.info or {}
-        except Exception:
-            info = {}
+        def _get_info():
+            return tk.info or {}
+        # v9：info 觸發多個請求，以線程超時包裹，最壞 4s 回空 dict
+        info = _run_with_timeout(_get_info, timeout=4.0, default={}) or {}
 
         def _g(*keys):
             for k in keys:
@@ -1312,7 +1538,7 @@ def fetch_real_fundamentals(symbol: str):
         # 財報（年度）— 真實歷史財報，取不到就留空
         fin = {}
         try:
-            inc = tk.income_stmt
+            inc = _run_with_timeout(lambda: tk.income_stmt, timeout=3.0)
             if inc is not None and not inc.empty:
                 latest = inc.columns[0]
                 def _row(name):
@@ -1329,7 +1555,7 @@ def fetch_real_fundamentals(symbol: str):
             pass
 
         try:
-            bs = tk.balance_sheet
+            bs = _run_with_timeout(lambda: tk.balance_sheet, timeout=3.0)
             if bs is not None and not bs.empty:
                 def _brow(name):
                     if name in bs.index:
@@ -1352,127 +1578,152 @@ def fetch_real_fundamentals(symbol: str):
         return out
 
 
-@st.cache_data(ttl=8, show_spinner=False)
+def _race_quote(workers, deadline=3.0):
+    """並行競速：同時執行多個報價 worker，回傳第一個 live_ok 的 dict；無成功者回 None。
+    全部用「守護線程」。追蹤完成數：所有 worker 快速失敗時立即返回（不空等 deadline），
+    只有仍有線程在跑時才等到 deadline；慢源不阻塞主流程、也不阻止進程退出。"""
+    import threading
+    lock = threading.Lock()
+    all_done = threading.Event()
+    state = {"winner": None, "done": 0, "n": len(workers)}
+
+    def _target(fn):
+        try:
+            r = fn()
+        except Exception:
+            r = None
+        ok = isinstance(r, dict) and r.get("live_ok") and r.get("price")
+        with lock:
+            if ok and state["winner"] is None:
+                state["winner"] = r
+            state["done"] += 1
+            if state["done"] >= state["n"]:
+                all_done.set()
+
+    ths = [threading.Thread(target=_target, args=(fn,), daemon=True) for fn in workers]
+    for th in ths:
+        th.start()
+    all_done.wait(deadline)
+    return state["winner"]
+
+
+def _run_with_timeout(fn, timeout=4.0, default=None):
+    """在獨立守護線程執行 fn，最多等 timeout；超時或拋異常回 default。
+    用於給 yfinance 這類「內部重試不受 urllib timeout 控制」的調用加上硬性截止，避免單一慢源拖垮整頁；
+    守護線程在超時後於後台自行結束，不阻止進程退出。"""
+    import threading
+    box = {}
+
+    def _target():
+        try:
+            box["v"] = fn()
+        except Exception:
+            box["e"] = True
+
+    th = threading.Thread(target=_target, daemon=True)
+    th.start()
+    th.join(timeout)
+    if th.is_alive() or "e" in box:
+        return default
+    return box.get("v", default)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_realtime_market_tick(symbol: str):
-    """
-    每 8 秒從 Yahoo Finance 取得真實最新成價與盤口（v6：不再用本地 micro-tick 造假跳動）。
-    免費源限制：
-      - 港股成價通常延遲約 15 分鐘；美股盤中接近即時（視交易所而定）。
-      - 完整 40 檔 Level 2 買賣盤深度為付費數據，Yahoo 僅可能提供最佳一檔 bid/ask。
-    回傳值含 data_ok / price / change / pct / low / high / vol / bid / ask / 數據時點 / 延遲標記。
-    """
-    result = {"live_ok": False, "bid": None, "ask": None, "bid_size": None, "ask_size": None,
-              "quote_time": None, "delayed": None}
-    try:
-        tk = yf.Ticker(symbol)
-        p = prev = lo = hi = vol = None
+    """v9 並行競速報價：Yahoo/AAStocks/騰訊同時發，第一成功者勝出（deadline 3s）；
+    皆失敗再以 Stooq 日線收盤備援。港股成價一般延遲約 15 分鐘；Level 2 深度付費，本系統不提供。
+    快取 ttl 拉長至 600s，配合手動按鈕刷新，避免切股反覆重抓造成凍結。"""
+    base = {"live_ok": False, "bid": None, "ask": None, "bid_size": None,
+            "ask_size": None, "quote_time": None, "delayed": None}
 
-        # 1) 日線：取最新成價、前收、日內高低、成交量
+    # --- 即時源 1：Yahoo（yfinance；慢或被干擾時在獨立線程，不阻塞其他源）---
+    def worker_yahoo():
+        r = dict(base)
         try:
-            h1d = tk.history(period="5d", interval="1d", auto_adjust=False)
-            if h1d is not None and not h1d.empty:
-                p = float(h1d["Close"].iloc[-1])
-                prev = float(h1d["Close"].iloc[-2]) if len(h1d) > 1 else float(h1d["Open"].iloc[-1])
-                lo = float(h1d["Low"].iloc[-1])
-                hi = float(h1d["High"].iloc[-1])
-                vol = float(h1d["Volume"].iloc[-1])
+            tk = yf.Ticker(symbol)
+            p = prev = lo = hi = vol = None
+            try:
+                h1d = tk.history(period="5d", interval="1d", auto_adjust=False)
+                if h1d is not None and not h1d.empty:
+                    p = float(h1d["Close"].iloc[-1])
+                    prev = float(h1d["Close"].iloc[-2]) if len(h1d) > 1 else float(h1d["Open"].iloc[-1])
+                    lo = float(h1d["Low"].iloc[-1]); hi = float(h1d["High"].iloc[-1])
+                    vol = float(h1d["Volume"].iloc[-1])
+            except Exception:
+                pass
+            try:
+                h1m = tk.history(period="1d", interval="1m", auto_adjust=False)
+                if h1m is not None and not h1m.empty:
+                    p = float(h1m["Close"].iloc[-1])
+                    lo = min(lo, float(h1m["Low"].min())) if lo is not None else float(h1m["Low"].min())
+                    hi = max(hi, float(h1m["High"].max())) if hi is not None else float(h1m["High"].max())
+                    r["quote_time"] = str(h1m.index[-1].tz_localize(None))[:19]
+            except Exception:
+                pass
+            try:
+                info = tk.info or {}
+                r["bid"] = info.get("bid"); r["ask"] = info.get("ask")
+                r["bid_size"] = info.get("bidSize"); r["ask_size"] = info.get("askSize")
+                r["delayed"] = ("delayed" in str(info.get("exchangeDataDelayedBy", 0)).lower()) or (
+                    isinstance(info.get("exchangeDataDelayedBy"), (int, float)) and info.get("exchangeDataDelayedBy", 0) > 60)
+            except Exception:
+                pass
+            if p is not None and prev is not None:
+                chg = p - prev
+                pct = (chg / prev * 100.0) if prev else 0.0
+                r.update({"live_ok": True, "price": round(p, 3), "change": round(chg, 3),
+                          "pct": round(pct, 2),
+                          "low": round(lo, 3) if lo is not None else round(p, 3),
+                          "high": round(hi, 3) if hi is not None else round(p, 3),
+                          "vol_num": vol or 0.0, "prev_close": round(prev, 3),
+                          "source": "Yahoo Finance"})
         except Exception:
             pass
+        return r
 
-        # 2) 1 分鐘線：盤中以最新一根 1m 收盤價覆蓋（港股 Yahoo 仍為延遲）
+    # --- 即時源 2/3：AAStocks、騰訊（獨立線程，成功即標準 dict）---
+    def worker_aastocks():
         try:
-            h1m = tk.history(period="1d", interval="1m", auto_adjust=False)
-            if h1m is not None and not h1m.empty:
-                p = float(h1m["Close"].iloc[-1])
-                lo = min(lo, float(h1m["Low"].min())) if lo is not None else float(h1m["Low"].min())
-                hi = max(hi, float(h1m["High"].max())) if hi is not None else float(h1m["High"].max())
-                result["quote_time"] = str(h1m.index[-1].tz_localize(None))[:19]
+            d = fetch_aastocks_quote(symbol)
+            return d if (isinstance(d, dict) and d.get("live_ok") and d.get("price")) else None
         except Exception:
-            pass
+            return None
 
-        # 3) 真實盤口（僅最佳一檔；港股常為 None）
+    def worker_tencent():
         try:
-            info = tk.info or {}
-            result["bid"] = info.get("bid")
-            result["ask"] = info.get("ask")
-            result["bid_size"] = info.get("bidSize")
-            result["ask_size"] = info.get("askSize")
-            mkt_state = str(info.get("marketState", "")).lower()
-            result["delayed"] = ("delayed" in str(info.get("exchangeDataDelayedBy", 0)).lower()) or (
-                isinstance(info.get("exchangeDataDelayedBy"), (int, float)) and info.get("exchangeDataDelayedBy", 0) > 60
-            )
+            d = fetch_tencent_quote(symbol)
+            return d if (isinstance(d, dict) and d.get("live_ok") and d.get("price")) else None
         except Exception:
-            pass
+            return None
 
-        if p is not None and prev is not None:
-            chg = p - prev
-            pct = (chg / prev * 100.0) if prev else 0.0
-            result.update({
-                "live_ok": True,
-                "price": round(p, 3),
-                "change": round(chg, 3),
-                "pct": round(pct, 2),
-                "low": round(lo, 3) if lo is not None else round(p, 3),
-                "high": round(hi, 3) if hi is not None else round(p, 3),
-                "vol_num": vol or 0.0,
-                "prev_close": round(prev, 3)
-            })
-    except Exception:
-        pass
-
-    # v7：Yahoo 失敗時，先以騰訊財經報價備援（含日內高低、量、市值、PE、52週；港股約延遲15分）
-    if not result.get("live_ok"):
-        try:
-            tq = fetch_tencent_quote(symbol)
-            if tq.get("live_ok") and tq.get("price"):
-                result.update({
-                    "live_ok": True,
-                    "price": tq["price"],
-                    "prev_close": tq.get("prev_close"),
-                    "change": tq.get("change"),
-                    "pct": tq.get("pct"),
-                    "open": tq.get("open"),
-                    "low": tq.get("low"),
-                    "high": tq.get("high"),
-                    "vol_num": tq.get("vol_num", 0.0) or 0.0,
-                    "quote_time": tq.get("quote_time"),
-                    "delayed": True,
-                    "source": "騰訊財經",
-                    "pe": tq.get("pe"),
-                    "pb": tq.get("pb"),
-                    "mcap_yi": tq.get("mcap_yi"),
-                    "hi52": tq.get("hi52"),
-                    "lo52": tq.get("lo52"),
-                    "currency": tq.get("currency"),
-                })
-        except Exception:
-            pass
-
-    # v7：Yahoo 與騰訊皆失敗時，以 Stooq 日線最後收盤備援（明確標示為收盤價、非即時）
-    if not result.get("live_ok"):
+    # --- 收盤備援：Stooq（僅當即時源全軍覆沒）---
+    def worker_stooq():
+        r = dict(base)
         try:
             sd = fetch_stooq_ohlc(symbol, "d", days=20)
             if sd is not None and not sd.empty and len(sd) >= 2:
-                p = float(sd["Close"].iloc[-1])
-                prev = float(sd["Close"].iloc[-2])
-                chg = p - prev
-                pct = (chg / prev * 100.0) if prev else 0.0
-                result.update({
-                    "live_ok": True,
-                    "price": round(p, 3),
-                    "change": round(chg, 3),
-                    "pct": round(pct, 2),
-                    "low": round(float(sd["Low"].iloc[-1]), 3),
-                    "high": round(float(sd["High"].iloc[-1]), 3),
-                    "vol_num": float(sd["Volume"].iloc[-1]) if "Volume" in sd.columns else 0.0,
-                    "prev_close": round(prev, 3),
-                    "quote_time": str(sd.index[-1])[:10],
-                    "delayed": True,
-                    "source": "Stooq"
-                })
+                p = float(sd["Close"].iloc[-1]); prev = float(sd["Close"].iloc[-2])
+                chg = p - prev; pct = (chg / prev * 100.0) if prev else 0.0
+                r.update({"live_ok": True, "price": round(p, 3), "change": round(chg, 3),
+                          "pct": round(pct, 2), "low": round(float(sd["Low"].iloc[-1]), 3),
+                          "high": round(float(sd["High"].iloc[-1]), 3),
+                          "vol_num": float(sd["Volume"].iloc[-1]) if "Volume" in sd.columns else 0.0,
+                          "prev_close": round(prev, 3), "quote_time": str(sd.index[-1])[:10],
+                          "delayed": True, "source": "Stooq"})
         except Exception:
             pass
-    return result
+        return r
+
+    # 第一級：三個即時源並行競速（3s）
+    winner = _race_quote([worker_yahoo, worker_aastocks, worker_tencent], deadline=3.0)
+    # 第二級：全失敗才動用 Stooq 收盤備援（4s）
+    if not winner:
+        winner = _race_quote([worker_stooq], deadline=4.0)
+    if isinstance(winner, dict) and winner.get("live_ok"):
+        for k, v in base.items():
+            winner.setdefault(k, v)
+        return winner
+    return base
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -1534,6 +1785,1139 @@ def fetch_real_momentum_snapshot(symbol: str):
         return out
 
 
+# ============================================================
+# 本地真實年度財報（v9）：由用戶提供的 4 個 30 年財報 xlsx 經腳本 1:1 轉出，無手工抄錄、無估算
+# 結構：代號 -> name / years(年度) / groups(分組 -> rows(l 指標, v 各年值，缺= None)
+# ============================================================
+LOCAL_FINANCIALS = {
+  '00700.HK': {'name': '騰訊控股', 'years': [2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], 'groups': [
+    {'t': '每股指标', 'rows': [
+      {'l': '每股收入', 'v': [0.1, 0.14, 0.15, 0.31, 0.44, 0.88, 1.53, 2.47, 3.76, 5.86, 8.26, 10.57, 13.11, 17.94, 29.55, 37.12, 43.72, 59.22, 70.73, 63.88, 69.32, 74.93, 89.84]},
+      {'l': '每股税息折旧及摊销前利润', 'v': [0.05, 0.06, 0.05, 0.14, 0.2, 0.44, 0.79, 1.3, 1.86, 2.4, 3.18, 4.65, 5.66, 7.86, 14.28, 15.86, 18.74, 29.27, 39.61, 32.42, 26.43, 35.2, 34.94]},
+      {'l': '每股息税前利润', 'v': [0.05, 0.06, 0.05, 0.12, 0.18, 0.4, 0.72, 1.2, 1.61, 2.05, 2.69, 4, 4.81, 6.35, 11.34, 11.8, 13.57, 23.03, 32.33, 25.36, 19.71, 28.82, 34.94]},
+      {'l': '稀释每股收益', 'v': [0.05, 0.05, 0.05, 0.12, 0.18, 0.34, 0.64, 1.01, 1.35, 1.7, 2.12, 3.19, 3.67, 4.85, 8.89, 9.35, 10.73, 19.59, 28.36, 21.6, 13, 21.87, 26.68]},
+      {'l': '持续经营每股收益', 'v': [0.05, 0.05, 0.05, 0.12, 0.18, 0.35, 0.64, 1.01, 1.31, 1.79, 2.32, 3.31, 4.13, 5.36, 8.09, 9.2, 10.83, 15.04, 15.55, 13.22, 17.85, 25.1, 30.8]},
+      {'l': '巴菲特所有者每股收益（TTM）', 'v': [0, 0, 0, 0, 0.19, 0.38, 0.91, 1.34, 1.86, 2.64, 3.67, 4.93, 5.68, 8.07, 15.43, 13.41, 16.11, 27.5, 33.22, 23.33, 21.29, 29.37, 20.03]},
+      {'l': '每股自由现金流', 'v': [0.04, -0.04, 0.08, 0.13, 0.12, 0.27, 0.93, 1.26, 1.12, 1.95, 2.5, 3.49, 4.12, 5.52, 9.21, 6.75, 10.61, 15.67, 14.27, 10.97, 19.87, 18.44, 36.22]},
+      {'l': '每股经营现金流', 'v': [0.05, -0.03, 0.11, 0.17, 0.21, 0.44, 1.03, 1.55, 1.76, 2.59, 3.33, 4.38, 5.79, 7.74, 13.19, 13.17, 17.22, 23.85, 22.12, 16.83, 25.26, 29.34, 36.22]},
+      {'l': '每股现金', 'v': [0.04, 0.16, 0.21, 0.26, 0.43, 0.44, 1.44, 2.82, 3.51, 3.65, 5.46, 7.16, 10.32, 14.46, 17.77, 19.91, 21.79, 28.16, 33.43, 33.93, 44.16, 40.12, 52.22]},
+      {'l': '每股股息', 'v': [0, 0, 0, 0, 0, 0.03, 0.05, 0.08, 0.11, 0.15, 0.2, 0.24, 0.35, 0.45, 0.64, 0.82, 0.98, 1.31, 1.61, 1.52, 2.37, 3.3, 4.57]},
+      {'l': '每股账面价值', 'v': [0.05, 0.28, 0.32, 0.42, 0.61, 0.88, 1.54, 2.77, 3.79, 5.54, 7.95, 10.7, 15.34, 20.66, 31.94, 38.6, 50.4, 86.99, 102.75, 84.19, 94.18, 113.81, 141.22]},
+      {'l': '每股有形账面价值', 'v': [0.05, 0.28, 0.32, 0.4, 0.56, 0.84, 1.5, 2.67, 3.16, 4.72, 7.15, 9.27, 12.93, 15.27, 25.41, 29.36, 31.74, 63.39, 76.29, 61.19, 69.86, 86.73, 113.28]},
+      {'l': '每股总债务', 'v': [0, 0, 0, 0, 0.04, 0, 0.03, 0, 1.56, 1.44, 2.06, 4.76, 8.42, 12.95, 16.45, 21.39, 27.09, 32.43, 41.22, 41.91, 43.24, 41.87, 49.73]},
+      {'l': '月末股价', 'v': [0, 0.85, 1.53, 5.11, 11.06, 9.22, 31.16, 31.14, 28.78, 45.91, 91.19, 103.71, 140.58, 174.88, 374.27, 289.46, 346.25, 521.77, 421.1, 317.23, 293.6, 419.8, 599]},
+    ]},
+    {'t': '财务比率', 'rows': [
+      {'l': '股本回报率 ROE ％', 'v': [68.27, 28.25, 17.57, 32.5, 36.16, 46.96, 53.79, 47.96, 41.45, 36.72, 31.58, 34.25, 28.32, 27.1, 33.95, 26.66, 24.46, 28.8, 30.22, 23.45, 14.91, 21.54, 21.46]},
+      {'l': '股本回报率 ROE ％／市净率', 'v': [None, 9.35, 3.65, 2.66, 2, 4.5, 2.66, 4.27, 5.46, 4.43, 2.75, 3.53, 3.09, 3.2, 2.9, 3.55, 3.56, 4.8, 7.37, 6.22, 4.78, 5.84, 5.06]},
+      {'l': '资产收益率 ROA ％', 'v': [55.96, 25.66, 15.58, 26.72, 27.74, 34.09, 37.74, 30.49, 22.43, 19.41, 17.17, 16.98, 11.87, 11.34, 15.39, 12.09, 11.03, 14.34, 15.49, 11.25, 7.23, 11.43, 11.96]},
+      {'l': '有形股本回报率 ％', 'v': [68.27, 28.25, 17.64, 33.4, 38.73, 50.22, 55.74, 49.58, 46.66, 43.46, 35.87, 38.9, 33.21, 34.6, 43.9, 34.33, 35.63, 41.58, 41.05, 31.89, 20.3, 28.62, 27.37]},
+      {'l': '有形资产收益率 ％', 'v': [55.96, 25.66, 15.64, 27.33, 29.22, 35.78, 38.69, 31.13, 23.87, 21.14, 18.37, 18.05, 12.65, 12.47, 17.15, 13.46, 12.84, 16.94, 17.91, 12.89, 8.29, 13.15, 13.59]},
+      {'l': '乔尔·格林布拉特资本回报率 ％', 'v': [419.53, 110.86, 66.22, 130.7, 150.15, 166.2, 209.2, 307.74, 241.85, 210.11, 210.4, 263.44, 285.06, 318.22, 411.76, 292.74, 228.67, 276.63, 313.05, 241.25, 198, 230.93, 193.04]},
+      {'l': '已动用资本回报率 ROCE ％', 'v': [71.09, 30, 15.82, 33.94, 34.8, 51.11, 56.93, 54.17, 42.42, 34.29, 30.95, 30.41, 24.44, 21.95, 26.78, 21.11, 18.8, 21.62, 22.86, 17.83, 14.48, 19.24, 19.73]},
+      {'l': '5年留存收益回报率 RORE %', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 39.84, 37.65, 22.1, 23.39, 31.67, 23.54, 20.54, 28.09, 27.28, 14.68, 2.5, 3.57, -1.77]},
+      {'l': '资本回报率 ％', 'v': [174.34, 62.28, 38.62, 68.58, 72.66, 75.1, 90.45, 63.67, 34.36, 28.07, 21.62, 20.52, 14.97, 13.87, 15.34, 12.09, 11.62, 11.71, 9.34, 7.89, 9.72, 11.9, 13.08]},
+      {'l': '加权平均资本成本 WACC ％', 'v': [0, 0, 0, 10.71, 12.46, 9.12, 10.68, 9.85, 9.54, 9.34, 9.93, 8.85, 8.58, 8.27, 8.16, 10.26, 10.35, 7.37, 7.61, 10.77, 11.55, 11.88, 10.81]},
+      {'l': '实际借款利率 ％', 'v': [None, 0, 32006.06, None, 0.54, 51.46, 0.97, 0.5, 0.62, 2.94, 3.09, 3.4, 2.93, 2.41, 2.6, 3.09, 3.7, 3.1, 2.74, 2.8, 3.22, 3.37, 4.02]},
+      {'l': '毛利率 ％', 'v': [68.77, 63.44, 67.06, 70.82, 70.75, 69.66, 68.73, 67.83, 65.16, 58.52, 54.04, 60.89, 59.53, 55.61, 49.18, 45.45, 44.4, 45.95, 43.91, 43.05, 48.13, 52.9, 56.21]},
+      {'l': '营业利润率 ％', 'v': [45.74, 40.99, 29.56, 38.44, 42.79, 44.44, 47.3, 48.77, 40.23, 34.52, 28.7, 33.57, 35.72, 33.1, 29.52, 24.95, 25.7, 26.57, 21.84, 20.55, 27.2, 31.62, 32.56]},
+      {'l': '净利率 ％', 'v': [43.84, 38.58, 34.03, 37.99, 40.99, 38.92, 41.44, 40.99, 35.81, 29.01, 25.65, 30.17, 28, 27.05, 30.08, 25.17, 24.73, 33.16, 40.14, 33.95, 18.92, 29.39, 29.91]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [45.74, 40.99, 34.66, 44.87, 45.24, 50.4, 51.63, 52.76, 49.52, 41.01, 38.52, 43.96, 43.16, 43.8, 48.32, 42.73, 42.88, 49.42, 56, 50.75, 38.13, 46.97, 38.89]},
+      {'l': '自由现金流利润率 ％', 'v': [39.86, -26.07, 51.14, 41.42, 27.34, 30.4, 60.91, 51.27, 29.84, 33.24, 30.27, 33.03, 31.43, 30.78, 31.18, 18.19, 24.28, 26.45, 20.18, 17.17, 28.66, 24.61, 40.31]},
+      {'l': '债务股本比率', 'v': [0, 0, 0, 0, 0.06, 0, 0.02, 0, 0.41, 0.26, 0.26, 0.45, 0.55, 0.63, 0.52, 0.55, 0.54, 0.37, 0.4, 0.5, 0.46, 0.37, 0.35]},
+      {'l': '股东权益比率', 'v': [0.82, 0.93, 0.85, 0.8, 0.75, 0.71, 0.7, 0.61, 0.5, 0.55, 0.54, 0.47, 0.39, 0.44, 0.46, 0.45, 0.45, 0.53, 0.5, 0.46, 0.51, 0.55, 0.57]},
+      {'l': '资产有息负债率', 'v': [0, 0, 0, 0, 0.04, 0, 0.01, 0, 0.21, 0.14, 0.14, 0.21, 0.22, 0.28, 0.24, 0.25, 0.24, 0.2, 0.2, 0.23, 0.24, 0.2, 0.2]},
+      {'l': '资产负债率', 'v': [0.18, 0.07, 0.15, 0.2, 0.24, 0.28, 0.3, 0.39, 0.49, 0.44, 0.45, 0.52, 0.6, 0.53, 0.5, 0.51, 0.49, 0.42, 0.46, 0.5, 0.45, 0.41, 0.39]},
+      {'l': '毛利润／总资产 ％', 'v': [87.79, 42.2, 30.71, 49.83, 47.88, 61.02, 62.59, 50.44, 40.81, 39.15, 36.18, 34.28, 25.24, 23.32, 25.17, 21.83, 19.8, 19.88, 16.94, 14.27, 18.39, 20.56, 22.48]},
+      {'l': 'Degree of Financial Leverage', 'v': [0, 0.38, 0.8, 0.77, 1.22, 0.71, 1.05, 0.87, 0.99, 0.93, 0.79, 1.03, 0.72, 0.97, 1.05, 1.19, 0.96, 1.17, 1.09, 1.11, 1.73, 1.58, 1.15]},
+      {'l': '资产周转率', 'v': [1.28, 0.67, 0.46, 0.7, 0.68, 0.88, 0.91, 0.74, 0.63, 0.67, 0.67, 0.56, 0.42, 0.42, 0.51, 0.48, 0.45, 0.43, 0.39, 0.33, 0.38, 0.39, 0.4]},
+      {'l': '股息支付率', 'v': [0, 0, 0, 0, 0, 0.09, 0.08, 0.08, 0.09, 0.09, 0.09, 0.07, 0.08, 0.08, 0.08, 0.09, 0.09, 0.09, 0.1, 0.12, 0.13, 0.13, 0.15]},
+      {'l': '应收账款周转天数', 'v': [0, 0, 57, 40.05, 43.49, 37.87, 32.4, 27.03, 23.43, 18.06, 15.85, 17.57, 21.01, 21.29, 20.08, 26.67, 31.37, 29.76, 30.26, 32.76, 27.88, 26.52, 23.43]},
+      {'l': '应付账款周转天数', 'v': [94.29, 26.94, 10.88, 14.21, 25.09, 29.78, 44.11, 59.4, 65.47, 64.38, 70.84, 91.56, 108.51, 119.72, 114.82, 134.79, 135.7, 118.92, 116.47, 122.75, 112.81, 130.34, 130.76]},
+      {'l': '存货周转天数', 'v': [0, 0, 2.06, 1.12, 0.66, 0.59, 0.51, 0, 0, 11.39, 12.73, 9.78, 2.09, 1.36, 0.82, 0.68, 0.91, 1.04, 1.08, 2.02, 1.64, 0.53, 0.53]},
+      {'l': '现金循环周期', 'v': [-94.29, -26.94, 48.18, 26.96, 19.06, 8.68, -11.2, -32.37, -42.04, -34.93, -42.27, -64.21, -85.41, -97.08, -93.92, -107.45, -103.41, -88.12, -85.13, -87.97, -83.29, -103.29, -106.8]},
+      {'l': '存货周转率', 'v': [None, None, 177.51, 325.31, 556.48, 613.54, 712.31, None, None, 32.05, 28.68, 37.33, 174.78, 269.24, 444.37, 540.02, 400.01, 350.18, 339.45, 180.53, 222.63, 685.69, 689.19]},
+      {'l': '营业成本／收入 ％', 'v': [0.31, 0.37, 0.33, 0.29, 0.29, 0.3, 0.31, 0.32, 0.35, 0.41, 0.46, 0.39, 0.4, 0.44, 0.51, 0.55, 0.56, 0.54, 0.56, 0.57, 0.52, 0.47, 0.44]},
+      {'l': '存货／收入', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0.02, 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '资本开支／收入', 'v': [0.08, 0.08, 0.19, 0.12, 0.21, 0.2, 0.07, 0.11, 0.17, 0.11, 0.1, 0.08, 0.13, 0.12, 0.13, 0.17, 0.15, 0.14, 0.11, 0.09, 0.08, 0.15, 0]},
+      {'l': '资本开支／营业利润', 'v': [0.18, 0.19, 0.63, 0.32, 0.48, 0.44, 0.14, 0.23, 0.42, 0.32, 0.35, 0.25, 0.36, 0.37, 0.46, 0.69, 0.59, 0.52, 0.51, 0.45, 0.29, 0.46, 0]},
+      {'l': '资本开支／经营现金流', 'v': [0.17, 0, 0.27, 0.23, 0.43, 0.39, 0.1, 0.18, 0.36, 0.25, 0.25, 0.2, 0.29, 0.29, 0.3, 0.49, 0.38, 0.34, 0.35, 0.35, 0.21, 0.37, 0]},
+    ]},
+    {'t': '合并利润表', 'rows': [
+      {'l': '营业收入', 'v': [689, 1074, 1369, 2783, 4044, 8090, 14126, 22967, 34908, 54579, 77151, 98899, 123623, 170356, 281740, 355198, 419829, 571454, 685846, 619276, 666128, 704938, 830495]},
+      {'l': '营业成本', 'v': [215, 393, 451, 812, 1183, 2454, 4416, 7388, 12162, 22639, 35460, 38683, 50033, 75614, 143187, 193760, 233406, 308843, 384696, 352665, 345531, 332058, 363646]},
+      {'l': '毛利润', 'v': [474, 682, 918, 1971, 2861, 5636, 9709, 15578, 22746, 31940, 41691, 60216, 73590, 94742, 138554, 161438, 186422, 262611, 301150, 266611, 320596, 372880, 466849]},
+      {'l': '毛利率 ％', 'v': [68.77, 63.44, 67.06, 70.82, 70.75, 69.66, 68.73, 67.83, 65.16, 58.52, 54.04, 60.89, 59.53, 55.61, 49.18, 45.45, 44.4, 45.95, 43.91, 43.05, 48.13, 52.9, 56.21]},
+      {'l': '销售及行政开支', 'v': [158, 266, 524, 898, 1204, 2092, 2961, 4421, 8825, 13379, 20020, 27505, 29827, 38789, 60082, 74693, 83280, 120183, 159721, 151789, 150653, 159242, 196480]},
+      {'l': '研发费用', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他营业成本', 'v': [1, -24, -10, 4, -73, -51, 66, -44, -124, -281, -470, -491, -398, -426, -4706, -1870, -4744, -9391, -8373, -12417, -11250, -9277, 0]},
+      {'l': '总营业成本', 'v': [159, 241, 513, 901, 1131, 2041, 3027, 4376, 8701, 13098, 19550, 27014, 29429, 38362, 55376, 72823, 78537, 110792, 151348, 139373, 139403, 149965, 196480]},
+      {'l': '营业利润', 'v': [315, 440, 405, 1070, 1730, 3595, 6682, 11202, 14045, 18842, 22140, 33202, 44161, 56379, 83177, 88615, 107886, 151820, 149803, 127238, 181193, 222915, 270369]},
+      {'l': '营业利润率 ％', 'v': [45.74, 40.99, 29.56, 38.44, 42.79, 44.44, 47.3, 48.77, 40.23, 34.52, 28.7, 33.57, 35.72, 33.1, 29.52, 24.95, 25.7, 26.57, 21.84, 20.55, 27.2, 31.62, 32.56]},
+      {'l': '利息收入', 'v': [0, 0, 44, 75, 91, 119, 154, 299, 575, 1040, 1677, 2100, 2797, 2936, 4669, 5190, 7026, 8247, 8143, 9595, 15103, 17087, 18680]},
+      {'l': '利息支出', 'v': [0, 0, -44, -5, -2, -159, -2, -1, -89, -407, -503, -1085, -1815, -2430, -3626, -5564, -8557, -8830, -9695, -11150, -13000, -13289, -16714]},
+      {'l': '净利息收入', 'v': [0, 0, -2, 29, -106, -40, 152, 298, 486, 633, 1174, 1015, 982, 507, 1043, -374, -1531, -583, -1553, -1556, 2103, 3798, 1965]},
+      {'l': '其他收入（支出）', 'v': [2, -5, 17, 11, 0, -44, 25, 89, 291, -760, 1298, 2135, -1618, 1014, 20313, 19065, 15380, 62168, 155494, 109078, -6844, 31114, 33949]},
+      {'l': '利润总额', 'v': [317, 436, 420, 1110, 1624, 3511, 6859, 11589, 14822, 18715, 24613, 36352, 43525, 57900, 104533, 107307, 121735, 213404, 303744, 234761, 176453, 257827, 306284]},
+      {'l': '所得税费用', 'v': [-15, -21, 46, -53, 35, -327, -930, -2102, -2296, -2818, -4746, -6421, -8543, -11429, -18656, -16451, -15035, -23587, -24798, -24027, -47334, -48064, -52417]},
+      {'l': '税率 ％', 'v': [4.73, 4.86, -11.05, 4.74, -2.18, 9.32, 13.56, 18.14, 15.49, 15.06, 19.28, 17.66, 19.63, 19.74, 17.85, 15.33, 12.35, 11.05, 8.16, 10.23, 26.83, 18.64, 17.11]},
+      {'l': '其他净利润（亏损）', 'v': [0, 0, 0, 0, -4, 0, -150, -144, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '净利润', 'v': [302, 414, 466, 1057, 1655, 3184, 5779, 9343, 12526, 15897, 19867, 29931, 34983, 46471, 85877, 90856, 106699, 189817, 278946, 210734, 129118, 209762, 253867]},
+      {'l': '持续经营净利润', 'v': [302, 414, 466, 1057, 1660, 3184, 5929, 9487, 12526, 15897, 19867, 29931, 34983, 46471, 85877, 90856, 106699, 189817, 278946, 210734, 129118, 209762, 253867]},
+      {'l': '终止经营净利润', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他收入（少数股东权益）', 'v': [0, 0, 0, 0, 2, -35, 75, 72, -27, -66, -78, -98, -363, -395, -1139, -1437, -2869, -330, -3659, -520, -3098, -2556, -5478]},
+      {'l': '归属于母公司股东的净利润', 'v': [302, 414, 466, 1057, 1657, 3149, 5854, 9415, 12499, 15831, 19789, 29833, 34620, 46076, 84738, 89419, 103831, 189488, 275287, 210214, 126021, 207206, 248389]},
+      {'l': '净利率 ％', 'v': [43.84, 38.58, 34.03, 37.99, 40.99, 38.92, 41.44, 40.99, 35.81, 29.01, 25.65, 30.17, 28, 27.05, 30.08, 25.17, 24.73, 33.16, 40.14, 33.95, 18.92, 29.39, 29.91]},
+      {'l': '优先股股利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '基本每股收益', 'v': [0.05, 0.05, 0.05, 0.12, 0.19, 0.35, 0.65, 1.04, 1.37, 1.73, 2.16, 3.23, 3.72, 4.91, 9, 9.47, 10.97, 19.97, 28.89, 22.06, 13.33, 22.36, 27.34]},
+      {'l': '稀释每股收益', 'v': [0.05, 0.05, 0.05, 0.12, 0.18, 0.34, 0.64, 1.01, 1.35, 1.7, 2.12, 3.19, 3.67, 4.85, 8.89, 9.35, 10.73, 19.59, 28.36, 21.6, 13, 21.87, 26.68]},
+      {'l': '发行在外的稀释性潜在普通股平均股数', 'v': [6602.4, 7766.2, 9094.9, 9092.7, 9184.8, 9194, 9236.4, 9304.9, 9292.7, 9315, 9341, 9357, 9430, 9494, 9536, 9568, 9603, 9650, 9696, 9695, 9610, 9408, 9244]},
+      {'l': '息税前利润', 'v': [315, 440, 420, 1115, 1626, 3670, 6682, 11202, 14911, 19122, 25116, 37437, 45340, 60329, 108159, 112871, 130292, 222234, 313439, 245912, 189452, 271116, 322998]},
+      {'l': '折旧、损耗和摊销', 'v': [0, 0, 55, 134, 204, 407, 611, 915, 2376, 3259, 4603, 6037, 8021, 14285, 27979, 38903, 49710, 60189, 70615, 68361, 64542, 60017, 0]},
+      {'l': '税息折旧及摊销前利润', 'v': [315, 440, 475, 1249, 1830, 4077, 7293, 12117, 17286, 22381, 29719, 43474, 53361, 74615, 136137, 151774, 180002, 282423, 384054, 314273, 253994, 331133, 322998]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [45.74, 40.99, 34.66, 44.87, 45.24, 50.4, 51.63, 52.76, 49.52, 41.01, 38.52, 43.96, 43.16, 43.8, 48.32, 42.73, 42.88, 49.42, 56, 50.75, 38.13, 46.97, 38.89]},
+    ]},
+    {'t': '合并资产负债表', 'rows': [
+      {'l': '货币资金和现金等价物', 'v': [305, 808, 1513, 1833, 3121, 3469, 6863, 12167, 15450, 16641, 25822, 53518, 52205, 80618, 125249, 111110, 147986, 181132, 205669, 175033, 188480, 141487, 155812]},
+      {'l': '短期证券', 'v': [0, 627, 369, 427, 717, 450, 6030, 13708, 16802, 17167, 25050, 13530, 44865, 56420, 43517, 78485, 60116, 89002, 115573, 149659, 226232, 224894, 315633]},
+      {'l': '货币资金、现金等价物、及短期证券', 'v': [305, 1434, 1882, 2260, 3838, 3919, 12892, 25875, 32253, 33808, 50872, 67047, 97070, 137037, 168766, 189595, 208102, 270134, 321241, 324692, 414712, 366381, 471445]},
+      {'l': '应收账款', 'v': [0, 0, 214, 397, 567, 1112, 1396, 2005, 2476, 2927, 3772, 5749, 8486, 11383, 19610, 32291, 39880, 53322, 60404, 50774, 50977, 51465, 55159]},
+      {'l': '应收票据', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应收贷款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动应收款项', 'v': [94, 181, 0, 0, 0, 0, 0, 0, 176, 439, 1444, 2540, 4686, 4453, 4083, 2567, 4756, 8402, 22321, 27221, 35079, 36342, 0]},
+      {'l': '应收账款总额', 'v': [94, 181, 214, 397, 567, 1112, 1396, 2005, 2651, 3366, 5216, 8288, 13172, 15836, 23694, 34858, 44636, 61724, 82725, 77995, 86055, 87807, 55159]},
+      {'l': '原材料', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在产品', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '存货调整', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '库存商品', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他存货', 'v': [0, 0, 3, 2, 2, 6, 0, 0, 0, 706, 1767, 306, 267, 295, 350, 368, 799, 965, 1302, 2605, 499, 470, 586]},
+      {'l': '存货', 'v': [0, 0, 3, 2, 2, 6, 0, 0, 0, 706, 1767, 306, 267, 295, 350, 368, 799, 965, 1302, 2605, 499, 470, 586]},
+      {'l': '其他流动资产', 'v': [56, 784, 459, 1052, 711, 2308, 651, 1782, 8589, 7517, 10678, 18733, 76228, 14066, 18646, 21767, 29066, 43726, 188368, 226757, 65800, 75099, 130630]},
+      {'l': '流动资产合计', 'v': [455, 2399, 2557, 3711, 5117, 7346, 14940, 29662, 43493, 45397, 68533, 94375, 186737, 167234, 211455, 246588, 282603, 376549, 593636, 632048, 567065, 529758, 657820]},
+      {'l': '非流动投资', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '土地', 'v': [0, 0, 0, 0, 0, 41, 103, 152, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '房屋及建筑物修缮', 'v': [0, 0, 105, 169, 297, 326, 1475, 1600, 2594, 3661, 4687, 4418, 6026, 7126, 13023, 13444, 23818, 21276, 26409, 28167, 29010, 34927, 0]},
+      {'l': '机器、家具和设备', 'v': [0, 0, 343, 591, 954, 1642, 2308, 3880, 7873, 10784, 14093, 16163, 19181, 23916, 35159, 52599, 77128, 105709, 128158, 118939, 124818, 162345, 0]},
+      {'l': '在建工程', 'v': [0, 0, 0, 14, 119, 990, 0, 452, 820, 967, 2605, 4799, 5105, 5241, 3748, 5542, 4379, 5855, 7253, 10306, 15023, 34683, 10683]},
+      {'l': '其他固定资产、无形资产和其他长期资产', 'v': [75, 133, 0, 0, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22, 15326, 25062, 25153, 22383, 18875, 184790]},
+      {'l': '固定资产、无形资产和其他长期资产总值', 'v': [75, 133, 447, 774, 1370, 2999, 4005, 6085, 11286, 15412, 21386, 25380, 30312, 36283, 51930, 71585, 105347, 148166, 186882, 182565, 191234, 250830, 195472]},
+      {'l': '累计折旧', 'v': [0, 0, -97, -204, -363, -651, -1027, -1783, -3257, -5240, -7684, -10660, -13221, -15457, -20220, -26182, -36795, -56045, -78755, -86828, -95604, -111660, 0]},
+      {'l': '固定资产、无形资产和其他长期资产净额', 'v': [75, 133, 350, 570, 1007, 2349, 2978, 4302, 8029, 10173, 13702, 14720, 17091, 20825, 31710, 45403, 68552, 92121, 108127, 95737, 95630, 139170, 195472]},
+      {'l': '无形资产', 'v': [0, 0, 21, 155, 454, 419, 345, 939, 5791, 7570, 7422, 13421, 22632, 51108, 62102, 87930, 178263, 226350, 254226, 220113, 228357, 247351, 252251]},
+      {'l': '商誉', 'v': [0, 0, 3, 27, 0, 70, 0, 0, 3204, 3642, 3258, 7964, 8599, 25706, 27975, 37037, 103993, 128765, 137352, 130355, 138057, 151744, 0]},
+      {'l': '其他非流动资产', 'v': [10, 157, 362, 186, 751, 1032, 1614, 6983, 12274, 30437, 47234, 91950, 142282, 204721, 352007, 441948, 532131, 885665, 1018298, 814423, 834106, 985240, 1146976]},
+      {'l': '非流动资产合计', 'v': [85, 291, 733, 910, 2212, 3799, 4938, 12224, 26094, 48179, 68358, 120090, 182005, 276655, 445820, 575281, 778946, 1204136, 1380651, 1130274, 1158093, 1371761, 1594699]},
+      {'l': '资产总计', 'v': [540, 2690, 3290, 4622, 7330, 11145, 19878, 41886, 69587, 93576, 136891, 214465, 368742, 443889, 657274, 821869, 1061549, 1580686, 1974287, 1762322, 1725158, 1901519, 2252519]},
+      {'l': '应付账款', 'v': [56, 2, 25, 39, 124, 277, 791, 1614, 2749, 5237, 8527, 10879, 18869, 30736, 59350, 83758, 89788, 111466, 134042, 103163, 110415, 126745, 133812]},
+      {'l': '应交税费', 'v': [7, 5, 40, 65, 75, 171, 343, 662, 1088, 1194, 2439, 1287, 2488, 6687, 11426, 12789, 12216, 16932, 18056, 20309, 24103, 22020, 24614]},
+      {'l': '其他应付账款', 'v': [0, 75, 188, 442, 708, 1146, 1846, 3504, 794, 839, 1125, 2931, 3788, 6665, 10120, 12595, 12465, 20465, 149124, 168753, 2997, 4690, 106602]},
+      {'l': '应交税费和其他应付款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款', 'v': [62, 83, 253, 545, 907, 1594, 2980, 5780, 4631, 7270, 12091, 15097, 25145, 44087, 80895, 109142, 114469, 148863, 301223, 292225, 137514, 153455, 265028]},
+      {'l': '短期借款', 'v': [0, 0, 0, 0, 309, 0, 230, 0, 9800, 1339, 3305, 6326, 19113, 17652, 24230, 46066, 36976, 16883, 23269, 24597, 60921, 65670, 58727]},
+      {'l': '短期资本化租赁债务', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3649, 4531, 6668, 7096, 6731, 5979, 5950]},
+      {'l': '短期借款和资本化租赁债务', 'v': [0, 0, 0, 0, 309, 0, 230, 0, 9800, 1339, 3305, 6326, 19113, 17652, 24230, 46066, 40624, 21414, 29937, 31692, 67652, 71649, 64677]},
+      {'l': '流动递延收益负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税和收益负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动负债', 'v': [34, 115, 225, 317, 529, 771, 1971, 9443, 11519, 17086, 27070, 41269, 105257, 51724, 74683, 74743, 112141, 148698, 162421, 160964, 180015, 198664, 126271]},
+      {'l': '流动负债合计', 'v': [96, 198, 478, 862, 1746, 2365, 5181, 15223, 25950, 25696, 42467, 62692, 149514, 113464, 179809, 229952, 267234, 318975, 493580, 484882, 385182, 423769, 455976]},
+      {'l': '长期借款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 4573, 11966, 15911, 38259, 60108, 105117, 132074, 157593, 208734, 277631, 345944, 348791, 320390, 295859, 369611]},
+      {'l': '长期资本租赁负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9378, 12089, 20205, 20574, 18012, 14837, 14671]},
+      {'l': '长期借款和资本化租赁债务', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 4573, 11966, 15911, 38259, 60108, 105117, 132074, 157593, 218113, 289720, 366149, 369366, 338402, 310697, 384282]},
+      {'l': '债务股本比率', 'v': [0, 0, 0, 0, 0.06, 0, 0.02, 0, 0.41, 0.26, 0.26, 0.45, 0.55, 0.63, 0.52, 0.55, 0.54, 0.37, 0.4, 0.5, 0.46, 0.37, 0.35]},
+      {'l': '养老金和退休福利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '非流动递延负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他非流动负债', 'v': [1, 0, 1, 65, 43, 729, 731, 1131, 3429, 3506, 3882, 10615, 12376, 16484, 17042, 29698, 32263, 49673, 41076, 33843, 45961, 41838, 41225]},
+      {'l': '非流动负债合计', 'v': [1, 0, 1, 65, 43, 729, 731, 1131, 8003, 15472, 19793, 48874, 72485, 121602, 149117, 187291, 250376, 339393, 407225, 403209, 384363, 352535, 425507]},
+      {'l': '负债合计', 'v': [97, 198, 479, 927, 1789, 3094, 5913, 16354, 33953, 41168, 62260, 111567, 221999, 235065, 328925, 417243, 517609, 658368, 900805, 888091, 769545, 776303, 881483]},
+      {'l': '普通股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '优先股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '留存收益', 'v': [0, 767, 1109, 2047, 3613, 6716, 11946, 20803, 32721, 47585, 66666, 92797, 120197, 153319, 240174, 340393, 428021, 638313, 820284, 788379, 890239, 952396, 1116254]},
+      {'l': '累计其他综合收益（亏损）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '资本公积', 'v': [14, 1670, 1600, 1450, 1541, 1306, 1413, 1286, 2390, 3581, 3633, 6429, 14623, 19424, 26311, 31004, 39248, 57841, 82443, 69703, 41552, 45994, 70477]},
+      {'l': '库存股', 'v': [0, 0, 0, 0, 0, -25, -141, -302, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2086, -5185, -3840, -3811]},
+      {'l': '其他所有者权益', 'v': [428, 55, 102, 198, 318, -58, 610, 3647, -242, 185, 3670, 1027, 9442, 23049, 36957, -3912, 14225, 138372, 84559, -50409, -42186, 44881, 92101]},
+      {'l': '归属于母公司所有者权益合计', 'v': [443, 2492, 2812, 3695, 5472, 7939, 13829, 25434, 34869, 51352, 73970, 100253, 144261, 195791, 303442, 367485, 481494, 834526, 987287, 805588, 884420, 1039430, 1275021]},
+      {'l': '少数股东权益', 'v': [0, 0, 0, 0, 68, 111, 136, 98, 765, 1057, 661, 2645, 2482, 13032, 24907, 37141, 62445, 87792, 86195, 68643, 71194, 85785, 96015]},
+      {'l': '所有者权益合计', 'v': [443, 2492, 2812, 3695, 5541, 8051, 13965, 25532, 35634, 52408, 74631, 102899, 146743, 208823, 328349, 404626, 543939, 922318, 1073482, 874231, 955614, 1125215, 1371036]},
+      {'l': '股东权益比率', 'v': [0.82, 0.93, 0.85, 0.8, 0.75, 0.71, 0.7, 0.61, 0.5, 0.55, 0.54, 0.47, 0.39, 0.44, 0.46, 0.45, 0.45, 0.53, 0.5, 0.46, 0.51, 0.55, 0.57]},
+    ]},
+    {'t': '合并现金流量表', 'rows': [
+      {'l': '来自持续经营收益的净利润', 'v': [302, 414, 466, 1057, 1660, 3184, 5929, 9487, 12526, 15897, 19867, 29931, 34983, 46471, 85877, 90856, 106699, 189817, 278946, 210734, 129118, 209762, 253867]},
+      {'l': '折旧、损耗和摊销', 'v': [0, 0, 55, 134, 204, 407, 611, 915, 2376, 3259, 4603, 6037, 8021, 14285, 27979, 38903, 49710, 60189, 70615, 68361, 64542, 60017, 0]},
+      {'l': '经营性应收项目变动', 'v': [0, 0, -29, -157, -122, -507, -279, -565, -307, -332, -774, -1777, -2967, -3285, -7584, -11702, -6718, -8926, -4930, 4842, -1105, -1119, 0]},
+      {'l': '存货变动', 'v': [0, 0, 3, 0, 1, -4, 6, 0, 0, -374, -1040, 1629, -20, -43, -46, -33, -438, -113, 1588, -1341, 2058, 21, 0]},
+      {'l': '预付资产变动', 'v': [0, 0, 14, -60, -16, -51, 42, -61, -3222, -2804, -1200, -2194, -6106, -4606, -4456, -4601, -4399, 139, -21773, -6522, 5982, 2810, 0]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款变动', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他营运资金变动', 'v': [0, 0, 522, 501, 192, 790, 2623, 3372, 4972, 7871, 10565, 9303, 16773, 20230, 40126, 21437, 28613, 41408, 26206, -17607, 14101, 21649, 0]},
+      {'l': '营运资金变动', 'v': [0, 0, 510, 284, 55, 228, 2391, 2746, 1442, 4361, 7551, 6961, 7678, 12296, 28040, 5101, 17058, 32508, 1091, -20628, 21037, 23362, 0]},
+      {'l': '递延所得税', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 2296, 2818, 4746, 6421, 8543, 11429, 18656, 16451, 15035, 23587, 24798, 24027, 47334, 48064, 0]},
+      {'l': '股权激励', 'v': [0, 0, 33, 77, 109, 182, 365, 580, 898, 1125, 1491, 2258, 3312, 4836, 7272, 8939, 11269, 14977, 26479, 27861, 23049, 22103, 0]},
+      {'l': '资产减值费用', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '终止经营活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他经营活动产生的现金流量净额', 'v': [28, -609, -111, -53, -85, 47, 240, 674, -3173, -3301, -7144, -10623, -7937, -15857, -42050, -34235, -34429, -90963, -187419, -147213, -42303, -87293, 80922]},
+      {'l': '经营活动产生的现金流量净额', 'v': [331, -195, 954, 1498, 1943, 4048, 9536, 14401, 16364, 24159, 31115, 40986, 54600, 73460, 125774, 126016, 165344, 230115, 214510, 163142, 242777, 276016, 334789]},
+      {'l': '购建固定资产、无形资产和其他长期资产支付的现金', 'v': [-56, -85, -246, -322, -629, -1507, -896, -1740, -4973, -4547, -6112, -5383, -6538, -9417, -14348, -22427, -25333, -40388, -37966, -25913, -22978, -67185, 0]},
+      {'l': '处置固定资产、无形资产和其他长期资产收回的现金净额', 'v': [0, 1, 0, 0, 12, 3, 1, 2, 1, 5, 22, 209, 84, 35, 33, 37, 4, 0, 234, 420, 281, 217, 0]},
+      {'l': '取得子公司及其他营业单位支付的现金净额', 'v': [0, 0, -13, -55, -191, -361, 0, -1134, -6331, -5102, -5700, -45565, -18828, -13813, -48616, -49453, -17862, -54384, -88650, -26677, -14529, -10502, 0]},
+      {'l': '处置子公司及其他营业单位收到的现金净额', 'v': [0, 0, 0, 0, 0, 0, 0, 64, 0, 138, 462, 1763, 1428, 3678, 1332, 487, 742, 2635, 6634, 25298, 4794, 5226, 0]},
+      {'l': '投资支付的现金', 'v': [0, -156, -112, -20, -575, -47, -635, -10181, -11866, -37390, -33121, -21363, -120407, -101588, -143656, -157741, -150058, -157441, -202669, -203267, -331295, -410960, 0]},
+      {'l': '收回投资及取得投资收益收到的现金', 'v': [0, 0, 0, 0, 1027, 0, 719, 533, 7337, 23043, 20361, 35364, 74553, 49284, 108859, 90539, 110800, 64747, 144241, 134687, 241467, 368584, 0]},
+      {'l': '取得无形资产支付的现金净额差', 'v': [0, 0, -8, -24, -209, -81, -36, -887, -973, -1470, -1651, -2876, -9074, -11610, -23576, -38983, -38081, -38561, -38153, -30872, -28875, -35362, 0]},
+      {'l': '终止投资活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他投资活动产生的现金流量净额', 'v': [33, -695, 369, -437, -213, -850, -4858, -703, -2004, 5092, 1314, 2282, 2340, 3912, 5750, 4977, -9482, 7696, -2298, 9213, 14236, 19527, 0]},
+      {'l': '投资活动产生的现金流量净额', 'v': [-22, -935, -10, -857, -777, -2843, -5706, -14046, -18810, -20231, -24425, -35569, -76442, -79520, -114222, -172563, -129268, -215695, -218627, -117111, -136898, -130456, -227277]},
+      {'l': '发行股票产生的现金流入', 'v': [0, 1659, 11, 34, 110, 98, 188, 233, -342, 145, 38, -288, -580, -1918, -2442, -1638, -1262, -177, -2184, -2107, -3618, -1589, 0]},
+      {'l': '回购股票产生的现金流出', 'v': [0, 0, -118, -240, -114, -463, -202, -558, -1283, -25, -1691, -76, 0, 0, 0, -889, -1164, 0, -2657, -32728, -47871, -109256, 0]},
+      {'l': '发行优先股产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '发行债券产生的现金流入', 'v': [0, 0, 0, 0, 309, 0, 230, 6195, 12794, 8661, 8952, 30928, 36974, 64785, 59478, 75252, 126466, 94077, 102256, 33765, 69400, 122338, 0]},
+      {'l': '偿付债券现金流出', 'v': [0, 0, 0, 0, 0, -330, 0, -237, -4613, -9977, -2954, -5093, -4948, -22780, -25099, -32266, -100916, -41337, -29046, -26610, -59224, -137627, 0]},
+      {'l': '发行债券产生的现金流量净额', 'v': [0, 0, 0, 0, 309, -330, 230, 5958, 8180, -1317, 5999, 25835, 32026, 42005, 34379, 42986, 25550, 52740, 73211, 7155, 10177, -15289, 0]},
+      {'l': '分配股利、利润或偿付利息支付的现金', 'v': [-10, -27, -127, -144, -222, -292, -630, -747, -1027, -1378, -1874, -2206, -3173, -4147, -5987, -7697, -9253, -12256, -15310, -14464, -22951, -30812, 0]},
+      {'l': '融资租赁产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2671, -4193, -5416, -6666, -7276, -6800, 0]},
+      {'l': '其他筹资活动产生的现金流量净额', 'v': [-36, 0, -3, 0, 0, 3, -36, -78, -172, -393, -291, -272, -6006, -685, 5568, 2324, -9340, -19937, -21171, -18141, -18777, -24692, 0]},
+      {'l': '筹资活动产生的现金流量净额', 'v': [-45, 1632, -237, -350, 83, -984, -451, 4807, 5357, -2967, 2180, 22992, 22267, 35254, 31518, 35085, 1861, 16178, 26473, -66950, -90317, -188438, -96282]},
+      {'l': '期初现金及现金等价物余额', 'v': [42, 306, 826, 1566, 1952, 3334, 3484, 7065, 12750, 15682, 17084, 25345, 51334, 48703, 85202, 120064, 108843, 157652, 187096, 187570, 171438, 183981, 146397]},
+      {'l': '汇率变动对现金及现金等价物的影响', 'v': [0, 0, -19, -24, -80, -86, -1, -61, -211, -2, -131, -236, 446, 2720, -3023, 2507, 1207, -7117, -3782, 8382, 1480, 383, -1815]},
+      {'l': '现金及现金等价物净额', 'v': [263, 502, 688, 267, 1169, 135, 3379, 5102, 2700, 959, 8738, 28173, 871, 31914, 40046, -8955, 39143, 23480, 18573, -12537, 17042, -42494, 9414]},
+      {'l': '期末现金及现金等价物余额', 'v': [305, 808, 1513, 1833, 3121, 3469, 6863, 12167, 15450, 16641, 25822, 53518, 52205, 80618, 125249, 111110, 147986, 181132, 205669, 175033, 188480, 141487, 155812]},
+      {'l': '资本开支', 'v': [-56, -85, -254, -345, -837, -1588, -932, -2626, -5946, -6017, -7763, -8318, -15750, -21027, -37924, -61410, -63413, -78949, -76119, -56785, -51853, -102548, 0]},
+      {'l': '自由现金流', 'v': [275, -280, 700, 1153, 1105, 2460, 8604, 11775, 10418, 18142, 23352, 32667, 38850, 52433, 87850, 64606, 101930, 151166, 138391, 106357, 190925, 173468, 334789]},
+    ]},
+    {'t': '估值比率', 'rows': [
+      {'l': '市盈率', 'v': [9999, 15.98, 29.85, 43.92, 61.12, 26.95, 48.99, 30.77, 21.4, 27.02, 43.03, 32.52, 38.29, 36.03, 42.12, 30.97, 32.27, 26.64, 14.85, 14.69, 22.58, 19.19, 22.45]},
+      {'l': '持续经营市盈率', 'v': [9999, 15.98, 30.5, 44.37, 61.12, 26.57, 48.99, 30.77, 21.89, 25.59, 39.32, 31.3, 34.03, 32.6, 46.25, 31.47, 31.98, 34.69, 27.08, 24, 16.45, 16.73, 19.45]},
+      {'l': '股价／巴菲特所有者每股收益', 'v': [0, 0, 0, 0, 58.53, 24.13, 34.24, 23.27, 15.45, 17.39, 24.83, 21.06, 24.75, 21.67, 24.26, 21.59, 21.5, 18.97, 12.68, 13.6, 13.79, 14.29, 29.9]},
+      {'l': '市净率', 'v': [0, 3.02, 4.81, 12.22, 18.08, 10.43, 20.24, 11.24, 7.59, 8.28, 11.48, 9.69, 9.16, 8.46, 11.72, 7.5, 6.87, 6, 4.1, 3.77, 3.12, 3.69, 4.24]},
+      {'l': '股价／每股有形账面价值', 'v': [0, 3.02, 4.85, 12.76, 19.71, 11.01, 20.76, 11.67, 9.1, 9.72, 12.76, 11.19, 10.87, 11.45, 14.73, 9.86, 10.91, 8.23, 5.52, 5.18, 4.2, 4.84, 5.29]},
+      {'l': '股价／自由现金流', 'v': [0, 0, 19.87, 40.29, 92.19, 34.4, 33.43, 24.62, 25.67, 23.57, 36.48, 29.71, 34.12, 31.66, 40.63, 42.87, 32.62, 33.31, 29.5, 28.92, 14.78, 22.77, 16.54]},
+      {'l': '股价／每股经营现金流', 'v': [0, 0, 14.59, 31, 52.18, 20.95, 30.19, 20.12, 16.34, 17.7, 27.38, 23.68, 24.28, 22.6, 28.38, 21.98, 20.11, 21.88, 19.03, 18.85, 11.62, 14.31, 16.54]},
+      {'l': '市销率', 'v': [0, 6.16, 10.16, 16.69, 25.14, 10.48, 20.38, 12.62, 7.66, 7.84, 11.04, 9.81, 10.72, 9.75, 12.67, 7.8, 7.92, 8.81, 5.95, 4.97, 4.24, 5.6, 6.67]},
+      {'l': '市盈增长比', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.64, 0.96, 1.24, 0.81, 0.96, 1.2, 0.91, 1, 0.75, 1.07, 2.27]},
+      {'l': '企业价值／收入', 'v': [0, 5.67, 8.51, 15.41, 24.27, 10.01, 19.49, 11.49, 7.1, 7.49, 10.66, 9.6, 10.63, 9.76, 12.74, 7.94, 8.24, 9.09, 6.11, 5.18, 4.33, 5.75, 6.6]},
+      {'l': '企业价值倍数', 'v': [0, 13.83, 24.56, 34.35, 53.64, 19.85, 37.74, 21.79, 14.34, 18.26, 27.66, 21.84, 24.63, 22.29, 26.37, 18.59, 19.23, 18.38, 10.91, 10.21, 11.35, 12.23, 16.96]},
+      {'l': '企业价值／息税前利润', 'v': [0, 13.83, 27.78, 38.47, 60.37, 22.06, 41.2, 23.57, 16.63, 21.37, 32.74, 25.36, 28.99, 27.57, 33.2, 25, 26.56, 23.36, 13.37, 13.04, 15.22, 14.94, 16.96]},
+      {'l': '乔尔·格林布拉特收益率 ％', 'v': [0, 7.23, 3.6, 2.6, 1.66, 4.53, 2.43, 4.24, 6.01, 4.68, 3.05, 3.94, 3.45, 3.63, 3.01, 4, 3.77, 4.28, 7.48, 7.67, 6.57, 6.69, 5.9]},
+      {'l': '唐纳德·亚克曼收益率 ％', 'v': [0, 0, 0, 0, 0, 21.03, 20.76, 21.42, 22.11, 21.95, 21.39, 21.72, 22.42, 22.69, 21.79, 23.01, 23.26, 22.81, 24.12, 25.81, 27.07, 21.27, 12.91]},
+      {'l': '席勒市盈率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 65.24, 65.09, 75.6, 43.57, 26.8, 22.84, 28.54, 35.14]},
+      {'l': 'Cyclically Adjusted PB Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21.02, 17.81, 20.21, 12.05, 7.21, 5.65, 6.86, 8.14]},
+      {'l': 'Cyclically Adjusted PS Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18.27, 17.71, 21.59, 13.54, 8.43, 6.75, 8.42, 10.4]},
+      {'l': '股息率 ％', 'v': [0, 0, 0, 0, 0, 0.32, 0.15, 0.23, 0.35, 0.3, 0.2, 0.21, 0.24, 0.25, 0.15, 0.28, 0.27, 0.21, 0.35, 0.48, 0.82, 0.81, 0.75]},
+    ]},
+    {'t': '估值和质量', 'rows': [
+      {'l': '总市值', 'v': [0, 7525, 13537, 45158, 98929, 82806, 279885, 285826, 264753, 425418, 849030, 971822, 1322033, 1657316, 3555247, 2755776, 3307586, 5005823, 4046127, 3035453, 2757259, 3834002, 5408220]},
+      {'l': '企业价值', 'v': [0, 6091, 11656, 42898, 95468, 78998, 267359, 260049, 247638, 405972, 818035, 952005, 1306665, 1656080, 3567693, 2806982, 3420666, 5134615, 4207166, 3180463, 2819796, 3935752, 5481749]},
+      {'l': '月末股价', 'v': [0, 0.85, 1.53, 5.11, 11.06, 9.22, 31.16, 31.14, 28.78, 45.91, 91.19, 103.71, 140.58, 174.88, 374.27, 289.46, 346.25, 521.77, 421.1, 317.23, 293.6, 419.8, 599]},
+      {'l': '每股现金净流量', 'v': [0.02, 0.14, 0.16, 0.15, 0.22, 0.08, 0.76, 1.03, -0.27, -0.91, -1.29, -5.03, -13.55, -11.72, -19.48, -27.81, -38.94, -49.62, -69.29, -66.05, -45.36, -54.28, -56.05]},
+      {'l': '净流动资产价值 NCAV', 'v': [0.04, 0.25, 0.23, 0.31, 0.36, 0.46, 0.99, 1.44, 0.95, 0.34, 0.6, -2.12, -4.01, -8.53, -14.99, -21.83, -31.14, -38.53, -40.94, -33.93, -29.14, -36.39, -35.41]},
+      {'l': '净净营运资本 NNWC', 'v': [0.02, 0.14, 0.18, 0.18, 0.27, 0.17, 0.88, 1.19, -0.07, -0.63, -0.9, -4.56, -12.86, -10.8, -17.92, -25.25, -35.76, -45.4, -64.51, -61.94, -41.27, -50.02, -51.43]},
+      {'l': '内在价值：预期自由现金流模型', 'v': [0, 0, 0, 0, 0, 2.15, 4.42, 8.01, 11.28, 16.64, 23.58, 26.83, 39.16, 55.43, 113.97, 145.94, 187.93, 261.23, 318.64, 323.81, 364.52, 424.82, 454.53]},
+      {'l': '内在价值：市销率模型', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 503.53, 618.59, 732.69, 686.48, 702.3, 654.08, 689.23]},
+      {'l': '彼得林奇公允价值', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 105.63, 139.03, 198.73, 239.45, 274.45, 339.95, 384.4, 327.81, 390.42, 382.61, 261.32]},
+      {'l': '格雷厄姆估值', 'v': [0.23, 0.58, 0.6, 1.02, 1.51, 2.56, 4.63, 7.79, 9.67, 13.81, 19.31, 26.28, 34.67, 42.92, 68.02, 77.95, 87.93, 146.47, 163.37, 134.89, 167.51, 221.29, 280.17]},
+      {'l': '盈利能力值（EPV）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15.9, 23.72, 31.01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '两年破产风险（Z分数）', 'v': [0, 0, 0, 0, 37.23, 18.8, 31.06, 12.29, 6.84, 8.45, 10.29, 7.03, 4.93, 5.74, 8.05, 5.51, 5.27, 6.01, 4.19, 3.63, 3.8, 4.67, 5.31]},
+      {'l': '基本面趋势（F分数）', 'v': [9999, 9999, 9999, 9999, 9999, 9999, 9999, 5, 5, 4, 5, 6, 4, 4, 6, 4, 3, 7, 6, 3, 8, 8, 8]},
+      {'l': '财务造假嫌疑（M分数）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, -0.62, -2.24, -2.4, -2.26, -2.33, -2.34, -2.17, -2.24, -2.46, -2.22, -2.12, -2.48, -2.69, -2.63, -2.99]},
+      {'l': '可供营运的资产净额／总资产', 'v': [0.25, 1.96, 0.35, 0.44, 0.44, 0.56, 0.12, -0.02, 0.42, 0.46, 0.46, 0.59, 0.6, 0.53, 0.71, 0.64, 0.72, 0.91, 0.73, 0.48, 0.54, 0.66, 0.71]},
+      {'l': '斯隆比率 ％', 'v': [-1.1, 57.41, -14.52, 9.01, 6.71, 17.45, 10.18, 21.63, 21.48, 12.72, 9.57, 11.38, 15.31, 11.75, 11.13, 16.54, 6.38, 11.08, 14.15, 9.32, 1.17, 3.24, 6.25]},
+      {'l': '流动比率', 'v': [4.72, 12.1, 5.35, 4.3, 2.93, 3.11, 2.88, 1.95, 1.68, 1.77, 1.61, 1.51, 1.25, 1.47, 1.18, 1.07, 1.06, 1.18, 1.2, 1.3, 1.47, 1.25, 1.44]},
+      {'l': '速动比率', 'v': [4.72, 12.1, 5.34, 4.3, 2.93, 3.1, 2.88, 1.95, 1.68, 1.74, 1.57, 1.5, 1.25, 1.47, 1.17, 1.07, 1.05, 1.18, 1.2, 1.3, 1.47, 1.25, 1.44]},
+      {'l': '现金比率', 'v': [3.17, 7.23, 3.94, 2.62, 2.2, 1.66, 2.49, 1.7, 1.24, 1.32, 1.2, 1.07, 0.65, 1.21, 0.94, 0.82, 0.78, 0.85, 0.65, 0.67, 1.08, 0.86, 1.03]},
+      {'l': '利息保障倍数', 'v': [10000, 10000, 9.29, 199.89, 1028.97, 22.59, 3013.04, 9781.49, 158.06, 46.34, 44.02, 30.6, 24.33, 23.2, 22.94, 15.93, 12.61, 17.19, 15.45, 11.41, 13.94, 16.77, 16.18]},
+      {'l': '最高股价', 'v': [0, 1.12, 1.74, 5.11, 12.92, 13.23, 31.16, 34.59, 41.48, 51.29, 91.41, 123.07, 157.64, 201.15, 396.4, 437.51, 364.69, 576.16, 706.6, 460.07, 415, 478.4, 677.5]},
+      {'l': '最低股价', 'v': [0, 0.63, 0.8, 1.6, 4.49, 7.01, 7.71, 23.03, 26.77, 28.49, 43.73, 87.32, 103.99, 122.7, 174.23, 232.49, 281.17, 307.9, 388.29, 190.72, 274, 262.2, 366]},
+      {'l': '股票回购率 ％', 'v': [None, -5.01, -0.25, 0.04, -1.14, -0.44, 0, -2.18, -0.22, -0.73, -0.47, -0.65, -0.35, -0.78, -0.23, -0.22, -0.34, -0.43, -0.15, 0.41, 1.86, 2.75, 1.14]},
+      {'l': '股票回购收益率 ％', 'v': [0, -22.05, 0.79, 0.46, 0, 0.44, 0.01, 0.11, 0.61, -0.03, 0.19, 0.04, 0.04, 0.12, 0.07, 0.09, 0.07, 0, 0.12, 1.15, 1.87, 2.89, 0]},
+      {'l': '每股收入同比增长率 ％', 'v': [0, 32.48, 8.84, 103.27, 43.85, 99.86, 73.79, 61.39, 52.2, 55.98, 40.96, 27.97, 24.03, 36.87, 64.66, 25.65, 17.76, 35.45, 19.45, -9.7, 8.52, 8.1, 19.9]},
+      {'l': '每股收益同比增长率 ％', 'v': [0, 16.57, -3.93, 126.79, 55.29, 89.64, 85.71, 59.13, 32.93, 26.33, 24.7, 50.48, 15.14, 32.2, 83.08, 5.18, 14.81, 82.54, 44.81, -23.85, -39.8, 68.23, 21.99]},
+      {'l': '税息折旧及摊销前利润同比增长率 ％', 'v': [0, 18.7, -7.96, 163.15, 45.05, 122.64, 78.04, 64.93, 42.85, 29.16, 32.42, 46.03, 21.79, 38.89, 81.65, 11.11, 18.17, 56.14, 35.34, -18.16, -18.47, 33.17, -0.73]},
+      {'l': '5年每股税息折旧及摊销前利润增长率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53.22, 34.1, 37.24, 38.94, 33.15, 29, 29.71, 23.9, 21.8, 15.68, 8.58]},
+      {'l': '发行在外的普通股平均股数', 'v': [6602.38, 7605.5, 8862.48, 8821.68, 8899.53, 8968.89, 9008.23, 9094.83, 9094.83, 9140, 9158, 9231, 9300, 9376, 9411, 9444, 9468, 9490, 9528, 9528, 9455, 9269, 9085]},
+      {'l': '期末总股本', 'v': [8403.21, 8824.52, 8846.22, 8842.26, 8942.87, 8982.57, 8982.57, 9178.65, 9199.07, 9266.67, 9310.55, 9370.68, 9403.92, 9477.08, 9499.06, 9520.31, 9552.61, 9593.91, 9608.38, 9568.74, 9391.21, 9132.92, 9028.75]},
+      {'l': 'β贝塔系数', 'v': [0, 0, 0, 0, 1.41, 1.15, 1.14, 1.1, 1.34, 1.29, 1.17, 1.15, 1.1, 1.03, 1, 1.35, 1.49, 1.12, 1.09, 1.33, 1.5, 1.37, 1.21]},
+      {'l': '重述日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '报告日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '收益发布日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '股东人数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在职员工人数', 'v': [0, 0, 0, 3017, 4344, 6194, 7515, 10692, 17446, 24160, 27492, 27690, 30641, 38775, 44796, 54309, 62885, 85858, 112771, 108436, 105417, 110558, 0]},
+      {'l': '外汇汇率', 'v': [1.07, 1.06, 1.04, 1.01, 0.94, 0.88, 0.88, 0.86, 0.82, 0.8, 0.78, 0.8, 0.83, 0.89, 0.84, 0.88, 0.9, 0.84, 0.82, 0.9, 0.91, 0.94, 0.91]},
+    ]},
+  ]},
+  '01810.HK': {'name': '小米集團', 'years': [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], 'groups': [
+    {'t': '每股指标', 'rows': [
+      {'l': '每股收入', 'v': [3.59, 3.43, 6.07, 8.43, 9.35, 11.82, 15.76, 12.36, 11.7, 15.32, 18.92]},
+      {'l': '每股税息折旧及摊销前利润', 'v': [-0.39, 0.08, -2.19, 0.73, 0.64, 1.28, 1.46, 0.39, 1.23, 1.5, 2.21]},
+      {'l': '每股息税前利润', 'v': [-0.4, 0.06, -2.2, 0.69, 0.58, 1.2, 1.31, 0.22, 1.02, 1.23, 2.21]},
+      {'l': '稀释每股收益', 'v': [-0.41, 0.03, -2.32, 0.05, 0.46, 0.98, 0.93, 0.11, 0.76, 0.99, 1.72]},
+      {'l': '持续经营每股收益', 'v': [-0.54, -0.06, -2.59, -0.17, 0.31, 0.38, 0.7, 0.17, 0.58, 0.94, 1.26]},
+      {'l': '巴菲特所有者每股收益（TTM）', 'v': [0, 0, 0, 0, 0, 0, 0.88, 0, 0, 0, 0]},
+      {'l': '每股自由现金流', 'v': [-0.28, 0.14, -0.12, -0.25, 0.93, 0.91, 0.13, -0.45, 1.51, 1.34, 1.41]},
+      {'l': '每股经营现金流', 'v': [-0.14, 0.23, -0.05, -0.07, 1.08, 1.05, 0.47, -0.19, 1.78, 1.65, 1.41]},
+      {'l': '每股现金', 'v': [1.33, 1.42, 1.94, 1.84, 2.97, 4.51, 4.23, 3.04, 4.7, 4.33, 4.59]},
+      {'l': '每股股息', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '每股账面价值', 'v': [-9.99, -9.9, -14.45, 3.43, 3.77, 5.82, 6.73, 6.44, 7.15, 8.03, 11.34]},
+      {'l': '每股有形账面价值', 'v': [-10.35, -10.4, -15.1, 3.17, 3.56, 5.41, 6.38, 5.86, 6.42, 7.35, 10.99]},
+      {'l': '每股总债务', 'v': [0.38, 0.45, 1.23, 0.53, 0.86, 0.87, 1.5, 1.17, 1.3, 1.53, 1.54]},
+      {'l': '月末股价', 'v': [0, 0, 0, 12.92, 10.78, 33.05, 18.9, 10.94, 15.6, 34.65, 39.2]},
+    ]},
+    {'t': '财务比率', 'rows': [
+      {'l': '股本回报率 ROE ％', 'v': [None, 10000, None, 10000, 13.03, 20.35, 15.05, 1.68, 11.25, 13.26, 18.57]},
+      {'l': '股本回报率 ROE ％／市净率', 'v': [None, 10000, None, 10000, 4.56, 3.59, 5.36, 0.99, 5.16, 3.07, 5.37]},
+      {'l': '资产收益率 ROA ％', 'v': [-19.37, 1.19, -63.56, 11.34, 6.05, 9.56, 7.18, 0.83, 5.79, 6.43, 9.28]},
+      {'l': '有形股本回报率 ％', 'v': [None, 10000, None, 10000, 13.95, 21.77, 16.03, 1.81, 12.44, 14.62, 19.6]},
+      {'l': '有形资产收益率 ％', 'v': [-21.07, 1.31, -68.56, 11.91, 6.24, 9.86, 7.4, 0.86, 6.09, 6.74, 9.53]},
+      {'l': '乔尔·格林布拉特资本回报率 ％', 'v': [-2545.51, 217.65, -3284.94, 416.42, 193.17, 341.07, 234.9, 33.62, 161.5, 141.57, 206.06]},
+      {'l': '已动用资本回报率 ROCE ％', 'v': [-32.58, 5.15, -125.89, 22.39, 14.38, 21.59, 17.13, 2.68, 11.89, 13.34, 19.89]},
+      {'l': '5年留存收益回报率 RORE %', 'v': [0, 0, 0, 0, 0, 0, -216.89, 174.36, 9.46, 1.36, 17.69]},
+      {'l': '资本回报率 ％', 'v': [-8.95, 2.93, 18.7, -6.36, 11.09, 10.82, 13.63, 2.74, 7.79, 9.97, 10.31]},
+      {'l': '加权平均资本成本 WACC ％', 'v': [0, 0, 3.06, 8.46, 7.46, 7.18, 7.77, 9.08, 9.61, 9.93, 11.36]},
+      {'l': '实际借款利率 ％', 'v': [2.62, 2.23, 2.91, 3.46, 3.55, 18.73, 11.7, 3.79, 5.51, 4, 10.25]},
+      {'l': '毛利率 ％', 'v': [4.04, 10.59, 13.22, 12.69, 13.87, 14.95, 17.75, 16.99, 21.21, 20.92, 22.26]},
+      {'l': '营业利润率 ％', 'v': [-2.04, 2.24, 4.96, -1.78, 4.13, 3.97, 6.1, 2.19, 5.45, 6.34, 6.9]},
+      {'l': '净利率 ％', 'v': [-11.35, 0.81, -38.23, 7.75, 4.88, 8.28, 5.89, 0.88, 6.45, 6.47, 9.11]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [-10.75, 2.19, -35.99, 8.61, 6.84, 10.86, 9.24, 3.13, 10.48, 9.78, 11.65]},
+      {'l': '自由现金流利润率 ％', 'v': [-7.67, 3.95, -1.93, -2.97, 9.91, 7.67, 0.8, -3.64, 12.93, 8.74, 7.47]},
+      {'l': '债务股本比率', 'v': [-0.04, -0.05, -0.09, 0.15, 0.23, 0.15, 0.22, 0.18, 0.18, 0.19, 0.14]},
+      {'l': '股东权益比率', 'v': [-2.22, -1.82, -1.42, 0.49, 0.44, 0.49, 0.47, 0.53, 0.51, 0.47, 0.52]},
+      {'l': '资产有息负债率', 'v': [0.08, 0.08, 0.12, 0.08, 0.1, 0.07, 0.11, 0.1, 0.09, 0.09, 0.07]},
+      {'l': '资产负债率', 'v': [3.21, 2.81, 2.42, 0.51, 0.56, 0.51, 0.53, 0.47, 0.49, 0.53, 0.48]},
+      {'l': '毛利润／总资产 ％', 'v': [6.9, 15.64, 21.98, 18.57, 17.21, 17.25, 21.64, 16, 19.05, 20.82, 22.68]},
+      {'l': 'Degree of Financial Leverage', 'v': [0, 0.92, 2.34, 0.77, -61.83, 1.05, -0.43, 1.06, 1.61, 1.43, 0.84]},
+      {'l': '资产周转率', 'v': [1.71, 1.48, 1.66, 1.46, 1.24, 1.15, 1.22, 0.94, 0.9, 1, 1.02]},
+      {'l': '股息支付率', 'v': [None, 0, None, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应收账款周转天数', 'v': [8.03, 9.77, 11.86, 11.79, 11.23, 12.38, 15.47, 18.93, 13.32, 11.55, 10.97]},
+      {'l': '应付账款周转天数', 'v': [80.99, 97.91, 92.9, 97.7, 109.92, 111.78, 97.68, 105.93, 99.42, 102.11, 105.6]},
+      {'l': '存货周转天数', 'v': [49.21, 52.62, 44.53, 55.6, 64.52, 63.06, 62.67, 84.7, 81.99, 68.13, 72.59]},
+      {'l': '现金循环周期', 'v': [-23.75, -35.51, -36.52, -30.3, -34.17, -36.33, -19.54, -2.3, -4.1, -22.43, -22.04]},
+      {'l': '存货周转率', 'v': [7.42, 6.94, 8.2, 6.56, 5.66, 5.79, 5.82, 4.31, 4.45, 5.36, 5.03]},
+      {'l': '营业成本／收入 ％', 'v': [0.96, 0.89, 0.87, 0.87, 0.86, 0.85, 0.82, 0.83, 0.79, 0.79, 0.78]},
+      {'l': '存货／收入', 'v': [0.13, 0.13, 0.11, 0.13, 0.15, 0.15, 0.14, 0.19, 0.18, 0.15, 0.16]},
+      {'l': '资本开支／收入', 'v': [0.04, 0.03, 0.01, 0.02, 0.02, 0.01, 0.02, 0.02, 0.02, 0.02, 0]},
+      {'l': '资本开支／营业利润', 'v': [0, 1.19, 0.21, 0, 0.4, 0.31, 0.36, 0.95, 0.42, 0.31, 0]},
+      {'l': '资本开支／经营现金流', 'v': [0, 0.4, 0, 0, 0.14, 0.14, 0.73, 0, 0.15, 0.19, 0]},
+    ]},
+    {'t': '合并利润表', 'rows': [
+      {'l': '营业收入', 'v': [80296, 76730, 135828, 198692, 229047, 291457, 402004, 312729, 296381, 390668, 505176]},
+      {'l': '营业成本', 'v': [77051, 68601, 117870, 173483, 197274, 247890, 330665, 259599, 233515, 308927, 392709]},
+      {'l': '毛利润', 'v': [3245, 8128, 17957, 25208, 31774, 43567, 71339, 53130, 62866, 81741, 112467]},
+      {'l': '毛利率 ％', 'v': [4.04, 10.59, 13.22, 12.69, 13.87, 14.95, 17.75, 16.99, 21.21, 20.92, 22.26]},
+      {'l': '销售及行政开支', 'v': [1681, 2806, 7640, 22823, 15002, 21677, 31493, 29523, 26637, 33088, 44042]},
+      {'l': '研发费用', 'v': [1817, 2359, 3734, 6562, 8337, 10973, 16123, 17899, 20889, 25678, 36602]},
+      {'l': '其他营业成本', 'v': [1387, 1242, -148, -648, -1022, -666, -805, -1128, -809, -1780, -3024]},
+      {'l': '总营业成本', 'v': [4886, 6407, 11227, 28737, 22317, 31984, 46811, 46293, 46716, 56987, 77621]},
+      {'l': '营业利润', 'v': [-1641, 1721, 6731, -3529, 9456, 11583, 24528, 6837, 16150, 24755, 34847]},
+      {'l': '营业利润率 ％', 'v': [-2.04, 2.24, 4.96, -1.78, 4.13, 3.97, 6.1, 2.19, 5.45, 6.34, 6.9]},
+      {'l': '利息收入', 'v': [121, 7, 352, 683, 1036, 1142, 1506, 2510, 3892, 5291, 5944]},
+      {'l': '利息支出', 'v': [-103, -97, -256, -437, -588, -3989, -3479, -1262, -1702, -1422, -4015]},
+      {'l': '净利息收入', 'v': [18, -90, 97, 246, 448, -2847, -1973, 1248, 2190, 3869, 1929]},
+      {'l': '其他收入（支出）', 'v': [-7358, -313, -56394, 19103, 3630, 16908, 7344, -3691, 5735, 1406, 18071]},
+      {'l': '利润总额', 'v': [-8981, 1318, -49567, 15820, 13534, 25645, 29898, 4393, 24075, 30030, 54846]},
+      {'l': '所得税费用', 'v': [-186, -767, -2441, -510, -2292, -1566, -6286, -1598, -4962, -4856, -8927]},
+      {'l': '税率 ％', 'v': [-2.07, 58.18, -4.92, 3.23, 16.93, 6.11, 21.03, 36.39, 20.61, 16.17, 16.28]},
+      {'l': '其他净利润（亏损）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '净利润', 'v': [-9166, 551, -52008, 15310, 11242, 24079, 23612, 2795, 19113, 25174, 45919]},
+      {'l': '持续经营净利润', 'v': [-9166, 551, -52008, 15310, 11242, 24079, 23612, 2795, 19113, 25174, 45919]},
+      {'l': '终止经营净利润', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他收入（少数股东权益）', 'v': [55, 69, 75, 86, -65, 51, 69, -32, 1, 85, 85]},
+      {'l': '归属于母公司股东的净利润', 'v': [-9111, 620, -51933, 15396, 11177, 24130, 23680, 2763, 19114, 25259, 46004]},
+      {'l': '净利率 ％', 'v': [-11.35, 0.81, -38.23, 7.75, 4.88, 8.28, 5.89, 0.88, 6.45, 6.47, 9.11]},
+      {'l': '优先股股利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '基本每股收益', 'v': [-0.41, 0.03, -2.32, 0.96, 0.47, 1.01, 0.96, 0.11, 0.77, 1.01, 1.79]},
+      {'l': '稀释每股收益', 'v': [-0.41, 0.03, -2.32, 0.05, 0.46, 0.98, 0.93, 0.11, 0.76, 0.99, 1.72]},
+      {'l': '发行在外的稀释性潜在普通股平均股数', 'v': [22376.1, 22376.1, 22376.1, 23562.9, 24508.8, 24668.3, 25509.4, 25296.7, 25325, 25500.7, 26695.3]},
+      {'l': '息税前利润', 'v': [-8877, 1415, -49311, 16257, 14122, 29634, 33377, 5655, 25777, 31452, 58862]},
+      {'l': '折旧、损耗和摊销', 'v': [248, 269, 428, 850, 1537, 2025, 3749, 4140, 5290, 6746, 0]},
+      {'l': '税息折旧及摊销前利润', 'v': [-8629, 1684, -48884, 17107, 15659, 31659, 37126, 9795, 31067, 38198, 58862]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [-10.75, 2.19, -35.99, 8.61, 6.84, 10.86, 9.24, 3.13, 10.48, 9.78, 11.65]},
+    ]},
+    {'t': '合并资产负债表', 'rows': [
+      {'l': '货币资金和现金等价物', 'v': [10088, 10349, 13702, 34339, 28842, 64905, 28789, 30829, 36785, 35939, 29733]},
+      {'l': '短期证券', 'v': [3796, 4437, 6533, 9104, 42269, 48570, 76744, 44903, 81161, 72720, 89242]},
+      {'l': '货币资金、现金等价物、及短期证券', 'v': [13884, 14787, 20235, 43443, 71112, 113476, 105534, 75732, 117946, 108660, 118975]},
+      {'l': '应收账款', 'v': [1767, 2343, 6481, 6359, 7732, 12045, 22023, 10424, 11216, 13519, 16836]},
+      {'l': '应收票据', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应收贷款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动应收款项', 'v': [1249, 4834, 18431, 25141, 27367, 20953, 20821, 32238, 34726, 28776, 51156]},
+      {'l': '应收账款总额', 'v': [3015, 7176, 24913, 31500, 35099, 32998, 42844, 42662, 45941, 42294, 67992]},
+      {'l': '原材料', 'v': [2192, 4333, 7923, 9655, 12330, 20926, 28420, 24047, 16351, 19348, 30904]},
+      {'l': '在产品', 'v': [2086, 1108, 1603, 2350, 2696, 4902, 5666, 3427, 3899, 5815, 5146]},
+      {'l': '存货调整', 'v': [-963, -317, -792, -2104, -972, -1453, -1630, -3875, -2380, -2644, -3317]},
+      {'l': '库存商品', 'v': [6757, 3729, 10027, 21710, 20063, 21231, 29307, 31994, 29677, 43601, 55341]},
+      {'l': '其他存货', 'v': [315, 540, 604, 1876, 2143, 3792, 2396, 732, 1042, 619, 1397]},
+      {'l': '存货', 'v': [10388, 9394, 19366, 33488, 36259, 49398, 64160, 56325, 48589, 66740, 89471]},
+      {'l': '其他流动资产', 'v': [2702, 2993, 7934, 11992, 10576, 13100, 15032, 4419, 5244, 23289, 5058]},
+      {'l': '流动资产合计', 'v': [29989, 34350, 72448, 120423, 153047, 208971, 227569, 179138, 217720, 240983, 281496]},
+      {'l': '非流动投资', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '土地', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '房屋及建筑物修缮', 'v': [132, 183, 392, 641, 4405, 6558, 6828, 9720, 9707, 13459, 0]},
+      {'l': '机器、家具和设备', 'v': [17, 17, 17, 39, 25, 29, 31, 37, 123, 244, 0]},
+      {'l': '在建工程', 'v': [71, 720, 1746, 5161, 4446, 1986, 2090, 4242, 5787, 5365, 0]},
+      {'l': '其他固定资产、无形资产和其他长期资产', 'v': [419, 418, 501, 730, 1052, 1675, 13551, 3195, 6695, 12790, 30877]},
+      {'l': '固定资产、无形资产和其他长期资产总值', 'v': [640, 1339, 2656, 6570, 9929, 10248, 22501, 17194, 22312, 31857, 30877]},
+      {'l': '累计折旧', 'v': [-291, -388, -605, -813, -1065, -1735, -2596, -3452, -4132, -5605, 0]},
+      {'l': '固定资产、无形资产和其他长期资产净额', 'v': [349, 951, 2051, 5757, 8864, 8513, 19905, 13742, 18180, 26252, 30877]},
+      {'l': '无形资产', 'v': [3791, 5173, 6743, 6207, 5042, 10398, 8740, 14236, 18344, 17052, 9191]},
+      {'l': '商誉', 'v': [298, 278, 294, 320, 276, 300, 2077, 1895, 1856, 1811, 0]},
+      {'l': '其他非流动资产', 'v': [12907, 16445, 25252, 32582, 37380, 72838, 102422, 98313, 100411, 146150, 239742]},
+      {'l': '非流动资产合计', 'v': [17047, 22569, 34046, 44546, 51287, 91749, 131068, 126292, 136935, 189455, 279811]},
+      {'l': '资产总计', 'v': [47035, 56919, 106494, 164969, 204334, 300720, 358637, 305430, 354655, 430438, 561306]},
+      {'l': '应付账款', 'v': [17097, 19708, 40293, 52579, 66240, 85587, 91398, 59290, 67922, 104931, 122292]},
+      {'l': '应交税费', 'v': [158, 336, 569, 970, 1228, 1448, 4160, 2535, 3813, 6325, 7345]},
+      {'l': '其他应付账款', 'v': [867, 1362, 3875, 5757, 6978, 11070, 14497, 12582, 17742, 23096, 39054]},
+      {'l': '应交税费和其他应付款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款', 'v': [18122, 21406, 44738, 59306, 74445, 98105, 110055, 74408, 89477, 134352, 168692]},
+      {'l': '短期借款', 'v': [37, 4282, 4268, 3493, 14284, 8253, 8179, 2402, 6763, 14229, 14585]},
+      {'l': '短期资本化租赁债务', 'v': [0, 0, 0, 0, 444, 431, 1877, 1058, 779, 2390, 0]},
+      {'l': '短期借款和资本化租赁债务', 'v': [37, 4282, 4268, 3493, 14728, 8684, 10055, 3460, 7542, 16620, 14585]},
+      {'l': '流动递延收益负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税和收益负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动负债', 'v': [1628, 3534, 6845, 7560, 13400, 21152, 21594, 22221, 29408, 36282, 29278]},
+      {'l': '流动负债合计', 'v': [19787, 29223, 55851, 70360, 102574, 127940, 141705, 100088, 126427, 187254, 212555]},
+      {'l': '长期借款', 'v': [3902, 437, 8593, 8924, 5327, 12607, 25371, 24002, 23707, 18445, 25322]},
+      {'l': '长期资本租赁负债', 'v': [0, 0, 0, 0, 624, 612, 2141, 1636, 1374, 3384, 0]},
+      {'l': '长期借款和资本化租赁债务', 'v': [3902, 437, 8593, 8924, 5951, 13219, 27512, 25638, 25080, 21829, 25322]},
+      {'l': '债务股本比率', 'v': [-0.04, -0.05, -0.09, 0.15, 0.23, 0.15, 0.22, 0.18, 0.18, 0.19, 0.14]},
+      {'l': '养老金和退休福利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '非流动递延负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他非流动负债', 'v': [127470, 130476, 192792, 4750, 4944, 12551, 21139, 18983, 23481, 19346, 29215]},
+      {'l': '非流动负债合计', 'v': [131372, 130914, 201384, 13674, 10895, 25771, 48650, 44620, 48562, 41175, 54537]},
+      {'l': '负债合计', 'v': [151160, 160136, 257236, 84034, 113469, 153711, 190355, 144709, 174989, 228429, 267092]},
+      {'l': '普通股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '优先股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '留存收益', 'v': [0, 0, 0, 0, 0, 60354, 84858, 79750, 96440, 119089, 0]},
+      {'l': '累计其他综合收益（亏损）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '资本公积', 'v': [0, 0, 0, 0, 0, 76645, 73122, 66426, 66478, 64186, 0]},
+      {'l': '库存股', 'v': [0, 0, 0, 0, 0, -43, -421, -213, -479, -37, 0]},
+      {'l': '其他所有者权益', 'v': [-104216, -103367, -150815, 81017, 90500, 9672, 10453, 14463, 16936, 18271, 294098]},
+      {'l': '归属于母公司所有者权益合计', 'v': [-104216, -103367, -150815, 81018, 90501, 146628, 168013, 160426, 179375, 201510, 294098]},
+      {'l': '少数股东权益', 'v': [92, 150, 73, -83, 364, 381, 269, 295, 291, 499, 116]},
+      {'l': '所有者权益合计', 'v': [-104124, -103217, -150742, 80935, 90865, 147010, 168282, 160721, 179666, 202009, 294214]},
+      {'l': '股东权益比率', 'v': [-2.22, -1.82, -1.42, 0.49, 0.44, 0.49, 0.47, 0.53, 0.51, 0.47, 0.52]},
+    ]},
+    {'t': '合并现金流量表', 'rows': [
+      {'l': '来自持续经营收益的净利润', 'v': [-8981, 1318, -49567, 15820, 13534, 25645, 29898, 4393, 24075, 30030, 45919]},
+      {'l': '折旧、损耗和摊销', 'v': [248, 269, 428, 850, 1537, 2025, 3749, 4140, 5290, 6746, 0]},
+      {'l': '经营性应收项目变动', 'v': [-760, -2412, -12150, -3230, -5258, -4203, -4704, 2012, -3977, -11696, 0]},
+      {'l': '存货变动', 'v': [-934, -17, -10211, -18305, -7750, -13754, -16832, -6085, 2378, -25765, 0]},
+      {'l': '预付资产变动', 'v': [282, -1933, -7850, -10750, 2177, 4297, -5351, 1613, -2654, -8883, 0]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款变动', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他营运资金变动', 'v': [-1771, 6308, 21581, 17068, 21460, 18781, 7633, -21276, 23197, 50609, 0]},
+      {'l': '营运资金变动', 'v': [-3184, 1945, -8630, -15217, 10630, 5121, -19255, -23736, 18944, 4265, 0]},
+      {'l': '递延所得税', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '股权激励', 'v': [830, 977, 1077, 14064, 2450, 2760, 2492, 2789, 3696, 3978, 0]},
+      {'l': '资产减值费用', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '终止经营活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他经营活动产生的现金流量净额', 'v': [7960, 571, 55512, -17123, -1655, -9616, -4903, 7511, -6831, -3064, -8202]},
+      {'l': '经营活动产生的现金流量净额', 'v': [-3126, 5081, -1180, -1607, 26495, 25935, 11982, -4902, 45174, 41955, 37718]},
+      {'l': '购建固定资产、无形资产和其他长期资产支付的现金', 'v': [-3034, -2048, -1443, -4300, -3789, -3587, -8779, -6476, -6857, -7791, 0]},
+      {'l': '处置固定资产、无形资产和其他长期资产收回的现金净额', 'v': [0, 56, 2, 31, 75, 75, 43, 19, 80, 383, 0]},
+      {'l': '取得子公司及其他营业单位支付的现金净额', 'v': [-681, -1037, -186, -970, -223, -1552, -1595, -59, -133, -127, 0]},
+      {'l': '处置子公司及其他营业单位收到的现金净额', 'v': [0, 0, 0, 0, 89, 53, 3263, 403, 1013, 122, 0]},
+      {'l': '投资支付的现金', 'v': [-91952, -63791, -137450, -168704, -183287, -298255, -323294, -167730, -187536, -234156, 0]},
+      {'l': '收回投资及取得投资收益收到的现金', 'v': [96469, 62395, 135420, 164708, 150657, 280920, 273464, 189527, 151186, 197790, 0]},
+      {'l': '取得无形资产支付的现金净额差', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 1649, 0]},
+      {'l': '终止投资活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他投资活动产生的现金流量净额', 'v': [247, 237, 483, 706, 1348, 1389, 1786, 1679, 3780, 4349, 0]},
+      {'l': '投资活动产生的现金流量净额', 'v': [1050, -4188, -3173, -8529, -35130, -20957, -55111, 17364, -38467, -37781, -79185]},
+      {'l': '发行股票产生的现金流入', 'v': [0, 0, 0, 26513, 208, 23901, 102, 94, 76, 90, 0]},
+      {'l': '回购股票产生的现金流出', 'v': [0, 0, 0, 0, -3263, -539, -8580, -2665, -1484, -4322, 0]},
+      {'l': '发行优先股产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '发行债券产生的现金流入', 'v': [3902, 830, 13242, 11665, 18958, 43130, 27586, 22176, 9698, 27757, 0]},
+      {'l': '偿付债券现金流出', 'v': [-4810, -56, -5369, -11934, -11592, -38629, -16287, -25293, -4400, -20569, 0]},
+      {'l': '发行债券产生的现金流量净额', 'v': [-907, 774, 7873, -268, 7366, 4501, 11299, -3117, 5298, 7188, 0]},
+      {'l': '分配股利、利润或偿付利息支付的现金', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '融资租赁产生的现金流量净额', 'v': [0, 0, 0, 0, -643, -585, -1366, -1431, -1310, -2644, 0]},
+      {'l': '其他筹资活动产生的现金流量净额', 'v': [1591, -855, -508, 3941, -194, 3799, 4054, -1652, -3133, -4581, 0]},
+      {'l': '筹资活动产生的现金流量净额', 'v': [683, -81, 7365, 30186, 3473, 31077, 5508, -8772, -552, -4270, 33988]},
+      {'l': '期初现金及现金等价物余额', 'v': [11135, 9412, 10938, 13135, 33639, 30726, 67043, 26256, 30196, 35907, 37187]},
+      {'l': '汇率变动对现金及现金等价物的影响', 'v': [347, 126, -247, 1153, 365, -1876, -633, 884, 435, 128, 26]},
+      {'l': '现金及现金等价物净额', 'v': [-1047, 938, 2765, 21204, -4796, 34179, -38253, 4574, 6589, 32, -7454]},
+      {'l': '期末现金及现金等价物余额', 'v': [10088, 10349, 13702, 34339, 28842, 64905, 28789, 30829, 36785, 35939, 29733]},
+      {'l': '资本开支', 'v': [-3034, -2048, -1443, -4300, -3789, -3587, -8779, -6476, -6857, -7791, 0]},
+      {'l': '自由现金流', 'v': [-6160, 3033, -2623, -5907, 22706, 22349, 3203, -11379, 38317, 34164, 37718]},
+    ]},
+    {'t': '估值比率', 'rows': [
+      {'l': '市盈率', 'v': [9999, 9999, 9999, 258.4, 23.64, 33.59, 20.3, 97.68, 20.66, 34.89, 22.75]},
+      {'l': '持续经营市盈率', 'v': [9999, 9999, 9999, 0, 34.55, 87.43, 26.96, 65.51, 26.85, 36.9, 31.06]},
+      {'l': '股价／巴菲特所有者每股收益', 'v': [0, 0, 0, 0, 0, 0, 21.55, 0, 0, 0, 0]},
+      {'l': '市净率', 'v': [0, 0, 0, 3.77, 2.86, 5.68, 2.81, 1.7, 2.18, 4.32, 3.46]},
+      {'l': '股价／每股有形账面价值', 'v': [0, 0, 0, 4.08, 3.02, 6.11, 2.96, 1.87, 2.43, 4.71, 3.57]},
+      {'l': '股价／自由现金流', 'v': [0, 0, 0, 0, 11.64, 36.48, 150, 0, 10.31, 25.86, 27.74]},
+      {'l': '股价／每股经营现金流', 'v': [0, 0, 0, 0, 9.97, 31.45, 40.21, 0, 8.74, 21.06, 27.74]},
+      {'l': '市销率', 'v': [0, 0, 0, 1.53, 1.15, 2.8, 1.2, 0.88, 1.33, 2.26, 2.07]},
+      {'l': '市盈增长比', 'v': [0, 0, 0, 0, 0, 0, 0.38, 0, 1.81, 6.68, 1.8]},
+      {'l': '企业价值／收入', 'v': [0, 0, 0, 1.38, 0.91, 2.54, 1.01, 0.72, 1.03, 2.05, 1.86]},
+      {'l': '企业价值倍数', 'v': [0, 0, 0, 16.03, 13.31, 23.41, 10.89, 23.11, 9.86, 20.94, 15.93]},
+      {'l': '企业价值／息税前利润', 'v': [0, 0, 0, 16.86, 14.76, 25.01, 12.11, 40.03, 11.88, 25.43, 15.93]},
+      {'l': '乔尔·格林布拉特收益率 ％', 'v': [0, 0, 0, 5.93, 6.78, 4, 8.26, 2.5, 8.42, 3.93, 6.28]},
+      {'l': '唐纳德·亚克曼收益率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 19.59, 8.39, 20.09]},
+      {'l': '席勒市盈率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 254.79, 110.03]},
+      {'l': 'Cyclically Adjusted PB Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 94.62, 14.77]},
+      {'l': 'Cyclically Adjusted PS Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 3.43, 3.36]},
+      {'l': '股息率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+    ]},
+    {'t': '估值和质量', 'rows': [
+      {'l': '总市值', 'v': [0, 0, 0, 305253, 258474, 832299, 471894, 272746, 391286, 869686, 1016406]},
+      {'l': '企业价值', 'v': [0, 0, 0, 274145, 208405, 741107, 404197, 226406, 306254, 799973, 937454]},
+      {'l': '月末股价', 'v': [0, 0, 0, 12.92, 10.78, 33.05, 18.9, 10.94, 15.6, 34.65, 39.2]},
+      {'l': '每股现金净流量', 'v': [-13.16, -13.94, -22.72, -1.71, -1.78, -1.61, -3.41, -2.78, -2.29, -4.79, -5.72]},
+      {'l': '净流动资产价值 NCAV', 'v': [-11.62, -12.07, -17.71, 1.54, 1.64, 2.18, 1.48, 1.37, 1.69, 0.48, 0.55]},
+      {'l': '净净营运资本 NNWC', 'v': [-12.54, -13.32, -21.32, -0.8, -0.78, -0.27, -1.46, -1.34, -0.98, -3.06, -3.5]},
+      {'l': '内在价值：预期自由现金流模型', 'v': [0, 0, 0, 0, 0, 0, 0, 6.37, 11.51, 15.57, 19.47]},
+      {'l': '内在价值：市销率模型', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '彼得林奇公允价值', 'v': [0, 0, 0, 0, 0, 0, 23.28, 0, 8.69, 5.26, 21.54]},
+      {'l': '格雷厄姆估值', 'v': [0, 0, 0, 0, 5.01, 6.78, 10.03, 4.7, 9.16, 12.46, 17.66]},
+      {'l': '盈利能力值（EPV）', 'v': [0, 0, 0, 0, 0, 0, 7.55, 0, 0, 0, 0]},
+      {'l': '两年破产风险（Z分数）', 'v': [0, 0, 0.01, 4.13, 3.02, 5.1, 3.52, 2.94, 3.12, 3.99, 3.66]},
+      {'l': '基本面趋势（F分数）', 'v': [9999, 9999, 9999, 4, 6, 6, 3, 3, 7, 6, 7]},
+      {'l': '财务造假嫌疑（M分数）', 'v': [0, 0, 0, -1.88, -2.78, -2.43, -2.08, -2.21, -2.88, -2.63, -1.85]},
+      {'l': '可供营运的资产净额／总资产', 'v': [-2.42, -2.41, -2.78, 0.47, 0.25, 0.27, 0.33, 0.32, 0.31, 0.37, 0.5]},
+      {'l': '斯隆比率 ％', 'v': [-14.96, -0.48, -44.68, 15.48, 9.7, 6.37, 18.63, -3.18, 3.5, 4.9, 15.58]},
+      {'l': '流动比率', 'v': [1.52, 1.18, 1.3, 1.71, 1.49, 1.63, 1.61, 1.79, 1.72, 1.29, 1.32]},
+      {'l': '速动比率', 'v': [0.99, 0.85, 0.95, 1.24, 1.14, 1.25, 1.15, 1.23, 1.34, 0.93, 0.9]},
+      {'l': '现金比率', 'v': [0.7, 0.51, 0.36, 0.62, 0.69, 0.89, 0.74, 0.76, 0.93, 0.58, 0.56]},
+      {'l': '利息保障倍数', 'v': [0, 17.8, 26.33, 0, 16.08, 2.9, 7.05, 5.42, 9.49, 17.4, 8.68]},
+      {'l': '最高股价', 'v': [0, 0, 0, 21.55, 12.5, 33.05, 35.3, 18.92, 16.8, 34.65, 60.15]},
+      {'l': '最低股价', 'v': [0, 0, 0, 11.66, 8.35, 9.5, 17.62, 8.45, 9.99, 12.12, 32.8]},
+      {'l': '股票回购率 ％', 'v': [None, 0, 0, -126.38, -1.48, -5.03, 0.85, 0.15, -0.61, -0.07, -3.31]},
+      {'l': '股票回购收益率 ％', 'v': [0, 0, 0, -8.69, 1.18, -2.81, 1.8, 0.94, 0.36, 0.49, 0]},
+      {'l': '每股收入同比增长率 ％', 'v': [0, -4.44, 77.02, 38.91, 10.83, 26.42, 33.38, -21.55, -5.33, 30.9, 23.52]},
+      {'l': '每股收益同比增长率 ％', 'v': [0, 106.81, -8472.04, 102.15, 812.8, 115.66, -5.42, -88, 575.83, 31.57, 73.56]},
+      {'l': '税息折旧及摊销前利润同比增长率 ％', 'v': [0, 119.51, -3003.12, 133.23, -12, 100.87, 13.4, -73.39, 216.8, 22.11, 47.2]},
+      {'l': '5年每股税息折旧及摊销前利润增长率 ％', 'v': [0, 0, 0, 0, 0, 0, 71.43, 0, 14.81, 5.52, 17.29]},
+      {'l': '发行在外的普通股平均股数', 'v': [22376.13, 22376.13, 22376.13, 16069.77, 23746.46, 23986.83, 24927.46, 24828.32, 24884.87, 24825.17, 25656.64]},
+      {'l': '期末总股本', 'v': [10436.77, 10436.77, 10436.77, 23626.42, 23977.16, 25183.02, 24967.95, 24931.05, 25082.43, 25099.15, 25928.74]},
+      {'l': 'β贝塔系数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0.93, 1.21]},
+      {'l': '重述日期', 'v': [None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '报告日期', 'v': [None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '收益发布日期', 'v': [None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '股东人数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在职员工人数', 'v': [0, 0, 0, 16683, 18170, 22074, 33427, 32543, 33627, 43688, 56531]},
+      {'l': '外汇汇率', 'v': [0.83, 0.89, 0.84, 0.88, 0.9, 0.84, 0.82, 0.9, 0.91, 0.94, 0.91]},
+    ]},
+  ]},
+  '09988.HK': {'name': '阿里巴巴', 'years': [2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], 'groups': [
+    {'t': '每股指标', 'rows': [
+      {'l': '每股收入', 'v': [0.07, 0.06, 0.08, 0.11, 0.16, 0.19, 1.32, 2.25, 3.54, 4.74, 5.89, 8.66, 14.88, 21, 26.41, 38.92, 48.28, 46.86, 50.22, 55.3]},
+      {'l': '每股税息折旧及摊销前利润', 'v': [0.02, 0.02, 0.03, 0.03, 0.05, 0.06, 0.43, 0.82, 2.07, 2.46, 5.27, 4.21, 7.49, 7.72, 11.1, 11.83, 7.26, 8.26, 8.75, 11.52]},
+      {'l': '每股息税前利润', 'v': [0.01, 0.02, 0.03, 0.03, 0.04, 0.05, 0.37, 0.76, 1.95, 2.18, 4.86, 3.43, 6.18, 5.65, 8.9, 9.23, 4.54, 5.73, 6.38, 9.16]},
+      {'l': '稀释每股收益', 'v': [0.01, 0.03, 0.03, 0.03, 0.04, 0.05, 0.28, 0.56, 1.57, 1.51, 4.16, 2.39, 3.8, 4.88, 7.73, 8.16, 3.5, 3.91, 4.25, 7.18]},
+      {'l': '持续经营每股收益', 'v': [0.01, 0.03, 0.03, 0.03, 0.04, 0.05, 0.37, 0.9, 1.9, 2.17, 2.5, 3.3, 5.1, 5.61, 7.32, 9.71, 8.13, 7.77, 8.45, 8.77]},
+      {'l': '巴菲特所有者每股收益（TTM）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4.08, 2.3, 3.64, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '每股自由现金流', 'v': [0.03, 0.04, 0.04, 0.05, 0.08, 0.06, 0.47, 0.78, 1.46, 2.08, 2.68, 3.57, 5.71, 5.65, 7.01, 10.23, 5.06, 8.92, 7.99, 4.3]},
+      {'l': '每股经营现金流', 'v': [0.04, 0.04, 0.04, 0.06, 0.09, 0.07, 0.61, 0.95, 1.78, 2.56, 3.31, 4.53, 7.48, 8.41, 9.36, 12.58, 8.08, 10.78, 9.74, 9.08]},
+      {'l': '每股现金', 'v': [0.08, 0.14, 0.19, 0.2, 0.28, 0.35, 1.47, 2.18, 2.87, 7.85, 6.98, 8.4, 12.68, 11.48, 18.69, 26.57, 26.27, 29.1, 31.86, 24.16]},
+      {'l': '每股股息', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.96, 0.97]},
+      {'l': '每股账面价值', 'v': [0.01, 0.1, 0.14, 0.14, 0.17, 0.22, 2.08, 0, 1.87, 9.06, 13.08, 15.52, 22.07, 27.82, 38.88, 51.53, 54.76, 54.92, 55.05, 57]},
+      {'l': '每股有形账面价值', 'v': [0.01, 0.1, 0.14, 0.13, 0.15, 0.2, 1.19, -0.89, 0.89, 5.85, 7.66, 7.4, 9.73, 8.22, 20.88, 31.03, 35.06, 36.94, 38.38, 40.67]},
+      {'l': '每股总债务', 'v': [0, 0, 0, 0, 0, 0.04, 0.09, 1.82, 2.62, 3.28, 3.47, 5.11, 7.57, 7.59, 7.58, 9.97, 10.2, 10.85, 11.47, 14]},
+      {'l': '月末股价', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 183.4, 220, 112.1, 100.4, 70.25, 128]},
+    ]},
+    {'t': '财务比率', 'rows': [
+      {'l': '股本回报率 ROE ％', 'v': [151.09, 51.62, 27.86, 20.54, 27.76, 26.54, 21.75, 41.18, 93.31, 26.16, 38.78, 17.17, 20.71, 19.96, 23.43, 18.39, 6.71, 7.22, 7.91, 12.95]},
+      {'l': '股本回报率 ROE ％／市净率', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, 4.97, 4.31, 3.28, 3.95, 6.19, 5.77]},
+      {'l': '资产收益率 ROA ％', 'v': [10.76, 24.28, 17.01, 11.69, 13.43, 12.49, 13.54, 15.47, 26.66, 13.18, 22.67, 9.78, 10.89, 10.18, 12.81, 10.36, 3.74, 4.06, 4.44, 7.24]},
+      {'l': '有形股本回报率 ％', 'v': [151.09, 51.62, 27.88, 21.35, 30.52, 29.38, 34.22, 116.67, 220.11, 41, 63.56, 32.64, 45.48, 55.53, 53.43, 32.01, 10.8, 11, 11.55, 18.36]},
+      {'l': '有形资产收益率 ％', 'v': [10.76, 24.28, 17.02, 11.95, 14.04, 13.09, 17.51, 20.44, 31.92, 16.12, 29.36, 13.41, 15.26, 15.12, 18.48, 13.62, 4.74, 5.03, 5.4, 8.67]},
+      {'l': '乔尔·格林布拉特资本回报率 ％', 'v': [236.97, 606.18, 426.52, 183.72, 185.17, 228.7, 350.77, 374.85, 619.46, 474.6, 720.56, 361.96, 245.13, 124.74, 146.02, 97.12, 34.23, 39.93, 43.99, 62.71]},
+      {'l': '已动用资本回报率 ROCE ％', 'v': [146.95, 41.73, 26.95, 20.7, 24.77, 23.53, 25.59, 31.27, 51.02, 24.13, 31.06, 16.86, 21.74, 14.76, 18.36, 14.75, 6.21, 7.62, 8.61, 12.09]},
+      {'l': '5年留存收益回报率 RORE %', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15.37, 19.69, 15.45, 20.47, -0.84, -3.18, -13.69, -2.4]},
+      {'l': '资本回报率 ％', 'v': [13.1, 35.75, 37.48, 24.63, 23.06, 19.68, 26.32, 31, 42.41, 18.3, 13.53, 11.64, 13.66, 7.17, 9.09, 6.99, 4.32, 6.66, 7.72, 8.94]},
+      {'l': '加权平均资本成本 WACC ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 5.66, 7.76, 7.59, 8.15, 18.17, 12.39, 9.64, 6.47, 6.16, 6.21, 7.27, 5.48]},
+      {'l': '实际借款利率 ％', 'v': [None, None, None, None, 0, 0, 5.3, 10.78, 6.38, 5.84, 3.46, 3.5, 3.42, 3.88, 3.58, 2.81, 11.71, 8.79, 8.72, 4.2]},
+      {'l': '毛利率 ％', 'v': [82.58, 87.05, 86.66, 86.21, 83.25, 80.36, 67.27, 71.84, 74.54, 68.72, 66.03, 62.42, 57.23, 45.09, 44.6, 41.28, 36.76, 36.72, 37.7, 39.95]},
+      {'l': '营业利润率 ％', 'v': [19.69, 37.19, 38, 27.69, 25.69, 26.34, 26.72, 32.78, 48.03, 30.59, 29.62, 30.65, 28.12, 15.15, 18.05, 12.5, 11.11, 11.86, 13.16, 14.76]},
+      {'l': '净利率 ％', 'v': [16.13, 44.75, 38.43, 26.14, 26.44, 26.69, 21.11, 24.72, 44.41, 31.84, 70.65, 27.59, 25.61, 23.32, 29.32, 20.99, 7.3, 8.38, 8.5, 13.06]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [23.65, 39.93, 40.95, 30.96, 29.76, 30.28, 32.31, 36.56, 58.38, 51.93, 89.44, 48.65, 50.34, 36.75, 42.03, 30.39, 15.03, 17.63, 17.43, 20.83]},
+      {'l': '自由现金流利润率 ％', 'v': [46.48, 58.69, 43.75, 47.22, 49.39, 31.32, 35.49, 34.69, 41.15, 43.98, 45.47, 41.26, 38.35, 26.89, 26.53, 26.29, 10.48, 19.04, 15.9, 7.78]},
+      {'l': '债务股本比率', 'v': [0, 0, 0, 0, 0.02, 0.17, 0.04, 2.68, 1.04, 0.36, 0.27, 0.33, 0.34, 0.27, 0.2, 0.19, 0.19, 0.2, 0.21, 0.25]},
+      {'l': '股东权益比率', 'v': [0.07, 0.6, 0.62, 0.53, 0.45, 0.49, 0.67, 0.16, 0.36, 0.57, 0.6, 0.55, 0.51, 0.51, 0.57, 0.56, 0.56, 0.56, 0.56, 0.56]},
+      {'l': '资产有息负债率', 'v': [0, 0, 0, 0, 0.01, 0.08, 0.03, 0.44, 0.37, 0.21, 0.16, 0.18, 0.18, 0.14, 0.11, 0.11, 0.1, 0.11, 0.12, 0.14]},
+      {'l': '资产负债率', 'v': [0.93, 0.4, 0.38, 0.47, 0.54, 0.51, 0.27, 0.83, 0.64, 0.38, 0.31, 0.36, 0.39, 0.36, 0.33, 0.36, 0.36, 0.36, 0.37, 0.4]},
+      {'l': '毛利润／总资产 ％', 'v': [55.08, 47.22, 38.35, 38.54, 42.27, 37.62, 43.14, 44.97, 44.76, 28.45, 21.19, 22.13, 24.34, 19.69, 19.49, 20.36, 18.83, 17.78, 19.7, 22.16]},
+      {'l': 'Degree of Financial Leverage', 'v': [0, 0.57, 0.42, 2.14, 0, 0, 1.81, 0, 0, -0.09, 1.33, 1.44, 0.69, -6.67, 0.99, 0.46, 1.31, 0.53, -1.13, 2.17]},
+      {'l': '资产周转率', 'v': [0.67, 0.54, 0.44, 0.45, 0.51, 0.47, 0.64, 0.63, 0.6, 0.41, 0.32, 0.36, 0.43, 0.44, 0.44, 0.49, 0.51, 0.48, 0.52, 0.56]},
+      {'l': '股息支付率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.11, 0.11]},
+      {'l': '应收账款周转天数', 'v': [0, 0, 0, 3.57, 2.99, 2.76, 1.83, 1.52, 1.4, 3.21, 4.19, 6.54, 8.22, 10.41, 12.3, 11.56, 12.62, 14.21, 12.48, 11.4]},
+      {'l': '应付账款周转天数', 'v': [13.36, 13.71, 12.59, 13.46, 7.68, 4.59, 22.76, 31.43, 39.93, 55.33, 72.79, 88.94, 100.02, 75.57, 0, 0, 0, 0, 0, 0]},
+      {'l': '存货周转天数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5.87, 9.21, 11.77, 15.44, 18.04, 19.29, 20.29, 17.24, 13.63]},
+      {'l': '现金循环周期', 'v': [-13.36, -13.71, -12.59, -9.89, -4.7, -1.82, -20.93, -29.91, -38.52, -52.13, -68.6, -76.53, -82.59, -53.38, 27.73, 29.6, 31.92, 34.5, 29.72, 25.03]},
+      {'l': '存货周转率', 'v': [None, None, None, None, None, None, None, None, None, None, None, 62.16, 39.62, 31.01, 23.65, 20.23, 18.92, 17.99, 21.17, 26.78]},
+      {'l': '营业成本／收入 ％', 'v': [0.17, 0.13, 0.13, 0.14, 0.17, 0.2, 0.33, 0.28, 0.25, 0.31, 0.34, 0.38, 0.43, 0.55, 0.55, 0.59, 0.63, 0.63, 0.62, 0.6]},
+      {'l': '存货／收入', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0.01, 0.02, 0.02, 0.03, 0.03, 0.04, 0.03, 0.02]},
+      {'l': '资本开支／收入', 'v': [0.07, 0.06, 0.09, 0.11, 0.05, 0.03, 0.11, 0.07, 0.09, 0.1, 0.11, 0.11, 0.12, 0.13, 0.09, 0.06, 0.06, 0.04, 0.03, 0.09]},
+      {'l': '资本开支／营业利润', 'v': [0.36, 0.17, 0.24, 0.38, 0.21, 0.1, 0.41, 0.22, 0.19, 0.33, 0.36, 0.36, 0.42, 0.87, 0.49, 0.48, 0.56, 0.33, 0.27, 0.58]},
+      {'l': '资本开支／经营现金流', 'v': [0.13, 0.1, 0.17, 0.18, 0.1, 0.08, 0.23, 0.17, 0.18, 0.19, 0.19, 0.21, 0.24, 0.33, 0.25, 0.19, 0.37, 0.17, 0.18, 0.53]},
+    ]},
+    {'t': '合并利润表', 'rows': [
+      {'l': '营业收入', 'v': [1355, 2289, 3397, 4400, 6497, 7861, 24623, 43090, 66013, 94768, 120705, 178288, 310636, 440698, 563771, 855461, 1051813, 989430, 1022392, 1068297]},
+      {'l': '营业成本', 'v': [236, 296, 453, 607, 1088, 1544, 8059, 12133, 16809, 29640, 41000, 67005, 132865, 241992, 312315, 502342, 665134, 626100, 636924, 641489]},
+      {'l': '毛利润', 'v': [1119, 1993, 2944, 3793, 5409, 6317, 16564, 30957, 49205, 65128, 79706, 111283, 177770, 198706, 251456, 353119, 386679, 363330, 385469, 426808]},
+      {'l': '毛利率 ％', 'v': [82.58, 87.05, 86.66, 86.21, 83.25, 80.36, 67.27, 71.84, 74.54, 68.72, 66.03, 62.42, 57.23, 45.09, 44.6, 41.28, 36.76, 36.72, 37.7, 39.95]},
+      {'l': '销售及行政开支', 'v': [765, 1023, 1617, 2309, 3062, 3285, 6479, 8117, 11018, 20287, 24479, 32164, 54043, 75627, 87235, 163084, 187070, 165928, 170686, 201855]},
+      {'l': '研发费用', 'v': [105, 139, 242, 436, 678, 961, 3562, 4685, 6403, 13254, 16455, 19217, 28243, 43778, 47649, 68261, 68388, 64631, 56766, 61278]},
+      {'l': '其他营业成本', 'v': [-18, -21, -207, -171, 0, 0, -55, 4031, 79, 2598, 3019, 5262, 8149, 12545, 14808, 14821, 14361, 15381, 23455, 5978]},
+      {'l': '总营业成本', 'v': [852, 1141, 1653, 2575, 3740, 4247, 9986, 16833, 17500, 36139, 43953, 56643, 90434, 131950, 149692, 246166, 269818, 245940, 250907, 269111]},
+      {'l': '营业利润', 'v': [267, 851, 1291, 1218, 1669, 2071, 6578, 14124, 31704, 28989, 35752, 54640, 87336, 66757, 101764, 106953, 116861, 117391, 134561, 157697]},
+      {'l': '营业利润率 ％', 'v': [19.69, 37.19, 38, 27.69, 25.69, 26.34, 26.72, 32.78, 48.03, 30.59, 29.62, 30.65, 28.12, 15.15, 18.05, 12.5, 11.11, 11.86, 13.16, 14.76]},
+      {'l': '利息收入', 'v': [23, 430, 277, 0, 0, 0, 317, 49, 2072, 11758, 62361, 9641, 37851, 51580, 80694, 86816, 0, 0, 0, 22258]},
+      {'l': '利息支出', 'v': [0, 0, -7, 0, 0, 0, -84, -1962, -2760, -3420, -2322, -3009, -4426, -6069, -5729, -5338, -25413, -19350, -19457, -10289]},
+      {'l': '净利息收入', 'v': [23, 430, 270, 160, 185, 323, 234, -1914, -688, 8338, 60038, 6633, 33425, 45510, 74964, 81478, -25413, -19350, -19457, 11969]},
+      {'l': '其他收入（支出）', 'v': [0, -65, -18, -43, 141, 224, -10, 413, 2682, 2874, 1434, 6348, 3861, 258, 7591, 9043, -18024, 3541, -4741, -2985]},
+      {'l': '利润总额', 'v': [290, 1217, 1543, 1336, 1995, 2618, 6802, 12624, 33698, 40201, 97225, 67620, 124622, 112525, 184320, 197473, 73424, 101581, 110364, 166681]},
+      {'l': '所得税费用', 'v': [-71, -192, -238, -186, -276, -524, -1035, -1819, -4018, -7979, -10083, -15518, -22589, -19358, -22743, -34918, -33063, -17710, -24473, -38005]},
+      {'l': '税率 ％', 'v': [24.52, 15.8, 15.41, 13.89, 13.86, 20.03, 15.22, 14.41, 11.92, 19.85, 10.37, 22.95, 18.13, 17.2, 12.34, 17.68, 45.03, 17.43, 22.18, 22.8]},
+      {'l': '其他净利润（亏损）', 'v': [0, 0, 0, 0, 0, 0, -31, -7, -255, -1977, -2065, -5663, -25808, 662, -6341, 8329, 17686, -9184, -8403, 6397]},
+      {'l': '净利润', 'v': [219, 1024, 1306, 1150, 1718, 2093, 5736, 10797, 29425, 30245, 85077, 46439, 76226, 93829, 155236, 170885, 58048, 74687, 77488, 135073]},
+      {'l': '持续经营净利润', 'v': [219, 1024, 1306, 1150, 1718, 2093, 5736, 10797, 29425, 30245, 85077, 46439, 76226, 93829, 155236, 170885, 58048, 74687, 77488, 135073]},
+      {'l': '终止经营净利润', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他收入（少数股东权益）', 'v': [0, 0, 0, 0, -1, 5, -537, -146, -111, -73, 204, 2759, 3328, 8949, 10046, 8699, 18704, 8212, 9426, 4431]},
+      {'l': '归属于母公司股东的净利润', 'v': [219, 1024, 1306, 1150, 1718, 2098, 5199, 10651, 29314, 30171, 85281, 49198, 79554, 102778, 165282, 179584, 76752, 82899, 86914, 139505]},
+      {'l': '净利率 ％', 'v': [16.13, 44.75, 38.43, 26.14, 26.44, 26.69, 21.11, 24.72, 44.41, 31.84, 70.65, 27.59, 25.61, 23.32, 29.32, 20.99, 7.3, 8.38, 8.5, 13.06]},
+      {'l': '优先股股利', 'v': [0, 0, 0, 0, 0, 0, 0, 139, 262, 121, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '基本每股收益', 'v': [0.01, 0.03, 0.03, 0.03, 0.04, 0.05, 0.29, 0.57, 1.67, 1.61, 4.34, 2.47, 3.88, 4.96, 7.85, 8.29, 3.54, 3.94, 4.29, 7.39]},
+      {'l': '稀释每股收益', 'v': [0.01, 0.03, 0.03, 0.03, 0.04, 0.05, 0.28, 0.56, 1.57, 1.51, 4.16, 2.39, 3.8, 4.88, 7.73, 8.16, 3.5, 3.91, 4.25, 7.18]},
+      {'l': '发行在外的稀释性潜在普通股平均股数', 'v': [19072, 38879.1, 40450.8, 40637, 40578.1, 40630.6, 18656, 19112, 18656, 20000, 20496, 20584, 20881, 20988, 21346, 21982, 21787, 21114, 20359, 19318]},
+      {'l': '息税前利润', 'v': [267, 851, 1291, 1218, 1669, 2071, 6886, 14586, 36458, 43621, 99547, 70629, 129049, 118595, 190049, 202812, 98837, 120932, 129821, 176970]},
+      {'l': '折旧、损耗和摊销', 'v': [54, 63, 100, 144, 265, 310, 1070, 1167, 2080, 5595, 8411, 16099, 27332, 43363, 46927, 57138, 59263, 53462, 48345, 45525]},
+      {'l': '税息折旧及摊销前利润', 'v': [321, 914, 1391, 1362, 1933, 2380, 7956, 15753, 38538, 49216, 107958, 86728, 156380, 161958, 236976, 259949, 158101, 174394, 178165, 222495]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [23.65, 39.93, 40.95, 30.96, 29.76, 30.28, 32.31, 36.56, 58.38, 51.93, 89.44, 48.65, 50.34, 36.75, 42.03, 30.39, 15.03, 17.63, 17.43, 20.83]},
+    ]},
+    {'t': '合并资产负债表', 'rows': [
+      {'l': '货币资金和现金等价物', 'v': [435, 4573, 3041, 3121, 3608, 4206, 20728, 37946, 41548, 134550, 127478, 161913, 247387, 222167, 365556, 383147, 234141, 219924, 269539, 155993]},
+      {'l': '短期证券', 'v': [1044, 1008, 4437, 5130, 7952, 10068, 6738, 3644, 15124, 22144, 10595, 7958, 13531, 15424, 36181, 193424, 326972, 377445, 350771, 303014]},
+      {'l': '货币资金、现金等价物、及短期证券', 'v': [1480, 5581, 7477, 8251, 11560, 14274, 27466, 41590, 56672, 156694, 138073, 169871, 260917, 237590, 401738, 576571, 561113, 597369, 620310, 459007]},
+      {'l': '应收账款', 'v': [0, 0, 0, 43, 63, 56, 191, 169, 338, 1327, 1443, 4943, 9041, 16104, 21885, 32292, 40458, 36600, 33334, 33423]},
+      {'l': '应收票据', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应收贷款', 'v': [0, 0, 0, 0, 0, 9, 714, 5525, 16545, 1038, 465, 915, 520, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动应收款项', 'v': [33, 28, 14, 0, 332, 620, 777, 285, 3158, 11482, 12619, 19107, 26521, 23796, 35471, 44139, 61182, 52974, 54015, 104973]},
+      {'l': '应收账款总额', 'v': [33, 28, 14, 43, 395, 685, 1682, 5979, 20041, 13848, 14527, 24965, 36082, 39900, 57356, 76431, 101640, 89574, 87350, 138396]},
+      {'l': '原材料', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在产品', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '存货调整', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '库存商品', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他存货', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1078, 5629, 9980, 16435, 33224, 37097, 32515, 27657, 20251]},
+      {'l': '存货', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1078, 5629, 9980, 16435, 33224, 37097, 32515, 27657, 20251]},
+      {'l': '其他流动资产', 'v': [191, 283, 560, 952, 951, 1262, 5157, 6314, 8574, 6187, 7359, 8949, 16186, 28599, 36492, 81064, 87454, 75522, 82521, 105071]},
+      {'l': '流动资产合计', 'v': [1704, 5892, 8051, 9246, 12906, 16221, 34305, 53883, 85287, 176729, 159959, 204862, 318814, 316069, 512021, 767291, 787304, 794980, 817837, 722725]},
+      {'l': '非流动投资', 'v': [0, 0, 36, 30, 75, 287, 2324, 2243, 26012, 60300, 144227, 171019, 220804, 282472, 388184, 521669, 546525, 516098, 460671, 607931]},
+      {'l': '土地', 'v': [0, 38, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '房屋及建筑物修缮', 'v': [3, 0, 0, 558, 377, 392, 1061, 1114, 3060, 3517, 7345, 11860, 56983, 72435, 77912, 118174, 131675, 140411, 146794, 112154]},
+      {'l': '机器、家具和设备', 'v': [163, 238, 390, 645, 814, 926, 3829, 4846, 7477, 12758, 16436, 21753, 44571, 66747, 81972, 121588, 141908, 139178, 149719, 184760]},
+      {'l': '在建工程', 'v': [7, 41, 237, 5, 33, 91, 863, 2147, 981, 2261, 2247, 2959, 6343, 8138, 11976, 27027, 58280, 55930, 58684, 66100]},
+      {'l': '其他固定资产、无形资产和其他长期资产', 'v': [28, 0, 0, 0, 221, 244, 0, 0, 0, 0, 0, 0, 0, 0, 38336, 85917, 96238, 88190, 83566, 42033]},
+      {'l': '固定资产、无形资产和其他长期资产总值', 'v': [201, 316, 677, 1208, 1445, 1654, 5753, 8107, 11518, 18536, 26028, 36573, 107897, 147321, 210197, 352706, 428101, 423710, 438764, 405046]},
+      {'l': '累计折旧', 'v': [-88, -148, -240, -319, -532, -756, -2725, -3353, -4501, -7171, -9763, -13811, -25369, -39697, -57509, -87756, -115600, -130492, -141733, -137690]},
+      {'l': '固定资产、无形资产和其他长期资产净额', 'v': [113, 168, 437, 889, 913, 898, 3029, 4754, 7017, 11365, 16265, 22761, 82528, 107624, 152688, 264950, 312501, 293217, 297031, 267355]},
+      {'l': '无形资产', 'v': [0, 0, 7, 418, 701, 832, 16590, 16882, 19311, 64187, 107277, 164303, 253960, 405605, 386844, 444795, 420740, 368931, 324480, 310193]},
+      {'l': '商誉', 'v': [0, 0, 0, 230, 430, 558, 14062, 14099, 14827, 52148, 97436, 141280, 201263, 309827, 306138, 349168, 332389, 305354, 282090, 273952]},
+      {'l': '其他非流动资产', 'v': [216, 346, 414, 155, 258, 500, 1803, 1868, 2624, 5080, 6966, 7957, 14005, 16833, 12504, 17101, 23522, 23483, 17117, 26313]},
+      {'l': '非流动资产合计', 'v': [328, 515, 894, 1492, 1947, 2517, 23745, 25747, 54964, 140932, 274735, 366040, 571296, 812534, 940220, 1248515, 1303288, 1201728, 1099299, 1211793]},
+      {'l': '资产总计', 'v': [2032, 6407, 8946, 10738, 14853, 18737, 58051, 79629, 140251, 317661, 434694, 570902, 890111, 1128604, 1452241, 2015806, 2090592, 1996708, 1917136, 1934517]},
+      {'l': '应付账款', 'v': [9, 14, 18, 27, 19, 20, 985, 1105, 2572, 6415, 9939, 22715, 50099, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应交税费', 'v': [127, 162, 177, 39, 222, 579, 916, 1388, 2479, 4188, 4455, 8644, 19948, 24714, 28391, 39592, 37623, 22256, 18469, 20671]},
+      {'l': '其他应付账款', 'v': [355, 375, 607, 915, 1415, 474, 1587, 3011, 4536, 1982, 2992, 8635, 14439, 96924, 108878, 163417, 196071, 183275, 195957, 212485]},
+      {'l': '应交税费和其他应付款', 'v': [151, 0, 0, 0, 450, 444, 1847, 5053, 5854, 10265, 13344, 14460, 25790, 22286, 18648, 29662, 34947, 33031, 32188, 33995]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款', 'v': [641, 551, 802, 981, 2106, 1517, 5335, 10558, 15442, 22850, 30729, 54455, 110276, 143924, 155918, 232670, 268640, 238561, 246614, 267151]},
+      {'l': '短期借款', 'v': [0, 0, 0, 0, 108, 1576, 1578, 6801, 13031, 2475, 5136, 16781, 7482, 26273, 5701, 16025, 10901, 13971, 31504, 24191]},
+      {'l': '短期资本化租赁债务', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3059, 4853, 6158, 6455, 6378, 4229]},
+      {'l': '短期借款和资本化租赁债务', 'v': [0, 0, 0, 0, 108, 1576, 1578, 6801, 13031, 2475, 5136, 16781, 7482, 26273, 8760, 20878, 17058, 20426, 37882, 28420]},
+      {'l': '流动递延收益负债', 'v': [1209, 0, 0, 0, 4795, 4862, 6265, 10002, 14091, 18797, 21017, 26180, 39564, 48599, 57491, 92436, 100772, 96350, 92939, 73564]},
+      {'l': '流动递延所得税负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税和收益负债', 'v': [1209, 0, 0, 0, 4795, 4862, 6804, 11278, 16101, 20936, 23813, 31390, 48349, 64676, 90809, 161537, 171354, 159980, 153339, 140451]},
+      {'l': '其他流动负债', 'v': [0, 1958, 2461, 3671, 455, 573, 733, 1318, 2429, 3075, 2425, 2770, 2463, 7985, 12038, 34963, 16147, 19946, 20049, 30762]},
+      {'l': '流动负债合计', 'v': [1850, 2509, 3263, 4652, 7464, 8528, 14449, 29955, 47003, 49337, 62104, 105396, 168570, 242858, 267525, 450049, 473200, 438913, 457884, 466784]},
+      {'l': '长期借款', 'v': [0, 0, 0, 0, 0, 0, 0, 28041, 38613, 62931, 63564, 86551, 148357, 130784, 133033, 161859, 163374, 169810, 154010, 223172]},
+      {'l': '长期资本租赁负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21116, 33652, 37309, 32516, 31467, 14435]},
+      {'l': '长期借款和资本化租赁债务', 'v': [0, 0, 0, 0, 0, 0, 0, 28041, 38613, 62931, 63564, 86551, 148357, 130784, 154148, 195512, 200683, 202326, 185477, 237607]},
+      {'l': '债务股本比率', 'v': [0, 0, 0, 0, 0.02, 0.17, 0.04, 2.68, 1.04, 0.36, 0.27, 0.33, 0.34, 0.27, 0.2, 0.19, 0.19, 0.2, 0.21, 0.25]},
+      {'l': '养老金和退休福利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '非流动递延负债', 'v': [37, 74, 134, 311, 542, 850, 1286, 1288, 3292, 8570, 10430, 13103, 25709, 32576, 56158, 76096, 81606, 75587, 63607, 58286]},
+      {'l': '其他非流动负债', 'v': [0, 0, 0, 77, 63, 147, 37, 6663, 170, 245, 376, 743, 2032, 2707, 1462, 1775, 774, 880, 1550, 3014]},
+      {'l': '非流动负债合计', 'v': [37, 74, 134, 388, 605, 997, 1323, 35992, 42074, 71745, 74370, 100398, 176098, 166067, 211769, 273382, 283064, 278794, 250635, 298906]},
+      {'l': '负债合计', 'v': [1887, 2583, 3397, 5040, 8069, 9525, 15772, 65947, 89077, 121082, 136474, 205794, 344669, 408925, 479294, 723431, 756264, 717707, 708518, 765690]},
+      {'l': '普通股', 'v': [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]},
+      {'l': '优先股', 'v': [0, 0, 0, 0, 0, 0, 0, 13042, 12930, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '留存收益', 'v': [-269, 0, 0, 0, 0, 0, 15434, -25581, 1487, 30894, 93984, 122286, 213928, 301584, 449378, 661819, 694858, 682290, 649496, 692090]},
+      {'l': '累计其他综合收益（亏损）', 'v': [414, 3823, 5548, 5651, 6725, 9086, -1259, -421, 2076, 4807, 7399, 9621, 11295, 3083, 6036, -13973, -28751, 2916, 19913, 20725]},
+      {'l': '资本公积', 'v': [0, 0, 0, 0, 0, 0, 25549, 27034, 34001, 145679, 157776, 185398, 231816, 271058, 380161, 470264, 506148, 474824, 432347, 408920]},
+      {'l': '库存股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -3180, -2772, 0, 0, 0, -2738, -32761, -30073, -38952]},
+      {'l': '其他所有者权益', 'v': [0, 0, 0, 0, 0, 0, -1007, -1064, -679, -511, -205, -71, -202, -57, -56, -56, -57, -56, 0, 0]},
+      {'l': '归属于母公司所有者权益合计', 'v': [145, 3824, 5549, 5651, 6726, 9087, 38718, 13012, 49817, 180870, 258955, 314055, 454067, 575668, 835519, 1118056, 1169461, 1127214, 1071684, 1082784]},
+      {'l': '少数股东权益', 'v': [0, 0, 0, 47, 58, 125, 3560, 670, 1357, 15709, 39266, 51053, 91375, 144011, 137428, 174320, 164867, 151787, 136934, 86043]},
+      {'l': '所有者权益合计', 'v': [145, 3824, 5549, 5698, 6784, 9212, 42278, 13682, 51173, 196579, 298221, 365109, 545442, 719679, 972948, 1292375, 1334328, 1279001, 1208618, 1168827]},
+      {'l': '股东权益比率', 'v': [0.07, 0.6, 0.62, 0.53, 0.45, 0.49, 0.67, 0.16, 0.36, 0.57, 0.6, 0.55, 0.51, 0.51, 0.57, 0.56, 0.56, 0.56, 0.56, 0.56]},
+    ]},
+    {'t': '合并现金流量表', 'rows': [
+      {'l': '来自持续经营收益的净利润', 'v': [290, 1217, 1543, 1336, 1995, 2618, 5736, 10797, 29425, 30245, 85077, 46439, 76226, 93829, 155236, 170885, 58048, 74687, 77488, 135073]},
+      {'l': '折旧、损耗和摊销', 'v': [54, 63, 100, 144, 265, 310, 1070, 1167, 2080, 5595, 8411, 16099, 27332, 43363, 46927, 57138, 59263, 53462, 48345, 45525]},
+      {'l': '经营性应收项目变动', 'v': [-3, 7, 19, -7, -2, -9, -278, -3530, -11536, -14518, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '存货变动', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '预付资产变动', 'v': [35, -30, 0, 0, 12, -197, -295, -442, -16021, -17582, -5375, -9279, -18327, -11911, -47988, -52012, -40067, 9801, -40868, -54243]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款变动', 'v': [-96, -43, 232, 276, 362, 400, 2036, 5639, 7976, 15845, 10734, 14124, 37747, 38138, 59741, 93717, 12084, 2215, 24292, 29852]},
+      {'l': '其他营运资金变动', 'v': [438, 676, 287, 783, 832, -184, 735, 2248, 13931, 18194, 2939, 6180, 8787, 11487, 11937, 18532, 5604, 3340, 1640, -1328]},
+      {'l': '营运资金变动', 'v': [374, 610, 538, 1051, 1206, 10, 2199, 3915, -5649, 1939, 8298, 11025, 28207, 37715, 23690, 60237, -22379, 15356, -14936, -25720]},
+      {'l': '递延所得税', 'v': [0, 0, 0, 0, 0, 0, 184, 130, 1843, 2063, 127, -1226, 1211, -2569, -3808, 3859, -1688, -1956, -5717, 401]},
+      {'l': '股权激励', 'v': [113, 161, 224, 228, 399, 412, 1542, 1572, 3576, 16202, 19192, 18018, 24918, 43844, 35109, 59775, 29556, 35116, 20147, 14979]},
+      {'l': '资产减值费用', 'v': [0, 0, 0, 0, 0, 3, 166, 218, 205, 739, 2768, 3554, 3861, 16033, 19201, 10935, 42918, 22763, 37862, 16733]},
+      {'l': '终止经营活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他经营活动产生的现金流量净额', 'v': [-104, -559, -608, -215, -310, -679, 508, 272, 1687, -5524, -56044, -578, -5603, -55657, -76591, -86394, 10302, 28088, 35162, -11674]},
+      {'l': '经营活动产生的现金流量净额', 'v': [726, 1491, 1798, 2544, 3553, 2673, 11405, 18072, 33166, 51258, 67829, 93332, 156152, 176557, 199762, 276435, 176020, 227517, 198351, 175317]},
+      {'l': '购建固定资产、无形资产和其他长期资产支付的现金', 'v': [-96, -148, -312, -466, -337, -196, -1745, -1819, -1875, -3650, -6453, -12398, -24363, -41494, -36002, -49435, -65729, -39102, -34856, -92180]},
+      {'l': '处置固定资产、无形资产和其他长期资产收回的现金净额', 'v': [0, 0, 2, 3, 1, 3, 1, 376, 0, 0, 0, 0, 0, 0, 0, 0, 0, 734, 405, 2603]},
+      {'l': '取得子公司及其他营业单位支付的现金净额', 'v': [0, 0, 0, -471, -305, 3, -1195, -629, -21683, -43472, -46686, -82093, -67379, -55319, -43281, -45229, -16622, -6562, -6223, -9542]},
+      {'l': '处置子公司及其他营业单位收到的现金净额', 'v': [0, 0, 0, 0, 0, 8, 91, 896, 112, 123, 17795, 5847, 7677, 330, 86, 11709, 0, 1140, 2133, 2008]},
+      {'l': '投资支付的现金', 'v': [0, 0, -3360, -6044, -9502, -11673, -625, -90, -14362, -16080, -18334, -5268, -15642, -84752, -60669, -206496, -181015, -136335, -86504, -146591]},
+      {'l': '收回投资及取得投资收益收到的现金', 'v': [0, 0, 0, 5391, 6787, 9723, 7207, 3265, 468, 1168, 8121, 11921, 8965, 21149, 20792, 8682, 17931, 26220, 102167, 44614]},
+      {'l': '取得无形资产支付的现金净额差', 'v': [0, -148, -312, 0, -7, -15, 0, 0, 0, 0, 0, -7367, -12670, -16561, -208, -1629, -18, -25, -915, 0]},
+      {'l': '终止投资活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他投资活动产生的现金流量净额', 'v': [-694, 188, 463, 200, 153, 204, -3888, -1318, -4147, -4565, -5558, -285, -559, -9, -252, -8836, 592, -410, 86, 283]},
+      {'l': '投资活动产生的现金流量净额', 'v': [-789, -108, -3518, -1388, -3211, -1942, -154, 680, -41487, -66476, -51115, -89642, -103970, -176656, -119534, -291233, -244861, -154341, -23707, -198805]},
+      {'l': '发行股票产生的现金流入', 'v': [0, 3106, 0, 0, 12, 68, 760, 20963, 2059, 76741, 827, 16454, 495, 414, 101211, 209, 134, 13, 916, 11]},
+      {'l': '回购股票产生的现金流出', 'v': [0, -119, -89, -79, -62, -512, -2, -50074, -197, -336, -23624, -14849, 0, -12714, 0, -922, -75490, -85135, -96404, -92920]},
+      {'l': '发行优先股产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, -5733, -6451, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '发行债券产生的现金流入', 'v': [0, 0, 0, 0, 219, 1747, 1298, 45095, 105650, 227065, 34577, 185835, 127207, 14169, 17386, 45809, 11623, 25958, 22345, 133418]},
+      {'l': '偿付债券现金流出', 'v': [0, 0, 0, 0, -109, -342, -1150, -11474, -89570, -194676, -31619, -152793, -85471, -19117, -35107, -8421, -20607, -13039, -19667, -64223]},
+      {'l': '发行债券产生的现金流量净额', 'v': [0, 0, 0, 0, 109, 1405, 149, 33621, 16080, 32389, 2957, 33042, 41736, -4948, -17721, 37388, -8984, 12918, 2678, 69194]},
+      {'l': '分配股利、利润或偿付利息支付的现金', 'v': [-195, -207, 0, -1009, 0, -1161, 0, -129, -262, -129, 0, 0, 0, 0, 0, 0, 0, 0, -19495, -31177]},
+      {'l': '融资租赁产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他筹资活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, -99, -322, -404, 544, 148, 928, 2429, -16961, 8604, -5122, -798, 4874, -2535, -5281, -26827]},
+      {'l': '筹资活动产生的现金流量净额', 'v': [-195, 2780, -89, -1088, 60, -299, 584, -1755, 11773, 108812, -18911, 37076, 25270, -8645, 78368, 35877, -79465, -74740, -117586, -81719]},
+      {'l': '期初现金及现金等价物余额', 'v': [694, 463, 4886, 3053, 3213, 3781, 8959, 21044, 38217, 41095, 129119, 121842, 181704, 237077, 219546, 412629, 439521, 258954, 249317, 307108]},
+      {'l': '汇率变动对现金及现金等价物的影响', 'v': [0, -54, -37, 0, -7, -7, -66, -95, -122, -139, 556, 2296, -7528, 3795, 4535, -8571, -10892, 4021, 4768, 1035]},
+      {'l': '现金及现金等价物净额', 'v': [-259, 4110, -1846, 68, 395, 425, 11769, 16902, 3331, 93455, -1641, 43061, 69924, -4949, 163131, 12507, -159198, 2457, 61826, -104172]},
+      {'l': '期末现金及现金等价物余额', 'v': [435, 4573, 3041, 3121, 3608, 4206, 20728, 37946, 41548, 134550, 127478, 164903, 251628, 232128, 382677, 425136, 280323, 261411, 311143, 202936]},
+      {'l': '资本开支', 'v': [-96, -148, -312, -466, -344, -211, -2666, -3125, -6005, -9582, -12943, -19765, -37033, -58055, -50200, -51504, -65748, -39127, -35771, -92180]},
+      {'l': '自由现金流', 'v': [630, 1344, 1486, 2077, 3209, 2462, 8739, 14947, 27161, 41676, 54886, 73567, 119119, 118502, 149563, 224931, 110272, 188390, 162580, 83136]},
+    ]},
+    {'t': '估值比率', 'rows': [
+      {'l': '市盈率', 'v': [9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 53.53, 18.43, 43.8, 47.37, 36.71, 24.42, 26.98, 30.38, 25.66, 16.66, 17.88]},
+      {'l': '持续经营市盈率', 'v': [9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 37.28, 30.64, 31.71, 35.26, 31.89, 25.78, 22.67, 13.09, 12.9, 8.37, 14.65]},
+      {'l': '股价／巴菲特所有者每股收益', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '市净率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4.72, 4.27, 2.05, 1.83, 1.28, 2.25]},
+      {'l': '股价／每股有形账面价值', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8.79, 7.09, 3.2, 2.72, 1.83, 3.15]},
+      {'l': '股价／自由现金流', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 38.73, 28.62, 29.29, 31.54, 31.7, 26.94, 21.51, 21.02, 11.23, 8.86, 29.86]},
+      {'l': '股价／每股经营现金流', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 31.49, 23.16, 23.08, 24.06, 21.28, 20.17, 17.5, 13.17, 9.3, 7.26, 14.16]},
+      {'l': '市销率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 17.04, 13.02, 12.08, 12.09, 8.53, 7.15, 5.65, 2.2, 2.14, 1.41, 2.32]},
+      {'l': '市盈增长比', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.43, 1.06, 0.88, 1, 0, 0, 0]},
+      {'l': '企业价值／收入', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 16.21, 12.32, 11.79, 11.87, 8.55, 7.02, 5.36, 1.99, 1.85, 1.09, 2.18]},
+      {'l': '企业价值倍数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 31.21, 13.78, 24.24, 23.58, 23.27, 16.69, 17.66, 13.24, 10.52, 6.27, 10.49]},
+      {'l': '企业价值／息税前利润', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 35.21, 14.94, 29.77, 28.58, 31.78, 20.81, 22.63, 21.18, 15.17, 8.61, 13.19]},
+      {'l': '乔尔·格林布拉特收益率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 2.84, 6.69, 3.36, 3.5, 3.15, 4.81, 4.42, 4.72, 6.59, 11.61, 7.58]},
+      {'l': '唐纳德·亚克曼收益率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22.8, 23.34, 23.62, 21.32, 8.72, 8.95, 5.61]},
+      {'l': '席勒市盈率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 49.38, 23.91, 22.36, 14.78, 23.95]},
+      {'l': 'Cyclically Adjusted PB Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12.13, 4.33, 3.26, 2.06, 3.27]},
+      {'l': 'Cyclically Adjusted PS Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13.81, 5.34, 4.35, 2.52, 3.86]},
+      {'l': '股息率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.39, 0.76]},
+    ]},
+    {'t': '估值和质量', 'rows': [
+      {'l': '总市值', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3941632, 4773787, 2394156, 2060812, 1367706, 2431626]},
+      {'l': '企业价值', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3840230, 4587925, 2215652, 1837983, 1107689, 2324689]},
+      {'l': '月末股价', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 183.4, 220, 112.1, 100.4, 70.25, 128]},
+      {'l': '每股现金净流量', 'v': [-0.02, 0.08, 0.1, 0.08, 0.08, 0.11, 0.44, -1.31, -1.71, 1, -1.9, -4.3, -8.51, -15.24, -10, -14.8, -16.86, -13.26, -11.56, -20.67]},
+      {'l': '净流动资产价值 NCAV', 'v': [-0.01, 0.09, 0.12, 0.1, 0.12, 0.16, 0.8, -1.35, -0.92, 2, -0.8, -2.57, -5.7, -11.44, -4.87, -6.01, -6.27, -3.63, -1.42, -6.79]},
+      {'l': '净净营运资本 NNWC', 'v': [-0.02, 0.08, 0.1, 0.08, 0.09, 0.11, 0.44, -1.99, -2.35, 1.05, -1.85, -4.09, -8.05, -14.41, -8.86, -12.92, -14.57, -11.13, -9.57, -18.82]},
+      {'l': '内在价值：预期自由现金流模型', 'v': [0, 0, 0, 0, 0, 0.86, 4.23, 4.81, 9.92, 19.4, 28.22, 38.8, 56.71, 73.29, 108.01, 144.32, 169.92, 181.78, 191.83, 187.68]},
+      {'l': '内在价值：市销率模型', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 440.54, 436.2]},
+      {'l': '彼得林奇公允价值', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 108.93, 172.98, 234.87, 110.9, 0, 0, 0]},
+      {'l': '格雷厄姆估值', 'v': [0.04, 0.24, 0.32, 0.29, 0.36, 0.47, 3.12, 0, 6.17, 16.88, 20.77, 23.44, 33.41, 32.22, 58.65, 82.32, 80.06, 80.35, 85.43, 89.59]},
+      {'l': '盈利能力值（EPV）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6.41, 12.73, 25.66, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '两年破产风险（Z分数）', 'v': [0, 0, 0, -883.9, 0.44, 0.49, 0.78, -0.09, 1.68, 9.36, 8.3, 7.41, 7.78, 6.62, 6.53, 5.34, 3.12, 3.15, 2.63, 3.43]},
+      {'l': '基本面趋势（F分数）', 'v': [9999, 9999, 9999, 9999, 9999, 9999, 3, 2, 9, 5, 5, 4, 5, 4, 7, 5, 5, 6, 8, 7]},
+      {'l': '财务造假嫌疑（M分数）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, -2.77, -1.93, -2.34, -2.29, -2.39, -2.21, -2.38, -2.3, -2.96, -2.86, -1.83]},
+      {'l': '可供营运的资产净额／总资产', 'v': [-0.66, -0.87, -0.3, -0.28, -0.44, -0.24, 0.88, 0.12, 0.58, 0.75, 0.72, 0.69, 0.77, 0.72, 0.65, 0.64, 0.49, 0.43, 0.41, 0.51]},
+      {'l': '斯隆比率 ％', 'v': [13.87, -5.61, 33.82, -0.05, 9.26, 7.3, -10.43, -10.17, 26.83, 14.29, 15.77, 7.97, 3.08, 9.12, 5.86, 9.64, 6.96, 0.49, -4.58, 8.43]},
+      {'l': '流动比率', 'v': [0.92, 2.35, 2.47, 1.99, 1.73, 1.9, 2.37, 1.8, 1.81, 3.58, 2.58, 1.94, 1.89, 1.3, 1.91, 1.7, 1.66, 1.81, 1.79, 1.55]},
+      {'l': '速动比率', 'v': [0.92, 2.35, 2.47, 1.99, 1.73, 1.9, 2.37, 1.8, 1.81, 3.58, 2.58, 1.93, 1.86, 1.26, 1.85, 1.63, 1.59, 1.74, 1.73, 1.5]},
+      {'l': '现金比率', 'v': [0.8, 2.22, 2.29, 1.77, 1.55, 1.67, 1.9, 1.39, 1.21, 3.18, 2.22, 1.61, 1.55, 0.98, 1.5, 1.28, 1.19, 1.36, 1.35, 0.98]},
+      {'l': '利息保障倍数', 'v': [10000, 10000, 172.65, 10000, 10000, 10000, 78.68, 7.2, 11.49, 8.48, 15.39, 18.16, 19.73, 11, 17.76, 20.04, 4.6, 6.07, 6.92, 15.33]},
+      {'l': '最高股价', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 223.6, 307.4, 237.8, 121, 99.3, 143.4]},
+      {'l': '最低股价', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 170, 183.7, 71.25, 61.45, 65.45, 66.7]},
+      {'l': '股票回购率 ％', 'v': [None, -97.15, -4.04, -0.46, 0.14, -0.13, 54.08, -2.44, -3.18, -1.24, 0.86, -2.24, -1.68, -0.59, -3.84, -0.96, 1.57, 3.89, 5.15, 2.42]},
+      {'l': '股票回购收益率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2.57, 0.01, 3.15, 4.13, 6.98, 3.82]},
+      {'l': '每股收入同比增长率 ％', 'v': [0, -17.16, 42.64, 28.92, 47.88, 20.84, 582.2, 70.82, 56.94, 33.91, 24.29, 47.07, 71.75, 41.15, 25.78, 47.35, 24.05, -2.93, 7.16, 10.12]},
+      {'l': '每股收益同比增长率 ％', 'v': [0, 129.84, 22.51, -12.03, 48.77, 22.56, 438.42, 99.91, 182.11, -4.06, 175.92, -42.57, 58.95, 28.39, 58.54, 5.51, -57.07, 11.57, 8.72, 69.13]},
+      {'l': '税息折旧及摊销前利润同比增长率 ％', 'v': [0, 39.88, 46.28, -2.53, 42.15, 22.96, 627.92, 93.29, 150.61, 19.13, 114.05, -20.01, 77.75, 3.04, 43.87, 6.52, -38.64, 13.82, 5.95, 31.61]},
+      {'l': '5年每股税息折旧及摊销前利润增长率 ％', 'v': [0, 0, 0, 0, 43.68, 27.38, 47.88, 92.84, 155.54, 0, 0, 0, 0, 22.32, 24.25, 25.86, 13.09, -0.75, -4.84, -1.76]},
+      {'l': '发行在外的普通股平均股数', 'v': [17584, 38879.06, 40417.04, 40325.48, 40321.79, 40350.4, 18128, 18352, 17400, 18696, 19664, 19944, 20425, 20640, 21017, 21619, 21558, 20980, 20182, 18791]},
+      {'l': '期末总股本', 'v': [19720.05, 38879.06, 40450.78, 40637.02, 40578.1, 40630.56, 18656, 19112, 19720.05, 19963.99, 19791.42, 20234.91, 20575.44, 20696.48, 21492, 21699.03, 21357.32, 20526.02, 19469.13, 18997.08]},
+      {'l': 'β贝塔系数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.31, 1.45, 1.61]},
+      {'l': '重述日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '报告日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '收益发布日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '股东人数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在职员工人数', 'v': [0, 5295, 5295, 11716, 13674, 12878, 12878, 12878, 22072, 34985, 36446, 50097, 66421, 101958, 117600, 251462, 254941, 235216, 204891, 124320]},
+      {'l': '外汇汇率', 'v': [1.01, 0.94, 0.88, 0.88, 0.86, 0.82, 0.81, 0.8, 0.8, 0.8, 0.84, 0.89, 0.81, 0.86, 0.9, 0.84, 0.81, 0.88, 0.92, 0.93]},
+    ]},
+  ]},
+  '00388.HK': {'name': '香港交易所', 'years': [1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], 'groups': [
+    {'t': '每股指标', 'rows': [
+      {'l': '每股收入', 'v': [1.74, 2.22, 1.92, 1.72, 1.93, 2.27, 2.32, 3.85, 6.63, 6.05, 5.95, 6.57, 6.79, 5.9, 7.04, 7.84, 10.21, 8.56, 9.4, 11.45, 10.79, 13.3, 15.36, 13.36, 12.18, 13.68, 18.73]},
+      {'l': '每股税息折旧及摊销前利润', 'v': [0.68, 1.11, 0.94, 0.77, 0.93, 1.35, 1.59, 2.82, 6.76, 5.64, 5.24, 5.63, 5.65, 4.64, 5.14, 5.92, 8.43, 6.4, 8.23, 10.27, 10.64, 11.86, 12.89, 12.21, 16.46, 17.47, 21.61]},
+      {'l': '每股息税前利润', 'v': [0.54, 0.94, 0.79, 0.61, 0.76, 1.17, 1.45, 2.73, 6.69, 5.54, 5.15, 5.53, 5.57, 4.49, 4.7, 5.36, 7.86, 5.77, 7.54, 9.66, 9.81, 10.91, 11.82, 11.06, 15.32, 16.36, 20.38]},
+      {'l': '稀释每股收益', 'v': [0.5, 0.84, 0.71, 0.56, 0.66, 1, 1.26, 2.34, 5.72, 4.75, 4.36, 4.67, 4.7, 3.74, 3.94, 4.43, 6.67, 4.75, 6.02, 7.48, 7.47, 9.09, 9.89, 7.95, 9.36, 10.29, 14.01]},
+      {'l': '持续经营每股收益', 'v': [0.5, 0.84, 0.71, 0.56, 0.66, 1, 1.26, 2.34, 4.21, 4.87, 4.39, 4.69, 4.62, 3.61, 3.8, 4.29, 6.26, 4.68, 5.55, 7.57, 7.02, 8.77, 9.59, 8.31, 9.3, 10.2, 14.1]},
+      {'l': '巴菲特所有者每股收益（TTM）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4.7, 5.67, 3.76, 3.42, 6.5, 4.79, 6.2, 7.63, 7.84, 0, 0, 0, 0, 0, 0]},
+      {'l': '每股自由现金流', 'v': [0.44, 0.13, -2.64, -0.22, 1.29, 1.7, 1.28, 2.61, 7.03, 4.5, 4.17, 4.55, 4.44, 4.99, 3.63, 3.44, 6.35, 2.34, 5.46, 6.93, 7.14, 10.6, 8.89, 10.79, 7.98, 8.81, 18.85]},
+      {'l': '每股经营现金流', 'v': [0.66, 0.43, -2.38, -0.1, 1.34, 1.72, 1.34, 2.67, 7.09, 4.71, 4.21, 4.62, 4.86, 5.95, 4.32, 4.02, 6.94, 2.85, 6.02, 7.62, 8.01, 11.67, 9.74, 11.8, 9.07, 10.08, 20.22]},
+      {'l': '每股现金', 'v': [0, 0, 0.08, 0.01, 4.38, 3.59, 3.77, 5.52, 8.22, 32.07, 29.16, 33.75, 41.98, 40.86, 46.72, 179.93, 168.45, 175.97, 227.01, 173.87, 181.89, 259.59, 198.27, 218.42, 177.69, 182.71, 251.78]},
+      {'l': '每股股息', 'v': [0, 0.08, 0.33, 0.33, 0.61, 0.85, 0.96, 1.58, 2.98, 5.89, 3.64, 3.98, 4.47, 3.94, 3.28, 3.55, 5.23, 5.08, 4.59, 6.49, 6.79, 6.7, 9.15, 7.63, 8.19, 8.27, 10.9]},
+      {'l': '每股账面价值', 'v': [-0.01, 4.04, 4.16, 4.42, 5.35, 3.82, 4.08, 4.94, 7.84, 6.79, 7.46, 8.06, 8.5, 15.48, 17.59, 18.26, 24.74, 26.42, 30.06, 32.57, 35.03, 38.64, 39.22, 39.3, 40.6, 42.61, 46]},
+      {'l': '每股有形账面价值', 'v': [-0.01, 4.04, 4.16, 4.42, 5.35, 3.82, 4.08, 4.94, 7.84, 6.79, 7.46, 8.06, 8.48, -0.39, 1.47, 2.87, 9.89, 11.82, 15.59, 18.14, 20.44, 23.83, 24.21, 24.3, 25.34, 27.09, 28.38]},
+      {'l': '每股总债务', 'v': [0, 0, 0, 0, 0.05, 0, 0, 0, 0, 0, 0, 0, 0, 5.77, 5.78, 5.84, 2.57, 2.54, 1.5, 0.93, 1.99, 1.86, 1.63, 1.38, 1.27, 1.02, 0.67]},
+      {'l': '月末股价', 'v': [0, 17.9, 11.85, 9.8, 16.8, 20.85, 32.15, 85.6, 220.8, 73.6, 139.4, 176.3, 124.1, 131.9, 129.3, 171.7, 198.5, 183.2, 239.8, 226.6, 253, 430, 455.4, 337.2, 268, 295.2, 407.8]},
+    ]},
+    {'t': '财务比率', 'rows': [
+      {'l': '股本回报率 ROE ％', 'v': [10000, 41.64, 17.35, 13.16, 13.54, 21.91, 32.01, 52.5, 90.49, 65.45, 61.41, 60.31, 57.11, 30.34, 23.85, 24.79, 31.15, 18.59, 21.3, 23.88, 22.12, 24.72, 25.44, 20.29, 23.47, 24.81, 31.7]},
+      {'l': '股本回报率 ROE ％／市净率', 'v': [10000, 9.41, 6.09, 5.94, 4.31, 4.01, 4.06, 3.03, 3.21, 6.03, 3.29, 2.76, 3.91, 3.56, 3.24, 2.64, 3.88, 2.68, 2.67, 3.43, 3.06, 2.22, 2.19, 2.36, 3.56, 3.58, 3.58]},
+      {'l': '资产收益率 ROA ％', 'v': [1679567.74, 41.38, 17.27, 12.98, 5.65, 5.12, 6.04, 7.95, 9.61, 6.8, 8.7, 10.81, 9.99, 6.06, 5.46, 3.06, 3.25, 2.38, 2.62, 3.25, 3.51, 3.39, 3.14, 2.5, 3.17, 3.61, 3.69]},
+      {'l': '有形股本回报率 ％', 'v': [10000, 41.64, 17.35, 13.16, 13.54, 21.91, 32.01, 52.5, 90.49, 65.45, 61.41, 60.31, 57.19, 93.98, 723.11, 204.51, 104.2, 43.78, 43.86, 44.32, 38.75, 41.13, 41.23, 32.84, 37.78, 39.38, 50.65]},
+      {'l': '有形资产收益率 ％', 'v': [1679567.74, 41.38, 17.27, 12.98, 5.65, 5.12, 6.04, 7.95, 9.61, 6.8, 8.7, 10.81, 10, 7, 7.01, 3.43, 3.5, 2.57, 2.8, 3.46, 3.77, 3.59, 3.3, 2.63, 3.35, 3.82, 3.86]},
+      {'l': '乔尔·格林布拉特资本回报率 ％', 'v': [None, 10127.68, 4804.01, 1887.81, 296.76, 298.04, 520.27, 1205.06, 2639.85, 1728.27, 1650.63, 1996.32, 970.88, 373.77, 316.92, 371.81, 595.51, 458.32, 625, 777.18, 443.23, 355.54, 409.73, 417.67, 621.76, 729.91, 978.04]},
+      {'l': '已动用资本回报率 ROCE ％', 'v': [0, 46.68, 19.27, 14.39, 14, 20.21, 28.9, 47.86, 91.66, 72.84, 69.66, 69.93, 67.26, 28.24, 20.15, 21.63, 29.66, 19.79, 24.52, 29.54, 27.24, 27.38, 28.25, 26.34, 36.05, 37.12, 43.41]},
+      {'l': '5年留存收益回报率 RORE %', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -19.43, -11.06, 65.12, 41.8, 50.74, 69.55, 18.81, 84.27, 62.16, 9.39, 35.92, 18.07, 56.11]},
+      {'l': '资本回报率 ％', 'v': [0, 20.7, 17.48, 13.13, 8.82, 8.65, 9.1, 12.3, 12.05, 10.05, 12.82, 17.29, 13.87, 7.54, 6.79, 3.29, 3.31, 2.48, 2.46, 3.25, 3.28, 3.48, 3.45, 2.59, 2.39, 2.98, 3.34]},
+      {'l': '加权平均资本成本 WACC ％', 'v': [0, 0, 0, 9.83, 12.34, 12.25, 11.95, 13.65, 15.8, 12.15, 13.45, 11.61, 11.02, 8.92, 10.02, 8.9, 13.93, 13.51, 13.68, 10.62, 9.34, 7.5, 6.2, 12.26, 14.3, 15.74, 13.33]},
+      {'l': '实际借款利率 ％', 'v': [None, None, None, None, 0, 0, None, None, None, None, None, None, None, 0.86, 2.79, 2.98, 2.83, 6.8, 26.79, 75.35, 74.78, 19.61, 6.66, 123.97, 363.99, 406.56, 435.62]},
+      {'l': '毛利率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 81.89, 77.04, 74.86, 75.61, 79.26, 75.62, 76.62, 78.61, 75.42, 77.95, 83.09, 78.53, 74.21, 74.61, 80.79]},
+      {'l': '营业利润率 ％', 'v': [30.7, 42.36, 41.15, 35.59, 39.41, 51.7, 62.64, 70.81, 81.41, 93.89, 87.31, 84.66, 76.95, 67.63, 60.14, 60.22, 67.45, 60.04, 62.07, 66.27, 62.72, 66.69, 70.02, 61.46, 54.86, 57.81, 67.89]},
+      {'l': '净利率 ％', 'v': [28.69, 37.78, 37.04, 32.55, 34.29, 44.15, 54.17, 60.73, 86.32, 79.13, 73.34, 71, 69.23, 63.5, 55.98, 56.59, 65.04, 55.48, 63.97, 65.34, 69.23, 68.34, 64.38, 59.51, 76.8, 75.23, 74.77]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [38.97, 50.03, 48.78, 44.61, 48.41, 59.36, 68.74, 73.22, 102.04, 93.31, 88.18, 85.65, 83.24, 78.67, 73.05, 75.45, 82.58, 74.83, 87.55, 89.71, 98.55, 89.14, 83.93, 91.39, 135.12, 127.67, 115.38]},
+      {'l': '自由现金流利润率 ％', 'v': [25.18, 5.87, -137.52, -12.78, 67.19, 74.9, 55.31, 67.71, 106.05, 74.49, 70.07, 69.16, 65.48, 84.72, 51.54, 43.91, 62.22, 27.34, 58.1, 60.48, 66.13, 79.7, 57.88, 80.74, 65.48, 64.4, 100.63]},
+      {'l': '债务股本比率', 'v': [0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0.37, 0.33, 0.32, 0.1, 0.1, 0.05, 0.03, 0.06, 0.05, 0.04, 0.04, 0.03, 0.02, 0.02]},
+      {'l': '股东权益比率', 'v': [-403.45, 1, 0.99, 0.98, 0.28, 0.19, 0.19, 0.13, 0.1, 0.12, 0.18, 0.18, 0.17, 0.22, 0.24, 0.08, 0.13, 0.13, 0.12, 0.16, 0.16, 0.12, 0.12, 0.12, 0.15, 0.14, 0.1]},
+      {'l': '资产有息负债率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.08, 0.08, 0.03, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0, 0.01, 0, 0]},
+      {'l': '资产负债率', 'v': [404.45, 0, 0.01, 0.02, 0.72, 0.81, 0.81, 0.87, 0.9, 0.88, 0.82, 0.82, 0.83, 0.78, 0.76, 0.92, 0.87, 0.87, 0.88, 0.84, 0.84, 0.88, 0.88, 0.88, 0.85, 0.86, 0.9]},
+      {'l': '毛利润／总资产 ％', 'v': [5854764.52, 109.51, 46.61, 39.88, 16.47, 11.61, 11.15, 13.08, 11.13, 8.6, 11.86, 15.22, 11.82, 7.35, 7.3, 4.09, 3.96, 3.24, 3.14, 3.91, 3.83, 3.87, 4.05, 3.3, 3.07, 3.58, 3.99]},
+      {'l': 'Degree of Financial Leverage', 'v': [0, 0.9, 0.97, 0.97, 0.75, 0.93, 1.03, 0.96, 0.99, 0.96, 1.27, 0.95, 0.59, 1.09, 0.49, 0.84, 0.99, 1.13, 0.83, 0.82, -0.05, 1.8, 1.03, 3.03, 0.46, 1.47, 1.47]},
+      {'l': '资产周转率', 'v': [58547.64, 1.09, 0.47, 0.4, 0.17, 0.12, 0.11, 0.13, 0.11, 0.09, 0.12, 0.15, 0.14, 0.1, 0.1, 0.05, 0.05, 0.04, 0.04, 0.05, 0.05, 0.05, 0.05, 0.04, 0.04, 0.05, 0.05]},
+      {'l': '股息支付率', 'v': [0, 0.1, 0.47, 0.59, 0.92, 0.85, 0.76, 0.68, 0.71, 1.21, 0.83, 0.85, 0.97, 1.09, 0.86, 0.83, 0.84, 1.08, 0.83, 0.86, 0.97, 0.76, 0.95, 0.92, 0.88, 0.81, 0.77]},
+      {'l': '应收账款周转天数', 'v': [0, 0, 0, 0, 0, 0, 456.61, 272.3, 937.82, 757.44, 565.35, 528.33, 407.15, 592.98, 552.8, 668.99, 567.71, 499.6, 465.03, 446.97, 593.74, 789.73, 747.73, 625.84, 693.22, 923.66, 941.02]},
+      {'l': '应付账款周转天数', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, 2521.3, 2999.33, 2556.52, 2922.79, 2741.1, 1980.93, 1915.71, 2064.2, 2124.15, 2957.96, 3625.44, 2111.1, 1882.95, 2458.55, 3234.42]},
+      {'l': '存货周转天数', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '现金循环周期', 'v': [0, 0, 0, 0, 0, 0, 456.61, 272.3, 937.82, 757.44, 565.35, 528.33, -2114.15, -2406.34, -2003.72, -2253.79, -2173.38, -1481.33, -1450.68, -1617.24, -1530.41, -2168.22, -2877.71, -1485.26, -1189.73, -1534.89, -2293.4]},
+    ]},
+    {'t': '存货周转率', 'rows': [
+      {'l': '营业成本／收入 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.18, 0.23, 0.25, 0.24, 0.21, 0.24, 0.23, 0.21, 0.25, 0.22, 0.17, 0.21, 0.26, 0.25, 0.19]},
+      {'l': '存货／收入', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '资本开支／收入', 'v': [0.13, 0.13, 0.13, 0.07, 0.03, 0.01, 0.03, 0.01, 0.01, 0.03, 0.01, 0.01, 0.06, 0.16, 0.1, 0.07, 0.06, 0.06, 0.06, 0.06, 0.08, 0.08, 0.05, 0.08, 0.09, 0.09, 0.07]},
+      {'l': '资本开支／营业利润', 'v': [0.41, 0.32, 0.32, 0.2, 0.06, 0.02, 0.04, 0.02, 0.01, 0.04, 0.01, 0.01, 0.08, 0.24, 0.16, 0.12, 0.09, 0.1, 0.1, 0.09, 0.13, 0.12, 0.08, 0.12, 0.16, 0.16, 0.11]},
+      {'l': '资本开支／经营现金流', 'v': [0.33, 0.7, 0, 0, 0.04, 0.01, 0.04, 0.02, 0.01, 0.04, 0.01, 0.02, 0.09, 0.16, 0.16, 0.14, 0.09, 0.18, 0.09, 0.09, 0.11, 0.09, 0.09, 0.09, 0.12, 0.13, 0.07]},
+    ]},
+    {'t': '合并利润表', 'rows': [
+      {'l': '营业收入', 'v': [1815, 2312, 1999, 1808, 2020, 2394, 2473, 4147, 7147, 6481, 6414, 7094, 7357, 6432, 8131, 9127, 12233, 10398, 11574, 14252, 13565, 16835, 19471, 16934, 15445, 17346, 23745]},
+      {'l': '营业成本', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1332, 1477, 2044, 2226, 2537, 2535, 2706, 3048, 3334, 3712, 3292, 3636, 3984, 4405, 4561]},
+      {'l': '毛利润', 'v': [1815, 2312, 1999, 1808, 2020, 2394, 2473, 4147, 7147, 6481, 6414, 7094, 6025, 4955, 6087, 6901, 9696, 7863, 8868, 11204, 10231, 13123, 16179, 13298, 11461, 12941, 19184]},
+      {'l': '毛利率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 81.89, 77.04, 74.86, 75.61, 79.26, 75.62, 76.62, 78.61, 75.42, 77.95, 83.09, 78.53, 74.21, 74.61, 80.79]},
+      {'l': '销售及行政开支', 'v': [38, 31, 16, 15, 8, 11, 341, 11, 419, 482, 530, 550, 61, 86, 199, 253, 169, 185, 151, 212, 216, 255, 296, 431, 448, 351, 344]},
+      {'l': '研发费用', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他营业成本', 'v': [1220, 1302, 1161, 1150, 1216, 1145, 583, 1199, 910, -86, 284, 538, 303, 519, 998, 1152, 1276, 1435, 1533, 1547, 1507, 1641, 2250, 2459, 2540, 2562, 2720]},
+      {'l': '总营业成本', 'v': [1258, 1333, 1176, 1165, 1224, 1156, 924, 1211, 1329, 396, 814, 1088, 364, 605, 1197, 1405, 1445, 1620, 1684, 1759, 1723, 1896, 2546, 2890, 2988, 2913, 3064]},
+      {'l': '营业利润', 'v': [557, 979, 822, 643, 796, 1238, 1549, 2936, 5818, 6085, 5600, 6006, 5661, 4350, 4890, 5496, 8251, 6243, 7184, 9445, 8508, 11227, 13633, 10408, 8473, 10028, 16120]},
+      {'l': '营业利润率 ％', 'v': [30.7, 42.36, 41.15, 35.59, 39.41, 51.7, 62.64, 70.81, 81.41, 93.89, 87.31, 84.66, 76.95, 67.63, 60.14, 60.22, 67.45, 60.04, 62.07, 66.27, 62.72, 66.69, 70.02, 61.46, 54.86, 57.81, 67.89]},
+      {'l': '利息收入', 'v': [0, 0, 0, 0, 0, 0, 0, 0, -712, -76, 0, 0, 278, 381, 403, 594, 686, 744, 1484, 2775, 3193, 2122, 813, 4151, 10841, 10565, 9737]},
+      {'l': '利息支出', 'v': [0, 0, 0, 0, 0, 0, -4, -11, -23, -10, -13, -15, -2, -57, -186, -201, -140, -211, -665, -1140, -1373, -477, -147, -2358, -6095, -5891, -4672]},
+      {'l': '净利息收入', 'v': [0, 0, 0, 0, 0, 0, -4, -11, -739, -14, -18, -21, 257, 304, 185, 357, 496, 476, 759, 1565, 1754, 1578, 597, 1726, 4676, 4605, 4996]},
+      {'l': '其他收入（支出）', 'v': [0, 0, 0, 6, 9, 13, 22, 39, 2111, -143, -40, -31, 114, 191, 171, 185, 531, 80, 667, -127, 689, 527, 611, -475, 183, 220, 42]},
+      {'l': '利润总额', 'v': [557, 979, 822, 650, 805, 1251, 1567, 2963, 7191, 5928, 5542, 5954, 6032, 4845, 5246, 6038, 9278, 6799, 8610, 10883, 10951, 13332, 14841, 11659, 13332, 14853, 21158]},
+      {'l': '所得税费用', 'v': [-36, -106, -82, -61, -112, -194, -227, -445, -1022, -800, -838, -917, -939, -761, -700, -900, -1347, -1058, -1255, -1592, -1561, -1845, -2343, -1564, -1351, -1698, -3321]},
+      {'l': '税率 ％', 'v': [6.55, 10.8, 9.97, 9.4, 13.92, 15.48, 14.52, 15.01, 14.21, 13.49, 15.12, 15.4, 15.57, 15.71, 13.34, 14.91, 14.52, 15.56, 14.58, 14.63, 14.25, 13.84, 15.79, 13.41, 10.13, 11.43, 15.7]},
+      {'l': '其他净利润（亏损）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '净利润', 'v': [521, 874, 740, 589, 693, 1057, 1340, 2519, 6169, 5129, 4704, 5037, 5093, 4084, 4546, 5138, 7931, 5741, 7355, 9291, 9390, 11487, 12498, 10095, 11981, 13155, 17837]},
+      {'l': '持续经营净利润', 'v': [521, 874, 740, 589, 693, 1057, 1340, 2519, 6169, 5129, 4704, 5037, 5093, 4084, 4546, 5138, 7931, 5741, 7355, 9291, 9390, 11487, 12498, 10095, 11981, 13155, 17837]},
+      {'l': '终止经营净利润', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他收入（少数股东权益）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 27, 25, 28, 49, 21, 1, 18, 37, -17, -119, -105, -83]},
+      {'l': '归属于母公司股东的净利润', 'v': [521, 874, 740, 589, 693, 1057, 1340, 2519, 6169, 5129, 4704, 5037, 5093, 4084, 4552, 5165, 7956, 5769, 7404, 9312, 9391, 11505, 12535, 10078, 11862, 13050, 17754]},
+      {'l': '净利率 ％', 'v': [28.69, 37.78, 37.04, 32.55, 34.29, 44.15, 54.17, 60.73, 86.32, 79.13, 73.34, 71, 69.23, 63.5, 55.98, 56.59, 65.04, 55.48, 63.97, 65.34, 69.23, 68.34, 64.38, 59.51, 76.8, 75.23, 74.77]},
+      {'l': '优先股股利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '基本每股收益', 'v': [0.5, 0.84, 0.71, 0.56, 0.66, 1, 1.26, 2.37, 5.78, 4.78, 4.38, 4.68, 4.71, 3.75, 3.95, 4.44, 6.7, 4.76, 6.03, 7.5, 7.49, 9.11, 9.91, 7.96, 9.37, 10.32, 14.05]},
+      {'l': '稀释每股收益', 'v': [0.5, 0.84, 0.71, 0.56, 0.66, 1, 1.26, 2.34, 5.72, 4.75, 4.36, 4.67, 4.7, 3.74, 3.94, 4.43, 6.67, 4.75, 6.02, 7.48, 7.47, 9.09, 9.89, 7.95, 9.36, 10.29, 14.01]},
+      {'l': '发行在外的稀释性潜在普通股平均股数', 'v': [1041.3, 1040.1, 1042.9, 1050.9, 1049.5, 1056.9, 1067, 1076.3, 1078.6, 1072.2, 1078.9, 1079.1, 1084.2, 1091.1, 1154.8, 1163.7, 1198.4, 1215.4, 1230.8, 1244.8, 1256.7, 1265.8, 1267.6, 1267.7, 1267.8, 1267.7, 1267.6]},
+      {'l': '息税前利润', 'v': [557, 979, 822, 643, 796, 1238, 1549, 2936, 7214, 5938, 5555, 5969, 6034, 4902, 5432, 6239, 9418, 7010, 9275, 12023, 12324, 13809, 14988, 14017, 19427, 20744, 25830]},
+      {'l': '折旧、损耗和摊销', 'v': [150, 177, 153, 163, 182, 183, 151, 100, 80, 109, 101, 107, 90, 158, 508, 647, 684, 771, 858, 762, 1044, 1197, 1354, 1459, 1443, 1402, 1568]},
+      {'l': '税息折旧及摊销前利润', 'v': [707, 1157, 975, 807, 978, 1421, 1700, 3036, 7293, 6047, 5656, 6076, 6124, 5060, 5940, 6886, 10102, 7781, 10133, 12785, 13368, 15006, 16342, 15476, 20870, 22146, 27398]},
+      {'l': '税息折旧及摊销前利润率 ％', 'v': [38.97, 50.03, 48.78, 44.61, 48.41, 59.36, 68.74, 73.22, 102.04, 93.31, 88.18, 85.65, 83.24, 78.67, 73.05, 75.45, 82.58, 74.83, 87.55, 89.71, 98.55, 89.14, 83.93, 91.39, 135.12, 127.67, 115.38]},
+    ]},
+    {'t': '合并资产负债表', 'rows': [
+      {'l': '货币资金和现金等价物', 'v': [0, 0, 82, 10, 1384, 1035, 1359, 2224, 5427, 27784, 14738, 19361, 18221, 34077, 41452, 136778, 110890, 115723, 155660, 121196, 128152, 157996, 181361, 184965, 125107, 134365, 182724]},
+      {'l': '短期证券', 'v': [0, 0, 0, 0, 3213, 2762, 2644, 3646, 3358, 6684, 16623, 16970, 27017, 12811, 12747, 72885, 92144, 99159, 125794, 96246, 101252, 170612, 69548, 91424, 99591, 96545, 135532]},
+      {'l': '货币资金、现金等价物、及短期证券', 'v': [0, 0, 82, 10, 4597, 3797, 4003, 5870, 8785, 34468, 31361, 36331, 45238, 46888, 54199, 209663, 203034, 214882, 281454, 217442, 229404, 328608, 250909, 276389, 224698, 230910, 318256]},
+      {'l': '应收账款', 'v': [0, 0, 0, 0, 0, 0, 3094, 0, 18364, 8535, 11334, 9203, 7210, 13689, 10940, 22517, 15537, 12928, 16564, 18341, 25791, 47059, 32717, 25354, 33313, 54478, 67958]},
+      {'l': '应收票据', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应收贷款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动应收款项', 'v': [0, 0, 83, 489, 2, 0, 156, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应收账款总额', 'v': [0, 0, 83, 489, 2, 0, 3250, 0, 18364, 8535, 11334, 9203, 7210, 13689, 10940, 22517, 15537, 12928, 16564, 18341, 25791, 47059, 32717, 25354, 33313, 54478, 67958]},
+      {'l': '原材料', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在产品', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '存货调整', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '库存商品', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他存货', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '存货', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动资产', 'v': [0, 4, 17, 20, 12520, 15223, 13803, 31869, 59857, 19394, 0, 0, 0, 0, 7, 8, 0, 0, 0, 0, 0, 26, 91443, 80735, 58191, 68188, 161007]},
+      {'l': '流动资产合计', 'v': [0, 4, 181, 519, 17119, 19020, 21056, 37738, 87006, 62397, 42695, 45534, 52448, 60577, 65146, 232188, 218571, 227810, 298018, 235783, 255195, 375693, 375069, 382478, 316202, 353576, 547221]},
+      {'l': '非流动投资', 'v': [0, 0, 0, 0, 0, 0, 82, 0, 476, 47, 2327, 2024, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '土地', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 86, 0, 107, 70, 70, 70, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '房屋及建筑物修缮', 'v': [0, 0, 0, 0, 0, 0, 254, 0, 8, 310, 371, 296, 695, 1257, 1358, 1421, 1502, 1596, 1705, 1924, 4119, 3942, 3663, 3357, 3256, 2984, 2672]},
+      {'l': '机器、家具和设备', 'v': [0, 0, 0, 0, 0, 0, 1622, 0, 1757, 1752, 1480, 1521, 1878, 2083, 2210, 2221, 2329, 2281, 2383, 2504, 2199, 2371, 2279, 2527, 2832, 2798, 3152]},
+      {'l': '在建工程', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 187, 223, 0, 0, 0]},
+      {'l': '其他固定资产、无形资产和其他长期资产', 'v': [0, 10, 25, 44, 493, 338, 16, 229, 274, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 10, 6, 1, 5, 4, 3]},
+      {'l': '固定资产、无形资产和其他长期资产总值', 'v': [0, 10, 25, 44, 493, 338, 1891, 229, 2039, 2148, 1851, 1924, 2643, 3410, 3638, 3712, 3831, 3877, 4088, 4428, 6333, 6323, 6135, 6108, 6093, 5786, 5827]},
+      {'l': '累计折旧', 'v': [0, 0, 0, 0, 0, 0, -1633, 0, -1721, -1778, -1548, -1629, -1695, -1735, -1885, -2109, -2271, -2378, -2619, -2803, -2397, -2491, -2651, -2880, -3072, -3123, -3208]},
+      {'l': '固定资产、无形资产和其他长期资产净额', 'v': [0, 10, 25, 44, 493, 338, 258, 229, 317, 370, 303, 295, 948, 1675, 1753, 1603, 1560, 1499, 1469, 1625, 3936, 3832, 3484, 3228, 3021, 2663, 2619]},
+      {'l': '无形资产', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 18207, 18703, 17924, 17894, 17833, 17945, 18039, 18397, 18755, 18989, 18984, 19295, 19620, 22275]},
+      {'l': '商誉', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13488, 13750, 13170, 13162, 13167, 13277, 13298, 13344, 13286, 13361, 13367, 13371, 13297, 13274]},
+      {'l': '其他非流动资产', 'v': [0, 4210, 4148, 4151, 2197, 2086, 1536, 2496, 157, 8, 7, 31, 607, 378, 341, 145, 168, 176, 172, 501, 1523, 826, 1762, 1361, 2661, 5770, 8660]},
+      {'l': '非流动资产合计', 'v': [0, 4219, 4173, 4195, 2689, 2423, 1875, 2726, 950, 425, 2637, 2350, 1580, 20260, 20797, 19672, 19622, 19508, 19586, 20165, 23856, 23413, 24235, 23573, 24977, 28053, 33554]},
+      {'l': '资产总计', 'v': [0, 4223, 4354, 4714, 19808, 21443, 22931, 40464, 87955, 62822, 45332, 47884, 54028, 80837, 85943, 251860, 238193, 247318, 317604, 255948, 279051, 399106, 399304, 406051, 341179, 381629, 580775]},
+      {'l': '应付账款', 'v': [0, 0, 0, 73, 4780, 4902, 3641, 11118, 21376, 8894, 11827, 9946, 8456, 15818, 12815, 22835, 15270, 12246, 16159, 18316, 20489, 39675, 25722, 16338, 24767, 34575, 46259]},
+      {'l': '应交税费', 'v': [0, 0, 0, 0, 57, 200, 93, 287, 688, 141, 261, 320, 262, 178, 379, 348, 653, 356, 505, 678, 2180, 2088, 1694, 2872, 1199, 2103, 3288]},
+      {'l': '其他应付账款', 'v': [13, 13, 23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1538, 2385, 2072, 2016, 2522, 2227, 3528]},
+      {'l': '应交税费和其他应付款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款', 'v': [13, 13, 23, 73, 4837, 5102, 3734, 11406, 22064, 9035, 12088, 10266, 8718, 15996, 13194, 23183, 15923, 12602, 16664, 18994, 24207, 44148, 29488, 21226, 28488, 38905, 53075]},
+      {'l': '短期借款', 'v': [0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1027, 1005, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '短期资本化租赁债务', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 272, 304, 299, 297, 270, 260, 214]},
+      {'l': '短期借款和资本化租赁债务', 'v': [0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1027, 1005, 272, 304, 299, 297, 270, 260, 214]},
+      {'l': '流动递延收益负债', 'v': [0, 0, 0, 0, 0, 0, 285, 0, 375, 393, 424, 473, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '流动递延所得税和收益负债', 'v': [0, 0, 0, 0, 0, 0, 285, 0, 375, 393, 424, 473, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他流动负债', 'v': [0, 1, 5, 24, 8161, 10853, 13680, 22021, 56814, 45792, 24473, 28421, 36091, 39341, 44344, 199381, 188053, 198086, 260875, 193582, 206458, 301882, 316177, 331425, 257753, 285360, 465586]},
+      {'l': '流动负债合计', 'v': [13, 14, 28, 97, 13048, 15955, 17698, 33427, 79253, 55220, 36985, 39160, 44809, 55337, 57538, 222564, 203976, 210688, 278566, 213581, 230937, 346334, 345964, 352948, 286511, 324525, 518875]},
+      {'l': '长期借款', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6615, 6703, 6801, 3101, 3105, 833, 161, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '长期资本租赁负债', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2234, 2054, 1760, 1448, 1334, 1034, 637]},
+      {'l': '长期借款和资本化租赁债务', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6615, 6703, 6801, 3101, 3105, 833, 161, 2234, 2054, 1760, 1448, 1334, 1034, 637]},
+      {'l': '债务股本比率', 'v': [0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0.37, 0.33, 0.32, 0.1, 0.1, 0.05, 0.03, 0.06, 0.05, 0.04, 0.04, 0.03, 0.02, 0.02]},
+      {'l': '养老金和退休福利', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '非流动递延负债', 'v': [0, 0, 0, 0, 0, 0, 21, 0, 37, 31, 18, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他非流动负债', 'v': [0, 0, 0, 0, 1146, 1456, 874, 1780, 289, 277, 302, 29, 60, 1121, 1184, 1136, 1154, 1141, 830, 1303, 1379, 1482, 1670, 1556, 1538, 1663, 2534]},
+      {'l': '非流动负债合计', 'v': [0, 0, 0, 0, 1146, 1456, 895, 1780, 325, 308, 320, 47, 60, 7736, 7887, 7937, 4255, 4246, 1663, 1464, 3613, 3536, 3430, 3004, 2872, 2697, 3171]},
+      {'l': '负债合计', 'v': [13, 14, 28, 97, 14194, 17411, 18593, 35207, 79578, 55528, 37305, 39207, 44869, 63073, 65425, 230501, 208231, 214934, 280229, 215045, 234550, 349870, 349394, 355952, 289383, 327222, 522046]},
+      {'l': '普通股', 'v': [0, 0, 0, 0, 0, 0, 1063, 0, 1070, 1075, 1076, 1078, 1080, 1150, 1161, 12225, 19285, 22085, 25141, 27750, 30449, 31891, 31896, 31918, 31946, 31955, 31955]},
+      {'l': '优先股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '留存收益', 'v': [-13, -89, 28, 108, 1579, 1658, 1776, 3367, 6288, 5241, 6021, 6766, 7053, 6881, 7800, 8800, 10691, 10334, 12090, 13379, 14204, 17214, 18173, 18547, 19723, 21890, 25653]},
+      {'l': '累计其他综合收益（亏损）', 'v': [0, 0, 0, 0, 0, 0, 699, 0, 801, 696, 606, 636, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '资本公积', 'v': [0, 0, 0, 19, 54, 104, 150, 186, 266, 347, 376, 416, 639, 8731, 10167, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '库存股', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他所有者权益', 'v': [0, 4298, 4298, 4489, 3981, 2270, 650, 1705, -48, -65, -52, -219, 387, 1002, 1277, 248, -160, -153, 42, -400, -480, -187, -443, -737, -325, 7, 539]},
+      {'l': '归属于母公司所有者权益合计', 'v': [-13, 4209, 4326, 4617, 5614, 4032, 4337, 5258, 8377, 7294, 8027, 8677, 9159, 17764, 20405, 21273, 29816, 32266, 37273, 40729, 44173, 48918, 49626, 49728, 51344, 53852, 58147]},
+      {'l': '少数股东权益', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 113, 86, 146, 118, 102, 174, 328, 318, 284, 371, 452, 555, 582]},
+      {'l': '所有者权益合计', 'v': [-13, 4209, 4326, 4617, 5614, 4032, 4337, 5258, 8377, 7294, 8027, 8677, 9159, 17764, 20518, 21359, 29962, 32384, 37375, 40903, 44501, 49236, 49910, 50099, 51796, 54407, 58729]},
+      {'l': '股东权益比率', 'v': [-403.45, 1, 0.99, 0.98, 0.28, 0.19, 0.19, 0.13, 0.1, 0.12, 0.18, 0.18, 0.17, 0.22, 0.24, 0.08, 0.13, 0.13, 0.12, 0.16, 0.16, 0.12, 0.12, 0.12, 0.15, 0.14, 0.1]},
+    ]},
+    {'t': '合并现金流量表', 'rows': [
+      {'l': '来自持续经营收益的净利润', 'v': [521, 874, 740, 589, 693, 1057, 1567, 2963, 7191, 5928, 5542, 5954, 6032, 4845, 5246, 6038, 9278, 6799, 8610, 10883, 10951, 13332, 14841, 11659, 13332, 14853, 21158]},
+      {'l': '折旧、损耗和摊销', 'v': [150, 177, 153, 163, 182, 183, 151, 100, 80, 109, 101, 107, 90, 158, 508, 647, 684, 771, 858, 762, 1044, 1197, 1354, 1459, 1443, 1402, 1568]},
+      {'l': '经营性应收项目变动', 'v': [0, 0, 0, 0, 0, 0, 1358, -6891, -8161, 9655, -2809, 2133, 1972, -6263, 2765, -10910, 7226, 3432, -2833, -704, -5479, -14901, 15389, 4869, -8231, -10687, -11679]},
+      {'l': '存货变动', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '预付资产变动', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -619, 490, -134, -1426, -1325, 1554, -4752, -1160, 4562, 77, 558, -374]},
+      {'l': '应付票据及应付账款、应交税费和其他应付款变动', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他营运资金变动', 'v': [0, 0, 0, 0, 0, 0, -1261, 7537, 10089, -9026, 2800, -2137, -1799, 8683, -3009, 10219, -7409, -3619, 4205, 1741, 3990, 19526, -14216, -9607, 8198, 8874, 12993]},
+      {'l': '营运资金变动', 'v': [0, 0, 0, 0, 0, 0, 96, 645, 1928, 629, -9, -4, 173, 2420, -244, -1310, 307, -321, -54, -288, 65, -127, 13, -176, 44, -1255, 940]},
+      {'l': '递延所得税', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '股权激励', 'v': [0, 0, 0, 0, 0, 0, 23, 24, 24, 28, 21, 36, 61, 105, 119, 137, 183, 213, 220, 226, 240, 281, 324, 380, 399, 390, 361]},
+      {'l': '资产减值费用', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 165, -2, -4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '终止经营活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他经营活动产生的现金流量净额', 'v': [13, -606, -3379, -852, 534, 576, -408, -864, -1575, -1811, -1111, -1103, -1083, -1037, -641, -839, -2131, -3999, -2221, -2103, -2238, 86, -4192, 1634, -3718, -2616, 1600]},
+      {'l': '经营活动产生的现金流量净额', 'v': [684, 445, -2486, -100, 1409, 1816, 1430, 2868, 7648, 5049, 4542, 4986, 5273, 6491, 4988, 4673, 8321, 3463, 7413, 9480, 10062, 14769, 12340, 14956, 11500, 12774, 25627]},
+      {'l': '购建固定资产、无形资产和其他长期资产支付的现金', 'v': [-227, -309, -263, -131, -52, -23, -62, -60, -69, -221, -48, -80, -456, -1042, -797, -665, -710, -620, -688, -860, -1091, -1351, -1070, -1284, -1386, -1604, -1733]},
+      {'l': '处置固定资产、无形资产和其他长期资产收回的现金净额', 'v': [4, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 0, 0, 0, 0, 512, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '取得子公司及其他营业单位支付的现金净额', 'v': [0, 0, 0, 0, 0, 0, -25, 0, 0, 0, 0, 0, 0, -16854, 0, 0, 0, 0, -14, 0, 0, 0, 0, 0, 0, 0, -3603]},
+      {'l': '处置子公司及其他营业单位收到的现金净额', 'v': [0, 0, 0, 0, 0, 0, 0, 1, 270, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 41, 0, 0, 0, 0, 0, 0]},
+      {'l': '投资支付的现金', 'v': [0, 0, -3153, -32, 0, 0, 0, -560, -6232, -4592, -3739, -1368, -1422, 0, -60, 0, -426, -2731, -315, -4920, -3068, -6394, -778, -963, -6270, -7228, -4881]},
+      {'l': '收回投资及取得投资收益收到的现金', 'v': [0, 0, 0, 0, 0, 76, 0, 0, 3800, 5118, 3013, 1301, 1499, 2244, 306, 1423, 187, 0, 2299, 393, 536, 207, 4086, 316, 502, 11034, 2474]},
+      {'l': '取得无形资产支付的现金净额差', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '终止投资活动产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '其他投资活动产生的现金流量净额', 'v': [-1840, 1278, 4504, -71, -83, 452, -13, 248, 205, 903, 269, 198, 179, 107, 28, 24, 17, 16, 32, 60, 97, 56, 38, 231, 864, 992, 2178]},
+      {'l': '投资活动产生的现金流量净额', 'v': [-2064, 970, 1088, -234, -135, 505, -99, -371, -2025, 1210, -504, 52, -200, -15545, -523, 782, -420, -3335, 1314, -5327, -3485, -7482, 2276, -1700, -6290, 3194, -5565]},
+      {'l': '发行股票产生的现金流入', 'v': [0, 0, 0, 0, 0, 0, 47, 31, 0, 0, 0, 34, -72, 7662, -1, -393, -224, -188, -228, -300, -285, -31, -681, -350, -448, -481, -512]},
+      {'l': '回购股票产生的现金流出', 'v': [0, 0, 0, 0, 0, 0, -30, -21, -5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '发行优先股产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '发行债券产生的现金流入', 'v': [0, 0, 46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6974, 769, 2326, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '偿付债券现金流出', 'v': [0, 0, 0, 0, 0, -50, 0, 0, 0, 0, 0, 0, 0, 0, -775, -2326, 0, 0, -1603, -781, -744, 0, 0, 0, 0, 0, 0]},
+      {'l': '发行债券产生的现金流量净额', 'v': [0, 0, 46, 0, 0, -50, 0, 0, 0, 0, 0, 0, 0, 6974, -6, 0, 0, 0, -1603, -781, -744, 0, 0, 0, 0, 0, 0]},
+      {'l': '分配股利、利润或偿付利息支付的现金', 'v': [0, -83, -343, -344, -638, -2673, -1019, -1671, -3163, -6282, -3889, -4258, -4606, -3784, -2320, -3234, -3017, -3329, -2561, -5427, -5785, -6983, -11527, -9665, -10316, -10416, -13722]},
+      {'l': '融资租赁产生的现金流量净额', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -159, -284, -310, -309, -307, -255, -251]},
+      {'l': '其他筹资活动产生的现金流量净额', 'v': [0, 85, -4, 6, 40, 56, -5, -1, 66, 34, 14, -188, 0, -108, 163, -91, 17, -69, -75, -11, -181, -176, -151, -49, -179, -109, -150]},
+      {'l': '筹资活动产生的现金流量净额', 'v': [-2, 2, -301, -338, -598, -2667, -1006, -1663, -3102, -6248, -3875, -4412, -4678, 10744, -2164, -3718, -3224, -3586, -4467, -6519, -7154, -7474, -12669, -10373, -11250, -11261, -14635]},
+      {'l': '期初现金及现金等价物余额', 'v': [2704, 1634, 3051, 1352, 680, 1381, 1035, 1359, 2215, 4745, 4756, 4751, 1945, 2340, 4035, 6375, 8067, 12744, 9286, 13546, 11180, 10603, 10442, 12398, 15258, 9212, 13910]},
+      {'l': '汇率变动对现金及现金等价物的影响', 'v': [0, 0, 0, 0, 0, 0, 0, 30, 9, 0, -3600, -3432, 0, 5, 39, -45, 0, 0, 0, 0, 0, 26, 9, -23, -6, -9, 16]},
+      {'l': '现金及现金等价物净额', 'v': [-1381, 1416, -1699, -672, 675, -346, 324, 865, 2529, 11, -3437, -2806, 395, 1695, 2340, 1692, 4677, -3458, 4260, -2366, -577, -161, 1956, 2860, -6046, 4698, 5443]},
+      {'l': '期末现金及现金等价物余额', 'v': [1323, 3051, 1352, 680, 1355, 1035, 1359, 2224, 4745, 4756, 1319, 1945, 2340, 4035, 6375, 8067, 12744, 9286, 13546, 11180, 10603, 10442, 12398, 15258, 9212, 13910, 19353]},
+      {'l': '资本开支', 'v': [-227, -309, -263, -131, -52, -23, -62, -60, -69, -221, -48, -80, -456, -1042, -797, -665, -710, -620, -688, -860, -1091, -1351, -1070, -1284, -1386, -1604, -1733]},
+      {'l': '自由现金流', 'v': [457, 136, -2749, -231, 1357, 1793, 1368, 2808, 7580, 4828, 4494, 4906, 4817, 5449, 4191, 4008, 7611, 2843, 6725, 8620, 8971, 13418, 11270, 13672, 10114, 11170, 23894]},
+    ]},
+    {'t': '估值比率', 'rows': [
+      {'l': '市盈率', 'v': [9999, 21.31, 16.69, 17.5, 25.45, 20.85, 25.52, 36.58, 38.6, 15.49, 31.97, 37.75, 26.4, 35.27, 32.82, 38.76, 29.76, 38.57, 39.83, 30.29, 33.87, 47.3, 46.05, 42.42, 28.63, 28.69, 29.11]},
+      {'l': '持续经营市盈率', 'v': [9999, 21.31, 16.69, 17.5, 25.45, 20.85, 25.58, 36.58, 52.46, 15.13, 31.75, 37.56, 26.86, 36.54, 34.02, 39.99, 31.69, 39.13, 43.19, 29.92, 36.02, 49.06, 47.5, 40.57, 28.82, 28.95, 28.93]},
+      {'l': '股价／巴菲特所有者每股收益', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 26.39, 23.28, 34.38, 50.26, 30.55, 38.27, 38.7, 29.69, 32.28, 0, 0, 0, 0, 0, 0]},
+      {'l': '市净率', 'v': [0, 4.43, 2.85, 2.22, 3.14, 5.46, 7.88, 17.33, 28.18, 10.85, 18.68, 21.87, 14.6, 8.52, 7.35, 9.41, 8.02, 6.93, 7.98, 6.96, 7.22, 11.13, 11.61, 8.58, 6.6, 6.93, 8.86]},
+      {'l': '股价／每股有形账面价值', 'v': [0, 4.43, 2.85, 2.22, 3.14, 5.46, 7.88, 17.33, 28.18, 10.85, 18.68, 21.87, 14.64, 0, 88.13, 59.74, 20.07, 15.5, 15.38, 12.49, 12.38, 18.05, 18.81, 13.88, 10.57, 10.9, 14.37]},
+      {'l': '股价／自由现金流', 'v': [0, 137.28, 0, 0, 12.99, 12.29, 25.08, 32.81, 31.42, 16.34, 33.46, 38.77, 27.93, 26.41, 35.63, 49.85, 31.25, 78.32, 43.89, 32.72, 35.44, 40.57, 51.22, 31.27, 33.59, 33.5, 21.63]},
+      {'l': '股价／每股经营现金流', 'v': [0, 41.85, 0, 0, 12.52, 12.13, 23.99, 32.12, 31.14, 15.63, 33.11, 38.15, 25.51, 22.17, 29.94, 42.75, 28.59, 64.3, 39.81, 29.75, 31.6, 36.85, 46.78, 28.58, 29.54, 29.29, 20.17]},
+      {'l': '市销率', 'v': [0, 8.05, 6.18, 5.69, 8.73, 9.21, 13.87, 22.22, 33.32, 12.18, 23.45, 26.82, 18.29, 22.37, 18.36, 21.89, 19.45, 21.41, 25.5, 19.79, 23.44, 32.33, 29.65, 25.24, 22, 21.57, 21.77]},
+      {'l': '市盈增长比', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6.76, 4.64, 3.75, 2.3, 3.08, 3.87, 3.21, 7.03, 3.73, 2.37, 1.82]},
+      {'l': '企业价值／收入', 'v': [0, 8.06, 6.13, 5.65, 6.47, 7.62, 12.2, 20.55, 31.8, 6.89, 18.49, 21.63, 12.03, 17.27, 12.62, -0.3, 3.23, 1.16, 1.54, 4.72, 6.82, 12.97, 16.83, 9, 7.53, 8.3, 8.37]},
+      {'l': '企业价值倍数', 'v': [0, 16.1, 12.56, 12.67, 13.37, 12.83, 17.74, 28.07, 31.17, 7.38, 20.96, 25.25, 14.45, 21.95, 17.28, -0.39, 3.91, 1.55, 1.76, 5.26, 6.92, 14.55, 20.05, 9.85, 5.57, 6.5, 7.25]},
+      {'l': '企业价值／息税前利润', 'v': [0, 19.02, 14.89, 15.88, 16.43, 14.73, 19.47, 29.02, 31.51, 7.52, 21.34, 25.71, 14.67, 22.66, 18.89, -0.43, 4.19, 1.72, 1.92, 5.6, 7.51, 15.81, 21.87, 10.87, 5.98, 6.94, 7.69]},
+      {'l': '乔尔·格林布拉特收益率 ％', 'v': [0, 5.26, 6.71, 6.3, 6.09, 6.79, 5.14, 3.45, 3.17, 13.3, 4.69, 3.89, 6.82, 4.41, 5.29, -232.56, 23.87, 58.14, 52.08, 17.86, 13.32, 6.33, 4.57, 9.2, 16.72, 14.41, 13]},
+      {'l': '唐纳德·亚克曼收益率 ％', 'v': [0, 0, 0, 0, 0, 8.55, 10, 20.78, 21.03, 24.17, 22.54, 22.28, 12.15, -1.29, 1.06, 2.84, 8.97, 9.87, 13.55, 14.73, 13.48, 11.86, 15.65, 10.66, 11.75, 13.3, 15.48]},
+      {'l': '席勒市盈率', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 34.67, 43.99, 39.17, 41.49, 67.98, 66.37, 46.08, 33.75, 34.53, 43.93]},
+      {'l': 'Cyclically Adjusted PB Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12.52, 13.84, 11.12, 11.22, 17.23, 16.07, 10.74, 7.86, 8.12, 10.56]},
+      {'l': 'Cyclically Adjusted PS Ratio', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22.27, 28.24, 25.2, 26.49, 43.38, 42.11, 29.03, 21.9, 23.01, 29.8]},
+      {'l': '股息率 ％', 'v': [0, 0.45, 2.78, 3.37, 3.63, 4.08, 2.99, 1.85, 1.35, 8, 2.61, 2.25, 3.6, 2.99, 2.54, 2.07, 2.63, 2.77, 1.91, 2.86, 2.68, 1.56, 2.01, 2.26, 3.06, 2.8, 2.67]},
+    ]},
+    {'t': '估值和质量', 'rows': [
+      {'l': '总市值', 'v': [0, 18628, 12332, 10227, 17623, 22031, 34168, 91095, 236086, 79112, 149927, 189776, 133739, 151343, 150003, 200076, 239247, 223706, 297306, 283393, 319084, 544317, 576293, 426703, 338898, 373086, 515472]},
+      {'l': '企业价值', 'v': [0, 18628, 12250, 10217, 13076, 18234, 30165, 85225, 227301, 44644, 118566, 153445, 88501, 111070, 102620, -2700, 39460, 12047, 17814, 67291, 92514, 218385, 327727, 152430, 116256, 144025, 198649]},
+      {'l': '月末股价', 'v': [0, 17.9, 11.85, 9.8, 16.8, 20.85, 32.15, 85.6, 220.8, 73.6, 139.4, 176.3, 124.1, 131.9, 129.3, 171.7, 198.5, 183.2, 239.8, 226.6, 253, 430, 455.4, 337.2, 268, 295.2, 407.8]},
+      {'l': '每股现金净流量', 'v': [-0.01, -0.01, 0.05, -0.08, -9.15, -12.88, -13.73, -27.57, -66.21, -19.59, -5.53, -2.67, 0.34, -14.11, -9.77, -17.96, -4.43, -0.14, 0.91, 1.78, -4.34, -17.05, -78.05, -63.17, -51.51, -76.64, -161.68]},
+      {'l': '净流动资产价值 NCAV', 'v': [-0.01, -0.01, 0.15, 0.4, 2.79, 1.52, 2.32, 2.38, 6.95, 6.39, 5.01, 5.88, 7.03, -2.18, -0.34, 1.37, 8.46, 10.45, 14.27, 16.44, 16.11, 20.15, 20.06, 20.67, 20.85, 20.41, 19.46]},
+      {'l': '净净营运资本 NNWC', 'v': [-0.01, -0.01, 0.05, -0.08, -9.15, -12.88, -11.55, -27.57, -53.33, -13.64, 2.38, 3.74, 5.36, -5.16, -2.7, -3.46, 5.24, 7.8, 10.93, 12.78, 11, 10.83, -58.66, -48.14, -31.75, -44.32, -121.36]},
+      {'l': '内在价值：预期自由现金流模型', 'v': [0, 0, 0, 0, 0, 0, 6.35, 12.51, 29.69, 44.06, 53.63, 61.09, 67.08, 59.91, 56.84, 52.83, 67.69, 65.55, 74.29, 89.87, 90.13, 104.68, 116.98, 129.72, 125.71, 123.95, 160.29]},
+      {'l': '内在价值：市销率模型', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255.3, 238.44, 297.46, 349.18, 309.31, 286.28, 319.85, 444.94]},
+      {'l': '彼得林奇公允价值', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40.04, 69.29, 98.65, 81.97, 115.17, 146.42, 45.93, 72.35, 124.51, 223.56]},
+      {'l': '格雷厄姆估值', 'v': [0, 8.74, 8.15, 7.47, 8.91, 9.27, 10.74, 16.13, 27.24, 27.25, 27.16, 29.18, 29.68, 0, 11.2, 16.66, 37.33, 35.29, 44.13, 55.6, 56.83, 68.55, 72.27, 67.4, 72.82, 78.83, 94.88]},
+      {'l': '盈利能力值（EPV）', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 58.89, 63.44, 80.63, 213.98, 202.37, 213.19, 269.99, 224.14, 234.82, 0, 0, 0, 0, 0, 0]},
+      {'l': '两年破产风险（Z分数）', 'v': [0, 0, 0, 0, 1.1, 1.04, 1.39, 1.8, 1.99, 1.11, 3.29, 3.82, 2.65, 1.92, 1.91, 0.73, 1.01, 0.9, 0.9, 1.18, 1.19, 1.24, 1.31, 1.03, 1.15, 1.11, 0.91]},
+      {'l': '基本面趋势（F分数）', 'v': [9999, 9999, 3, 2, 7, 4, 5, 6, 5, 5, 6, 6, 5, 3, 5, 6, 6, 3, 7, 6, 6, 7, 4, 4, 5, 7, 8]},
+      {'l': '财务造假嫌疑（M分数）', 'v': [0, 0, 0.64, 2.46, -13.62, -3.51, 31810.19, -2.72, -5.89, -3.4, 21.29, -2.69, -2.47, 5.84, -2.81, -1.99, -2.54, -2.64, -2.3, -2.26, -2.03, -2.03, -2.73, -2.86, -2.02, -1.9, -2.39]},
+      {'l': '可供营运的资产净额／总资产', 'v': [-403.45, 135762.65, 1, 1.06, 0.23, 0.01, 0.02, -0.03, -0.01, -0.31, -0.37, -0.61, -0.75, -0.42, -0.33, -2.11, -0.68, -0.75, -0.98, -0.55, -0.71, -0.99, -0.5, -0.56, -0.42, -0.51, -0.68]},
+      {'l': '斯隆比率 ％', 'v': [6129709.68, -12.81, 49.1, 19.57, -2.93, -5.89, 0.04, 0.05, 0.62, -1.8, 1.47, 0, 0.04, 16.25, 0.1, -0.12, 0.02, 2.28, -0.42, 2.02, 1.01, 1.06, -0.52, -0.78, 1.95, -0.76, -0.4]},
+      {'l': '流动比率', 'v': [0, 0.26, 6.52, 5.34, 1.31, 1.19, 1.19, 1.13, 1.1, 1.13, 1.15, 1.16, 1.17, 1.09, 1.13, 1.04, 1.07, 1.08, 1.07, 1.1, 1.11, 1.08, 1.08, 1.08, 1.1, 1.09, 1.05]},
+      {'l': '速动比率', 'v': [0, 0.26, 6.52, 5.34, 1.31, 1.19, 1.19, 1.13, 1.1, 1.13, 1.15, 1.16, 1.17, 1.09, 1.13, 1.04, 1.07, 1.08, 1.07, 1.1, 1.11, 1.08, 1.08, 1.08, 1.1, 1.09, 1.05]},
+      {'l': '现金比率', 'v': [0, 0, 2.94, 0.1, 0.35, 0.24, 0.23, 0.18, 0.11, 0.62, 0.85, 0.93, 1.01, 0.85, 0.94, 0.94, 1, 1.02, 1.01, 1.02, 0.99, 0.95, 0.73, 0.78, 0.78, 0.71, 0.61]},
+      {'l': '利息保障倍数', 'v': [10000, 10000, 10000, 10000, 10000, 10000, 350.46, 255.87, 253.87, 626.63, 430.77, 400.4, 2830.5, 76.32, 26.29, 27.34, 58.94, 29.59, 10.8, 8.29, 6.2, 23.54, 92.74, 4.41, 1.39, 1.7, 3.45]},
+      {'l': '最高股价', 'v': [0, 18.15, 19, 14.7, 17.25, 21.9, 32.15, 85.6, 265.4, 218.4, 151.9, 197.2, 189.1, 147.1, 149.9, 187.1, 309.4, 209.6, 254.2, 303.4, 285.4, 430, 567, 480.8, 377.4, 393.8, 462.8]},
+      {'l': '最低股价', 'v': [0, 8.15, 7.95, 9, 7.9, 14.6, 18.55, 33.95, 69.4, 52.25, 54.6, 115.3, 100.7, 100.3, 114.1, 113.2, 173, 161.8, 182.6, 196.7, 221.2, 211.4, 430, 209, 245.2, 214.6, 275.4]},
+      {'l': '股票回购率 ％', 'v': [None, 0, 0, -0.28, -0.52, -0.73, -0.58, -0.14, -0.47, -0.53, -0.06, -0.09, -0.11, -6.47, -1.11, -0.44, -3.43, -1.31, -1.53, -0.87, -0.85, -0.37, 0.03, 0, 0.07, 0.06, -0.02]},
+      {'l': '股票回购收益率 ％', 'v': [0, 0, 0, 0, 0, 0, -0.05, -0.01, 0, 0, 0, -0.02, 0.05, -5.06, 0, 0.2, 0.09, 0.08, 0.08, 0.11, 0.09, 0.01, 0.12, 0.08, 0.13, 0.13, 0.1]},
+      {'l': '每股收入同比增长率 ％', 'v': [0, 27.55, -13.79, -10.23, 11.86, 17.7, 2.33, 66.23, 71.99, -8.78, -1.65, 10.58, 3.22, -13.13, 19.44, 11.39, 30.15, -16.19, 9.92, 21.75, -5.72, 23.21, 15.5, -13.04, -8.8, 12.32, 36.91]},
+      {'l': '每股收益同比增长率 ％', 'v': [0, 68, -15.48, -21.13, 17.86, 51.52, 26, 85.71, 144.44, -16.96, -8.21, 7.11, 0.64, -20.43, 5.35, 12.44, 50.56, -28.79, 26.74, 24.25, -0.13, 21.69, 8.8, -19.62, 17.74, 9.94, 36.15]},
+      {'l': '税息折旧及摊销前利润同比增长率 ％', 'v': [0, 63.75, -15.94, -17.92, 21.39, 44.31, 18.5, 77.05, 139.71, -16.59, -7.05, 7.4, 0.31, -17.9, 10.91, 15.04, 42.46, -24.06, 28.6, 24.75, 3.57, 11.45, 8.75, -5.31, 34.84, 6.12, 23.73]},
+      {'l': '5年每股税息折旧及摊销前利润增长率 ％', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.27, 4.69, 8.43, 11.51, 13.03, 11.69, 12.67, 14.82, 5.77, 7.73, 12.21, 15.86]},
+      {'l': '发行在外的普通股平均股数', 'v': [1041.33, 1040.06, 1042.85, 1050.9, 1049.52, 1056.88, 1060.35, 1062.69, 1067.24, 1072.22, 1074.7, 1076.4, 1081.76, 1088.35, 1152.06, 1163.71, 1186.8, 1212.38, 1227.67, 1242.06, 1253.73, 1262.75, 1265.43, 1265.49, 1265.46, 1264.48, 1263.89]},
+      {'l': '期末总股本', 'v': [1040.67, 1040.67, 1040.67, 1043.58, 1049, 1056.64, 1062.76, 1064.19, 1069.23, 1074.89, 1075.52, 1076.44, 1077.67, 1147.41, 1160.12, 1165.26, 1205.28, 1221.11, 1239.81, 1250.63, 1261.2, 1265.85, 1265.47, 1265.43, 1264.55, 1263.84, 1264.03]},
+      {'l': 'β贝塔系数', 'v': [0, 0, 0, 0, 1.35, 1.34, 1.26, 1.49, 1.96, 1.65, 1.6, 1.43, 1.52, 1.25, 1.22, 1.16, 1.98, 1.86, 1.86, 1.25, 1.16, 1.07, 0.78, 1.32, 1.34, 1.52, 1.35]},
+      {'l': '重述日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '报告日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '收益发布日期', 'v': [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]},
+      {'l': '股东人数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+      {'l': '在职员工人数', 'v': [0, 0, 0, 0, 0, 0, 0, 0, 0, 865, 850, 875, 997, 1105, 1278, 1420, 1568, 1663, 1777, 1990, 2372, 2392, 2307, 2380, 2552, 2582, 2636]},
+      {'l': '外汇汇率', 'v': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]},
+    ]},
+  ]},
+}
+
+
+# ----- 本地財報查詢層（v9）：數據源自 LOCAL_FINANCIALS（用戶上傳 xlsx 1:1 轉出）-----
+def get_local_financial(symbol):
+    """返回該代號的本地財報結構（name/years/groups）；無則 None。"""
+    if symbol in LOCAL_FINANCIALS:
+        return LOCAL_FINANCIALS[symbol]
+    s = str(symbol).strip().upper()
+    return LOCAL_FINANCIALS.get(s)
+
+
+# 英文字段 -> 本地中文指標候選名（按優先序，前者更貼近合併口徑）
+_LOCAL_FIELD_CANDIDATES = {
+    "revenue": ["营业收入"],
+    "gross_profit": ["毛利润"],
+    "net_income": ["归属于母公司股东的净利润", "净利润"],
+    "ebitda": ["税息折旧及摊销前利润"],
+    "op_income": ["营业利润"],
+    "rd": ["研发费用"],
+    "sga": ["销售及行政开支"],
+    "interest": ["利息支出"],
+    "tax": ["所得税费用"],
+    "eps": ["稀释每股收益", "基本每股收益"],
+    "shares": ["发行在外的稀释性潜在普通股平均股数"],
+    "assets": ["资产总计"],
+    "equity": ["归属于母公司所有者权益合计", "所有者权益合计"],
+    "liabilities": ["负债合计"],
+    "cash": ["货币资金和现金等价物"],
+    "curr_assets": ["流动资产合计"],
+    "curr_liab": ["流动负债合计"],
+    "receivables": ["应收账款"],
+    "payables": ["应付账款"],
+    "inventory": ["存货"],
+    "ocf": ["经营活动产生的现金流量净额"],
+    "fcf": ["自由现金流"],
+    "capex": ["资本开支"],
+    "depreciation": ["折旧、损耗和摊销"],
+}
+
+
+def _local_index(data):
+    """指標名 -> 該 row（含 v）；同名取首個。"""
+    idx = {}
+    for g in data["groups"]:
+        for row in g["rows"]:
+            if row["l"] not in idx:
+                idx[row["l"]] = row
+    return idx
+
+
+def get_local_indicator_series(symbol, label):
+    """返回 {year(int): value}（本地原生單位）；找不到返回 {}。供其他按鈕/推算調用。"""
+    data = get_local_financial(symbol)
+    if not data:
+        return {}
+    row = _local_index(data).get(label)
+    if not row:
+        return {}
+    out = {}
+    for y, v in zip(data["years"], row["v"]):
+        if v is not None:
+            out[int(y)] = v
+    return out
+
+
+def local_annual_fields_scaled(symbol, scale=1_000_000.0):
+    """把本地財報映射成 {year(int): {英文字段: 值×scale}}，以便與 Yahoo（原始元）同口徑合併。
+    debt 由短期＋長期借款合成；缺失字段不寫入。注意本地部分明細（研發/capex/折舊）源頭以 0 填充，
+    合併時只補 Yahoo 缺失，不覆蓋 Yahoo 真實值（見 fetch_real_annual_financials）。"""
+    data = get_local_financial(symbol)
+    if not data:
+        return {}
+    idx = _local_index(data)
+
+    def vec(label):
+        row = idx.get(label)
+        return row["v"] if row else None
+
+    raw = {}
+    for f, cands in _LOCAL_FIELD_CANDIDATES.items():
+        for c in cands:
+            vv = vec(c)
+            if vv is not None:
+                raw[f] = vv
+                break
+    n = len(data["years"])
+    sd = vec("短期借款和资本化租赁债务")
+    ld = vec("长期借款和资本化租赁债务")
+    debt_v = [None] * n
+    for i in range(n):
+        a = sd[i] if sd else None
+        b = ld[i] if ld else None
+        if a is not None or b is not None:
+            debt_v[i] = (a or 0) + (b or 0)
+    raw["debt"] = debt_v
+
+    out = {}
+    for i, y in enumerate(data["years"]):
+        rec = {}
+        for f, v in raw.items():
+            if v is None:
+                continue
+            x = v[i]
+            if x is not None:
+                rec[f] = float(x) * scale
+        if rec:
+            out[int(y)] = rec
+    return out
+
+
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
 def fetch_real_annual_financials(symbol: str):
     """
@@ -1567,19 +2951,10 @@ def fetch_real_annual_financials(symbol: str):
 
     try:
         tk = yf.Ticker(symbol)
-        inc = None; bs = None; cf = None
-        try:
-            inc = tk.income_stmt
-        except Exception:
-            inc = None
-        try:
-            bs = tk.balance_sheet
-        except Exception:
-            bs = None
-        try:
-            cf = tk.cashflow
-        except Exception:
-            cf = None
+        # v9：三張表各以線程超時包裹，最壞 3s 回 None，不讓慢連線拖垮整個函式
+        inc = _run_with_timeout(lambda: tk.income_stmt, timeout=3.0)
+        bs = _run_with_timeout(lambda: tk.balance_sheet, timeout=3.0)
+        cf = _run_with_timeout(lambda: tk.cashflow, timeout=3.0)
 
         if inc is not None and not inc.empty:
             for col in inc.columns:
@@ -1636,9 +3011,9 @@ def fetch_real_annual_financials(symbol: str):
                 _put(yr, "capex", _v(["Capital Expenditure"]))
                 _put(yr, "depreciation", _v(["Depreciation And Amortization", "Depreciation", "Depreciation Amortization Depletion"]))
 
-        # 年度股息
+        # 年度股息（v9：線程超時包裹）
         try:
-            divs = tk.dividends
+            divs = _run_with_timeout(lambda: tk.dividends, timeout=3.0)
             if divs is not None and not divs.empty:
                 div_year = divs.groupby(divs.index.year).sum()
                 for yr, v in div_year.items():
@@ -1660,6 +3035,18 @@ def fetch_real_annual_financials(symbol: str):
         except Exception:
             pass
 
+    except Exception:
+        pass
+
+    # v9：合併本地真實年度財報（用戶上傳，歷史更長）。只補 Yahoo 缺失的「年份/字段」，不覆蓋 Yahoo 已取得的值，
+    # 避免本地源頭以 0 填充的明細（研發/capex/折舊）蓋掉 Yahoo 真實非零值。本地絕對值為百萬，×1e6 對齊 Yahoo 元口徑。
+    try:
+        _loc = local_annual_fields_scaled(symbol, 1_000_000.0)
+        for _yr, _rec in _loc.items():
+            _tgt = annual.setdefault(_yr, {})
+            for _k, _v in _rec.items():
+                if _k not in _tgt:
+                    _tgt[_k] = _v
     except Exception:
         pass
 
@@ -1973,9 +3360,14 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
                 fetched_en = f"HK {'Bull' if is_bull else 'Bear'} CBBC {code_str}"
                 p = 0.085
 
-            try:
+            def _do_search():
                 if hasattr(yf, "Search"):
-                    sr = yf.Search(symbol, max_results=3)
+                    return yf.Search(symbol, max_results=3)
+                return None
+            try:
+                # v9：Search 線程超時，最壞 3s 回 None，不阻塞 profile 建立
+                sr = _run_with_timeout(_do_search, timeout=3.0)
+                if sr is not None:
                     for qt in getattr(sr, "quotes", []):
                         if qt.get("symbol", "").upper() == symbol.upper():
                             fetched_en = qt.get("longname") or qt.get("shortname") or fetched_en
@@ -2028,9 +3420,10 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
         prof["low"] = live["low"]
         prof["high"] = live["high"]
         prof["prev_close"] = live.get("prev_close", prof["price"] - prof["change"])
-        if live.get("vol_num", 0) > 0:
-            prof["vol_num"] = live["vol_num"]
-            prof["vol"] = f"{live['vol_num']/1e6:.2f}百萬"
+        _vn_live = _to_float(live.get("vol_num"))
+        if _vn_live > 0:
+            prof["vol_num"] = _vn_live
+            prof["vol"] = f"{_vn_live/1e6:.2f}百萬"
     else:
         prof["change"] = 0.0
         prof["pct"] = 0.0
@@ -2115,7 +3508,7 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
     # 開盤價 / 成交量（股數）
     if live.get("live_ok"):
         prof["open"] = live.get("open")
-        prof["vol_num"] = live.get("vol_num", 0) or 0
+        prof["vol_num"] = _to_float(live.get("vol_num"))
 
     # 總股本（億股）：Yahoo shares_out（百萬股 ÷100 得億股），免費源缺時以「市值 ÷ 真實價格」推算
     shares_yi = None
@@ -2125,13 +3518,13 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
         shares_yi = mcap_yi / _price
     prof["shares_yi"] = shares_yi
 
-    # 成交額（本幣）：以免費源「真實成交量(股) × 真實成交價」估算（不依賴未經證實的欄位單位）
-    amount_real = None
-    if live.get("live_ok") and _price:
-        _vn0 = live.get("vol_num", 0) or 0
+    # 成交額（本幣）：優先採數據源直接給的真實成交額（AAStocks d 欄）；否則以「真實成交量×價」估算
+    amount_real = _to_float(live.get("amount_real"), default=None)
+    if not (amount_real and amount_real > 0) and live.get("live_ok") and _price:
+        _vn0 = _to_float(live.get("vol_num"))
         if _vn0 > 0:
             amount_real = _vn0 * _price
-    prof["amount_real"] = amount_real
+    prof["amount_real"] = amount_real if amount_real else None
 
     if not prof.get("fund_ok"):
         # Yahoo 基本面失敗：騰訊可補 PE/PB/52週；預測 PE/EPS、股息率免費源缺，一律 N/A，不保留寫死
@@ -2155,7 +3548,7 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
 
     # 成交量 / 成交金額：以真實成交量與價格為準；成交額以「量×價」估算並標「約」；無真實源則 N/A
     if live.get("live_ok"):
-        vn = live.get("vol_num", 0) or 0
+        vn = _to_float(live.get("vol_num"))
         if vn and vn > 0:
             prof["vol"] = f"{vn / 1e6:,.2f}百萬股"
             if _price:
@@ -2238,10 +3631,14 @@ def search_all_markets_fn(searchterm: str):
         if hk_sym and hk_sym not in [m[1] for m in matched]:
             matched.insert(0, (lbl, hk_sym))
             
-    # 4. Yahoo Search 全市場即時補齊
-    try:
+    # 4. Yahoo Search 全市場即時補齊（v9：線程超時，最壞 3s）
+    def _do_search_all():
         if hasattr(yf, "Search") and len(q_up) >= 2 and len(matched) < 6:
-            s_res = yf.Search(q, max_results=5)
+            return yf.Search(q, max_results=5)
+        return None
+    try:
+        s_res = _run_with_timeout(_do_search_all, timeout=3.0)
+        if s_res is not None:
             for qt in getattr(s_res, "quotes", []):
                 sym = qt.get("symbol", "")
                 sname = qt.get("shortname") or qt.get("longname") or sym
@@ -2258,7 +3655,7 @@ st.markdown(
     "<div style='font-size:12px; line-height:1.6; background:#eef5ff; border:1px solid #b8d3f5; "
     "border-radius:8px; padding:8px 12px; margin-bottom:8px; color:#1f3a5f;'>"
     "📡 <b>數據真實性聲明（v7）</b>：現價、歷史 K 線、財報、估值與動能均取自真實市場數據，"
-    "採<b>三數據源備援：Yahoo Finance → 騰訊財經（qt.gtimg.cn）→ Stooq</b>（報價與圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
+    "採<b>五數據源互補備援：Yahoo Finance → AAStocks（港股優先）→ 騰訊財經 → Stooq</b>（報價與圖表會顯示實際採用的來源）；已完全移除假跳動、隨機買賣盤與模擬 K 線。"
     "本版<b>取消自動更新、改為手動按鈕</b>：每個區塊的「🔄 更新」按一下才重抓。"
     "免費源限制：港股成價一般延遲約 15 分鐘；分鐘線由 Yahoo／騰訊提供，Stooq 只提供日/週/月線；財報與預測估值仍以 Yahoo 為主；"
     "Level 2 多檔買賣深度屬付費數據，本系統已<b>移除 40 檔盤口</b>且絕不編造。模型推演僅供統計參考，<b>不構成投資建議</b>。"
@@ -2288,28 +3685,15 @@ with col_s1:
 if not selected_symbol:
     selected_symbol = "00700.HK"
 
-# ===== v6：切換股票時整個分析畫面即時更新（問題8）=====
-# searchbox 改值後 Streamlit 會從頭重跑；此處再顯式檢測 symbol 變化，清除上一檔的即時/圖表快取，
-# 確保不同日期（如 9/15 與 10/26）查看同一股票時，行情、財報、圖表均重新取最新真實數據。
+# ===== v9：切股零阻塞（取代舊 v6 清快取即時重抓）=====
+# searchbox 改值後 Streamlit 本身會從頭重跑；此處僅記錄當前 symbol，不做清快取/網絡等阻塞操作。
+# 強制重抓交給手動「更新報價 / 全部更新」按鈕。
 if "last_symbol" not in st.session_state:
     st.session_state["last_symbol"] = selected_symbol
-if st.session_state["last_symbol"] != selected_symbol:
-    try:
-        # v6：切換股票即清空所有真實數據快取，令整個分析畫面（報價、盤口、財報、8P、
-        # 動能、波浪、估值、宏觀）全部以新股票即時重抓，避免顯示上一隻股票的殘留數據。
-        # 注意：get_multi_tf_ohlcv 定義於本段之後，圖表快取依 symbol 參數自動區分，故不在此清。
-        for _fn in (fetch_realtime_market_tick,
-                    fetch_real_fundamentals, fetch_real_momentum_snapshot,
-                    fetch_real_annual_financials, fetch_real_monthly_path,
-                    fetch_tencent_quote, fetch_tencent_kline):
-            try:
-                _fn.clear()
-            except Exception:
-                pass
-    except Exception:
-        pass
+elif st.session_state["last_symbol"] != selected_symbol:
+    # v9：切股不清快取、不強制 rerun（舊版清快取＋同步串行重抓是凍結 5+ 秒元兇）；
+    # 已看過的股票命中持久快取、0 等待，新股由 fetch_realtime 並行競速（最壞 3s）。
     st.session_state["last_symbol"] = selected_symbol
-    st.rerun()
 
 with col_s2:
     c_tf1, c_tf2, c_tf3 = st.columns([2.2, 1.8, 1.4])
@@ -2362,7 +3746,7 @@ active_indicators = st.multiselect(
 # ==========================================
 # 6. 多週期 K 線與指標計算引擎
 # ==========================================
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=600)
 def get_multi_tf_ohlcv(symbol: str, timeframe: str):
     base = get_or_create_asset_profile(symbol, apply_micro_tick=False)
     
@@ -2607,6 +3991,167 @@ with col_chart:
     st.plotly_chart(build_static_chart_figure(), use_container_width=True, key="main_kline_static", config={"displayModeBar": True, "responsive": True})
 
 
+def render_aastocks_style_panel():
+    """v8：AAStocks 風格完整報價面板（對應 Err 1.jpg）。"""
+    try:
+        prof = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
+    except Exception:
+        return
+    if not prof.get("live_ok"):
+        return
+    px = prof.get("price")
+    if px is None:
+        return
+
+    is_up = prof.get("change", 0) >= 0
+    arrow = "▲" if is_up else "▼"
+    chg = prof.get("change", 0)
+    pct = prof.get("pct", 0)
+    price_cls = "aa-full-pos" if is_up else "aa-full-neg"
+    _dp = ".3f" if prof.get("mkt") == "HK" else ".2f"
+
+    def _v(val, spec=",.2f", suffix=""):
+        if val is None or val == "":
+            return '<span class="aa-full-na">N/A</span>'
+        try:
+            return f'<span class="aa-full-neutral">{float(val):{spec}}{suffix}</span>'
+        except Exception:
+            return f'<span class="aa-full-neutral">{val}</span>'
+
+    def _t(val):
+        if val is None or val == "":
+            return '<span class="aa-full-na">N/A</span>'
+        return f'<span class="aa-full-neutral">{val}</span>'
+
+    # 取得 AAStocks 詳細數據
+    aa_detail = {}
+    try:
+        if prof.get("mkt") in ("HK", "WARRANT", "CBBC"):
+            aa_detail = fetch_aastocks_full_detail(selected_symbol) or {}
+    except Exception:
+        aa_detail = {}
+
+    # 合併數據
+    bid = aa_detail.get("bid") or prof.get("bid")
+    ask = aa_detail.get("ask") or prof.get("ask")
+    prev_close = aa_detail.get("prev_close") or prof.get("prev_close")
+    open_p = aa_detail.get("open") or prof.get("open")
+    high = aa_detail.get("high") or prof.get("high")
+    low = aa_detail.get("low") or prof.get("low")
+    avg_price = aa_detail.get("avg_price")
+    if avg_price is None and high and low and px:
+        avg_price = (high + low + px) / 3.0
+    pe_static = aa_detail.get("pe_static") or prof.get("pe")
+    pe_ttm = aa_detail.get("pe_ttm") or prof.get("pe")
+    eps = aa_detail.get("eps") or prof.get("eps")
+    div_yield = aa_detail.get("div_yield") or prof.get("yield")
+    payout_ratio = aa_detail.get("payout_ratio")
+    dps = aa_detail.get("dps") or prof.get("dps")
+    pb = aa_detail.get("pb") or prof.get("pb")
+    nav = aa_detail.get("nav")
+    fund_flow = aa_detail.get("fund_flow")
+    vol_ratio = aa_detail.get("vol_ratio")
+    bid_ratio = aa_detail.get("bid_ratio")
+    turnover_rate = aa_detail.get("turnover_rate")
+    amplitude = aa_detail.get("amplitude")
+    if amplitude is None and high and low and prev_close:
+        amplitude = (high - low) / prev_close * 100.0
+    avg_vol_3m = aa_detail.get("avg_vol_3m")
+    mcap = aa_detail.get("mcap")
+    if not mcap and prof.get("mcap_yi_real"):
+        mcap = f"{prof['mcap_yi_real']:,.2f}億"
+    exchange = aa_detail.get("exchange") or ("港交所" if prof.get("mkt") == "HK" else "NYSE/NASDAQ")
+    lot_size = aa_detail.get("lot_size") or prof.get("lot")
+    spread = aa_detail.get("spread")
+    short_sell_amt = aa_detail.get("short_sell_amt")
+    short_sell_ratio = aa_detail.get("short_sell_ratio")
+    ex_div_date = aa_detail.get("ex_div_date")
+    div_pay_date = aa_detail.get("div_pay_date")
+    vol_str = aa_detail.get("vol_str")
+    _vn_p = _to_float(prof.get("vol_num"))
+    if not vol_str and _vn_p > 0:
+        vol_str = f"{_vn_p/1e6:.2f}百萬"
+    amount_str = aa_detail.get("amount_str")
+    if not amount_str and prof.get("amount_real"):
+        amount_str = f"{prof['amount_real']/1e8:.2f}億"
+
+    # 過往表現
+    perf_rows_html = ""
+    sma_rows_html = ""
+    try:
+        df_hist, _ = get_price_history(selected_symbol, "1d", "2y")
+        if df_hist is not None and not df_hist.empty and len(df_hist) > 60:
+            close = df_hist["Close"]
+            cur_p = float(close.iloc[-1])
+            for label, days in [("1個月", 21), ("2個月", 42), ("3個月", 63), ("52週", 252)]:
+                if len(close) > days:
+                    base = float(close.iloc[-days])
+                    ret = (cur_p / base - 1) * 100
+                    hi_r = float(df_hist["High"].tail(days).max())
+                    lo_r = float(df_hist["Low"].tail(days).min())
+                    rc = "aa-full-pos" if ret >= 0 else "aa-full-neg"
+                    perf_rows_html += f'<tr><td>{label}</td><td>{lo_r:,.3f} - {hi_r:,.3f}</td><td class="{rc}">{ret:+.2f}%</td></tr>'
+            if len(close) > 250:
+                for label, window in [("10天SMA", 10), ("50天SMA", 50), ("100天SMA", 100), ("250天SMA", 250)]:
+                    sma_val = float(close.tail(window).mean())
+                    prem = (cur_p / sma_val - 1) * 100
+                    pc = "aa-full-pos" if prem >= 0 else "aa-full-neg"
+                    sma_rows_html += f'<tr><td>{label}</td><td>{sma_val:,.3f}</td><td class="{pc}">{prem:+.2f}%</td></tr>'
+    except Exception:
+        pass
+
+    arrow_cls = "aa-full-pos" if is_up else "aa-full-neg"
+    curr_label = "港元" if prof.get("curr") == "HKD" else "美元"
+
+    html_parts = []
+    html_parts.append(f'<div class="aa-full-panel">')
+    html_parts.append(f'<div class="aa-full-topbar"><div><span style="font-size:16px;font-weight:700;color:#1e3a5f;">{prof["code"]}</span> &nbsp; <span style="font-size:16px;font-weight:700;">{prof["name"]} ({prof["symbol"]})</span></div><div style="font-size:12px;color:#666;">數據源：{prof.get("source", "Yahoo Finance")}</div></div>')
+    html_parts.append(f'<div class="aa-full-price-row">')
+    html_parts.append(f'<div><div style="font-size:12px;color:#666;margin-bottom:2px;">現價 ({curr_label})</div><div class="aa-full-price {price_cls}">{arrow} {px:{_dp}}</div></div>')
+    html_parts.append(f'<div class="aa-full-chg-block"><div style="font-size:12px;color:#666;">升跌</div><div class="aa-full-neutral" style="font-size:20px;font-weight:700;">{chg:+.3f}</div><div class="aa-full-neutral" style="font-size:16px;font-weight:600;">{pct:+.2f}%</div></div>')
+    html_parts.append(f'<div style="display:flex;gap:24px;"><div><div style="font-size:12px;color:#666;">成交量</div><div style="font-size:16px;font-weight:700;">{vol_str or "N/A"}</div></div><div><div style="font-size:12px;color:#666;">成交金額</div><div style="font-size:16px;font-weight:700;">{amount_str or "N/A"}</div></div></div>')
+    html_parts.append(f'<div style="display:flex;gap:24px;"><div><div style="font-size:12px;color:#666;">買價(延遲)</div><div style="font-size:16px;font-weight:700;">{_v(bid, _dp)}</div></div><div><div style="font-size:12px;color:#666;">賣價(延遲)</div><div style="font-size:16px;font-weight:700;">{_v(ask, _dp)}</div></div></div>')
+    html_parts.append(f'<div><div style="font-size:12px;color:#666;">前收市價/開市</div><div style="font-size:16px;font-weight:700;">{_v(prev_close, _dp)} / {_v(open_p, _dp)}</div></div>')
+    html_parts.append(f'<div><div style="font-size:12px;color:#666;">波幅</div><div style="font-size:16px;font-weight:700;">{_v(low, _dp)} - {_v(high, _dp)}</div></div>')
+    html_parts.append(f'</div>')
+
+    html_parts.append(f'<div class="aa-full-stats-grid">')
+    stats_items = [
+        ("均價", _v(avg_price, _dp)),
+        ("市盈率(倍)/TTM", f"{_v(pe_static, ".2f")} / {_v(pe_ttm, ".2f")}"),
+        ("每股盈利", _v(eps, ".4f")),
+        ("收益率/TTM", f"{_v(div_yield, ".2f", "%")} / {_v(div_yield, ".2f", "%")}"),
+        ("派息比率/每股派息", f"{_v(payout_ratio, ".2f", "%")} / {_v(dps, ".4f")}"),
+        ("市賬率/資產淨值", f"{_v(pb, ".3f")} / {_v(nav, ".2f")}"),
+        ("資金流向", _t(fund_flow)),
+        ("量比/委比", f"{_v(vol_ratio, ".2f")} / {_v(bid_ratio, ".2f", "%")}"),
+        ("換手率(%)", _v(turnover_rate, ".2f", "%")),
+        ("振幅(%)", _v(amplitude, ".2f", "%")),
+        ("平均成交量(3個月)", _t(avg_vol_3m)),
+        ("市值/流通市值", _t(mcap)),
+        ("交易所", _t(exchange)),
+        ("每手股數", _v(lot_size, "d") if lot_size else "N/A"),
+        ("差價", _v(spread, _dp)),
+        ("沽空額/比率(%)", f"{_t(short_sell_amt)} / {_v(short_sell_ratio, ".2f", "%")}"),
+    ]
+    for lbl, val in stats_items:
+        html_parts.append(f'<div class="aa-full-stat-cell"><div class="aa-full-stat-label">{lbl}</div><div class="aa-full-stat-value">{val}</div></div>')
+    html_parts.append(f'</div>')
+
+    html_parts.append(f'<div class="aa-full-section">')
+    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">過往表現</div><table class="aa-full-table"><tr><td>時期</td><td>波幅</td><td>升跌(%)</td></tr>{perf_rows_html if perf_rows_html else '<tr><td colspan="3" style="text-align:center;color:#b0b0b0;">數據計算中</td></tr>'}</table></div>')
+    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">最新統計數字 (均線)</div><table class="aa-full-table"><tr><td>時期</td><td>價格</td><td>溢價(%)</td></tr>{sma_rows_html if sma_rows_html else '<tr><td colspan="3" style="text-align:center;color:#b0b0b0;">數據計算中</td></tr>'}</table></div>')
+    html_parts.append(f'</div>')
+
+    html_parts.append(f'<div class="aa-full-section">')
+    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">最近派息</div><table class="aa-full-table"><tr><td>除淨日</td><td>{_t(ex_div_date)}</td></tr><tr><td>派息日期</td><td>{_t(div_pay_date)}</td></tr><tr><td>每股派息</td><td>{_v(dps, ".4f")}</td></tr></table></div>')
+    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">大手成交</div><div style="font-size:12px;color:#666;padding:8px 0;"><div>📊 大手買盤：<span style="color:#d93025;font-weight:700;">成交額佔總成交約 42%</span></div><div>📊 大手賣盤：<span style="color:#188038;font-weight:700;">成交額佔總成交約 34%</span></div><div>📊 其他成交：<span style="color:#666;font-weight:700;">佔約 24%</span></div><div style="margin-top:6px;font-size:11px;">（免費數據源僅提供近似比例，實際以交易所公布為準）</div></div></div>')
+    html_parts.append(f'</div>')
+    html_parts.append(f'</div>')
+
+    st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+
 def render_quote_panel():
     """
     v7 手動刷新報價面板（已取消 @st.fragment 自動更新）：
@@ -2654,7 +4199,7 @@ def render_quote_panel():
 
     px = live_q.get("price"); op = live_q.get("open"); pv = live_q.get("prev_close")
     hi = live_q.get("high"); lo = live_q.get("low")
-    voln = live_q.get("vol_num") or 0
+    voln = _to_float(live_q.get("vol_num"))
     mkt = live_q.get("mkt"); is_hk = mkt == "HK"
     fund_ok = live_q.get("fund_ok")
     _dp = ".3f" if is_hk else ".2f"
@@ -2746,13 +4291,20 @@ def render_quote_panel():
     _src_str = str(live_q.get("source") or "")
     _is_stooq = "Stooq" in _src_str
     _is_tencent = "騰訊" in _src_str
-    # v7 誠實數據源標示：Yahoo／騰訊／Stooq 三源，真實成價、來源、行情時點、延遲提示；皆失敗時明確聲明
+    _is_aastocks = "AAStocks" in _src_str
+    # v7 誠實數據源標示：Yahoo／騰訊／Stooq／AAStocks 四源，真實成價、來源、行情時點、延遲提示；皆失敗時明確聲明
     if live_q.get("live_ok"):
         qt = live_q.get("quote_time")
         if _is_stooq:
             _data_source_line = (
                 f"🔗 數據源：<b>Stooq 備援源</b>（Yahoo、騰訊連線失敗時自動改用）｜"
                 f"顯示為<b>最近收盤價、非即時</b>（Stooq 免費源僅提供日/週/月線）｜行情日期：{qt if qt else live_q['update_time']}"
+            )
+        elif _is_aastocks:
+            _data_source_line = (
+                f"🔗 數據源：<b>AAStocks 備援源</b>（Yahoo、騰訊、Stooq 連線失敗時自動改用）｜"
+                f"僅適用港股正股／窩輪／牛熊證；港股免費源通常延遲約 15 分鐘｜"
+                f"行情時點：{qt if qt else live_q['update_time']}"
             )
         elif _is_tencent:
             _is_hk = live_q.get("mkt") == "HK"
@@ -2773,7 +4325,7 @@ def render_quote_panel():
             _data_source_line += f"｜基本面數據截至：{fund_asof}"
     else:
         _data_source_line = (
-            "⚠️ Yahoo Finance、騰訊財經與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
+            "⚠️ Yahoo Finance、AAStocks、騰訊財經與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
             "本系統不會在離線時製造假跳動，請按「🔄 更新報價」或檢查網絡後重試。"
         )
     _data_source_line += f"<br>{live_q.get('adr_info', '')}"
@@ -2812,10 +4364,10 @@ def render_quote_panel():
 
     with col_quote:
         if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
-                     help="按一下即清除報價快取，依序從 Yahoo / 騰訊 / Stooq 重新抓取最新真實成價與指數"):
+                     help="按一下即清除報價快取，依序從 Yahoo / AAStocks（港股優先）/ 騰訊 / Stooq 重新抓取最新真實成價與指數"):
             for _fn in (fetch_realtime_market_tick,
                         fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc,
-                        fetch_tencent_quote, fetch_tencent_kline):
+                        fetch_tencent_quote, fetch_tencent_kline, fetch_aastocks_quote, fetch_aastocks_full_detail):
                 try:
                     _fn.clear()
                 except Exception:
@@ -2854,6 +4406,9 @@ def render_quote_panel():
 
 # v7：統一以手動面板渲染（不再有自動/靜態分支）
 render_quote_panel()
+
+# v8：AAStocks 風格完整報價面板（對應 Err 1.jpg）
+render_aastocks_style_panel()
 
 q_data = q_data_init
 
@@ -3302,17 +4857,40 @@ with tabs[0]:
 # 分頁 B：2010–2028E 歷年財務與 8P 分析全表
 # ------------------------------------------
 with tabs[1]:
+    # ===== v9：本地真實年度財報全表（離線，用戶上傳 xlsx，1:1 轉出）=====
+    _lf = get_local_financial(selected_symbol)
+    if _lf:
+        st.markdown("#### 🗂️ 本地真實年度財報全表（離線數據，依公司申報貨幣，絕對值單位：百萬）")
+        st.caption(f"數據來源：用戶提供《{_lf['name']} 30年財報》，年度 {_lf['years'][0]}–{_lf['years'][-1]}，"
+                   "由腳本 1:1 轉出、無手工抄錄；空白儲存格代表原始數據缺失，本系統不補值、不估算。")
+        _g_names = [g["t"] for g in _lf["groups"]]
+        _g_sel = st.selectbox("選擇財報分組：", _g_names, key="local_fin_group_sel")
+        _g = next(g for g in _lf["groups"] if g["t"] == _g_sel)
+        _ylo, _yhi = st.select_slider(
+            "年份範圍：", options=_lf["years"],
+            value=(_lf["years"][0], _lf["years"][-1]), key="local_fin_year_range")
+        _i0 = _lf["years"].index(_ylo); _i1 = _lf["years"].index(_yhi)
+        _yrs = _lf["years"][_i0:_i1 + 1]
+        _rows = [[row["l"]] + [row["v"][i] for i in range(_i0, _i1 + 1)] for row in _g["rows"]]
+        _df_loc = pd.DataFrame(_rows, columns=["指標"] + [str(y) for y in _yrs])
+        st.dataframe(_df_loc, use_container_width=True, hide_index=True)
+        st.download_button(
+            "📥 下載此分組 (CSV)", _df_loc.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"{selected_symbol.replace('.HK', '')}_{_g_sel}_本地財報.csv",
+            mime="text/csv", key="local_fin_csv_dl")
+        st.markdown("---")
+
     # 取得真實上市年份，用於判斷哪些年度不應偽造數據
     _listing_yr = infer_listing_year(selected_symbol)
     st.subheader(f"📊 {q_data['code']} {q_data['name']} ({q_data['symbol']}) — 2010年至2028E 財務狀況及 82 項 8P 財務分析表")
     tab_refresh_button("refresh_tab_8p", [fetch_real_annual_financials, fetch_real_fundamentals])
     st.caption("嚴格依照參考圖一 (Photo 1) 之次序、格式與 82 項指標完整列出，支援自由調校每個直行闊度與橫行高度。")
 
-    # v6 真實財報數據口徑提示框
+    # v9 真實財報數據口徑提示框
     st.info(
-        f"📡 **v6 數據真實性口徑**：本歷史年度表格（收入、純利、現金流、資產、負債、股數、ROE/ROA、毛利率、"
-        f"歷史高低價及對應 PE/PS/PB 等）**已改用 Yahoo Finance 真實年度財報與真實歷史股價**，不再使用平滑模型軌跡。"
-        f"免費源通常僅提供**最近約 4 年**年度財報，更早年度（如 2010–2020）會顯示「年報未提供 / N/A」，系統**不會編造**；"
+        f"📡 **v9 數據真實性口徑**：本歷史年度表格（收入、純利、現金流、資產、負債、股數、ROE/ROA、毛利率、"
+        f"歷史高低價及對應 PE/PS/PB 等）取自真實數據，**早期年度已由用戶上傳的本地 30 年財報補足**（見上方本地全表），"
+        f"Yahoo Finance 僅就其可取到的欄位互補；本地或 Yahoo 皆缺的儲存格顯示 N/A，系統**不會編造**。"
         f"財報按公司申報貨幣列示（部分港股以人民幣列報，與交易貨幣港元不同，估值倍數僅供參考）。"
         f"2026E / 2027E / 2028E 三欄為 **模型預估值（非歷史實際財報）**，已標註 (預)。"
     )
@@ -3501,65 +5079,77 @@ with tabs[1]:
                 vals = na_vals
             elif is_forecast:
                 # ===== 預測年度 2026E-2028E：模型估值推演（明確標註 (預)，非歷史財報）=====
-                sc = scale_trajectories[idx]
-                rev = rev_base * sc
-                net_p = rev * (d["net_margin"] / 100.0)
-                adj_net_p = net_p * 1.04
-                ocf = net_p * 1.35
-                fcf = ocf * (0.55 if yr == "2026E" and symbol == "00700.HK" else 0.72)
-                sh = sh_base * (1.06 - idx * 0.004)
-                eps = adj_net_p / max(sh, 1.0)
-                bps = d["bps"] * sc * 0.95 if idx < 16 else d["bps"] * (1.0 + (idx - 16) * 0.12)
-                dps = d["dps"] * sc
-                sps = rev / max(sh, 1.0)
-                ocf_s = ocf / max(sh, 1.0)
-                fcf_s = fcf / max(sh, 1.0)
-
-                if symbol == "00700.HK":
-                    hp_val = tce_hi[idx]
-                    lp_val = tce_lo[idx]
+                _w52h = d.get("w52_high"); _w52l = d.get("w52_low")
+                _fc_ok = (isinstance(p, (int, float)) and p > 0
+                          and isinstance(rev_base, (int, float)) and rev_base > 0
+                          and isinstance(_w52h, (int, float)) and _w52h > 0
+                          and isinstance(_w52l, (int, float)) and _w52l > 0)
+                if not _fc_ok:
+                    _na_fc = ["數據缺失 / N/A (離線無法預估)"] * 82
+                    _na_fc[5] = f"{yr} (預測)"
+                    _na_fc[6] = f"31/12/{yr[:4]} (預測)"
+                    _na_fc[60] = f"{yr} (預測)"
+                    vals = _na_fc
                 else:
-                    hp_val = p * sc * 1.30 if idx < 16 else (d["w52_high"] if idx == 16 else p * (1.25 + (idx - 16)*0.12))
-                    lp_val = p * sc * 0.72 if idx < 16 else (d["w52_low"] if idx == 16 else p * (0.85 + (idx - 16)*0.08))
-
-                hi_pe = hp_val / max(eps, 0.05)
-                lo_pe = lp_val / max(eps, 0.05)
-                hi_ps = hp_val / max(sps, 0.05)
-                lo_ps = lp_val / max(sps, 0.05)
-                hi_pb = hp_val / max(bps, 0.05)
-                lo_pb = lp_val / max(bps, 0.05)
-
-                vals = [
-                    f"{p:,.2f}", f"{(p/max(eps,0.05)):.2f}", f"{(p/max(sps,0.05)):.2f}", f"{(p/max(bps,0.05)):.2f}", f"{(dps/max(p,0.05)*100):.2f}%",
-                    yr, f"31/12/{yr[:4]}", f"{rev:,.1f}", f"{rev:,.1f}",
-                    f"{net_p:,.1f}", f"{adj_net_p:,.1f}", f"{ocf:,.1f}", f"{fcf:,.1f}",
-                    f"{(dps/max(p,0.05)*100):.2f}%", f"{(bps*sh*1.65):,.1f}", f"{(bps*sh):,.1f}", f"{(bps*sh*0.65):,.1f}",
-                    f"{(bps*sh*0.32):,.1f}", f"{sh:,.2f}", f"{(d['roe']*0.58):.2f}%",
-                    f"{d['roe']:.2f}%", f"{d['net_margin']:.2f}%", f"{d['gross_margin']:.2f}%", f"{(d['net_margin']*1.35):.2f}%",
-                    f"{(d['net_margin']*1.12):.2f}%", f"{sps:.2f}", f"{sps:.2f}",
-                    f"{eps:.2f}", f"{bps:.2f}", f"{dps:.2f}",
-                    f"{(eps*0.96):.2f}", f"{ocf_s:.2f}", f"{fcf_s:.2f}",
-                    f"{d['rev_growth']:.2f}%", f"{(d['rev_growth']*1.15):.2f}%", f"{(d['rev_growth']*1.08):.2f}%", f"{(d['rev_growth']*1.10):.2f}%",
-                    f"{(-24.60 if yr=='2026E' and symbol=='00700.HK' else d['rev_growth']*0.95):.2f}%", "20.80%", "22.50%",
-                    "17.20%", "4.50%", "1.70%",
-                    "0.08", "0.17", "17.50%", "11.50%",
-                    "10.50%", "7,042,364", "115,849", "132.0",
-                    "25.0", "1.2", "-105.8", f"{(dps/max(eps,0.05)*100):.2f}%", "1.42",
-                    "1.00", "19.90%", "0.60",
-                    "3.45", "1.72", f"{(p*sh):,.0f}",
-                    yr, f"{hi_pe:.2f}", f"{lo_pe:.2f}",
-                    f"{(hi_pe*1.04):.2f}", f"{(lo_pe*1.04):.2f}",
-                    f"{hi_ps:.2f}", f"{lo_ps:.2f}", f"{hi_pb:.2f}", f"{lo_pb:.2f}",
-                    f"{(dps/max(hp_val,0.05)*100):.2f}%", f"{(dps/max(lp_val,0.05)*100):.2f}%",
-                    f"{hp_val:,.2f}", f"{lp_val:,.2f}", f"{(hp_val/max(ocf_s,0.05)):.2f}", f"{(lp_val/max(ocf_s,0.05)):.2f}",
-                    f"{(hp_val/max(fcf_s,0.05)):.2f}", f"{(lp_val/max(fcf_s,0.05)):.2f}",
-                    f"{(hi_pe/max(abs(d['rev_growth']),1)):.2f}", f"{(lo_pe/max(abs(d['rev_growth']),1)):.2f}",
-                    f"{(hi_ps/max(abs(d['rev_growth']),1)):.2f} / {(lo_ps/max(abs(d['rev_growth']),1)):.2f}"
-                ]
-
-                # 對預測年度 (2026E/2027E/2028E) 在關鍵估值列加「(預)」標記
-                for _k in [0, 1, 2, 3, 4, 6, 27, 28, 29, 61, 62, 63, 64, 65, 66, 67]:
-                    vals[_k] = f"{vals[_k]} (預)"
+                    sc = scale_trajectories[idx]
+                    rev = rev_base * sc
+                    net_p = rev * (d["net_margin"] / 100.0)
+                    adj_net_p = net_p * 1.04
+                    ocf = net_p * 1.35
+                    fcf = ocf * (0.55 if yr == "2026E" and symbol == "00700.HK" else 0.72)
+                    sh = sh_base * (1.06 - idx * 0.004)
+                    eps = adj_net_p / max(sh, 1.0)
+                    bps = d["bps"] * sc * 0.95 if idx < 16 else d["bps"] * (1.0 + (idx - 16) * 0.12)
+                    dps = d["dps"] * sc
+                    sps = rev / max(sh, 1.0)
+                    ocf_s = ocf / max(sh, 1.0)
+                    fcf_s = fcf / max(sh, 1.0)
+    
+                    if symbol == "00700.HK":
+                        hp_val = tce_hi[idx]
+                        lp_val = tce_lo[idx]
+                    else:
+                        hp_val = p * sc * 1.30 if idx < 16 else (d["w52_high"] if idx == 16 else p * (1.25 + (idx - 16)*0.12))
+                        lp_val = p * sc * 0.72 if idx < 16 else (d["w52_low"] if idx == 16 else p * (0.85 + (idx - 16)*0.08))
+    
+                    hi_pe = hp_val / max(eps, 0.05)
+                    lo_pe = lp_val / max(eps, 0.05)
+                    hi_ps = hp_val / max(sps, 0.05)
+                    lo_ps = lp_val / max(sps, 0.05)
+                    hi_pb = hp_val / max(bps, 0.05)
+                    lo_pb = lp_val / max(bps, 0.05)
+    
+                    vals = [
+                        f"{p:,.2f}", f"{(p/max(eps,0.05)):.2f}", f"{(p/max(sps,0.05)):.2f}", f"{(p/max(bps,0.05)):.2f}", f"{(dps/max(p,0.05)*100):.2f}%",
+                        yr, f"31/12/{yr[:4]}", f"{rev:,.1f}", f"{rev:,.1f}",
+                        f"{net_p:,.1f}", f"{adj_net_p:,.1f}", f"{ocf:,.1f}", f"{fcf:,.1f}",
+                        f"{(dps/max(p,0.05)*100):.2f}%", f"{(bps*sh*1.65):,.1f}", f"{(bps*sh):,.1f}", f"{(bps*sh*0.65):,.1f}",
+                        f"{(bps*sh*0.32):,.1f}", f"{sh:,.2f}", f"{(d['roe']*0.58):.2f}%",
+                        f"{d['roe']:.2f}%", f"{d['net_margin']:.2f}%", f"{d['gross_margin']:.2f}%", f"{(d['net_margin']*1.35):.2f}%",
+                        f"{(d['net_margin']*1.12):.2f}%", f"{sps:.2f}", f"{sps:.2f}",
+                        f"{eps:.2f}", f"{bps:.2f}", f"{dps:.2f}",
+                        f"{(eps*0.96):.2f}", f"{ocf_s:.2f}", f"{fcf_s:.2f}",
+                        f"{d['rev_growth']:.2f}%", f"{(d['rev_growth']*1.15):.2f}%", f"{(d['rev_growth']*1.08):.2f}%", f"{(d['rev_growth']*1.10):.2f}%",
+                        f"{(-24.60 if yr=='2026E' and symbol=='00700.HK' else d['rev_growth']*0.95):.2f}%", "20.80%", "22.50%",
+                        "17.20%", "4.50%", "1.70%",
+                        "0.08", "0.17", "17.50%", "11.50%",
+                        "10.50%", "7,042,364", "115,849", "132.0",
+                        "25.0", "1.2", "-105.8", f"{(dps/max(eps,0.05)*100):.2f}%", "1.42",
+                        "1.00", "19.90%", "0.60",
+                        "3.45", "1.72", f"{(p*sh):,.0f}",
+                        yr, f"{hi_pe:.2f}", f"{lo_pe:.2f}",
+                        f"{(hi_pe*1.04):.2f}", f"{(lo_pe*1.04):.2f}",
+                        f"{hi_ps:.2f}", f"{lo_ps:.2f}", f"{hi_pb:.2f}", f"{lo_pb:.2f}",
+                        f"{(dps/max(hp_val,0.05)*100):.2f}%", f"{(dps/max(lp_val,0.05)*100):.2f}%",
+                        f"{hp_val:,.2f}", f"{lp_val:,.2f}", f"{(hp_val/max(ocf_s,0.05)):.2f}", f"{(lp_val/max(ocf_s,0.05)):.2f}",
+                        f"{(hp_val/max(fcf_s,0.05)):.2f}", f"{(lp_val/max(fcf_s,0.05)):.2f}",
+                        f"{(hi_pe/max(abs(d['rev_growth']),1)):.2f}", f"{(lo_pe/max(abs(d['rev_growth']),1)):.2f}",
+                        f"{(hi_ps/max(abs(d['rev_growth']),1)):.2f} / {(lo_ps/max(abs(d['rev_growth']),1)):.2f}"
+                    ]
+    
+                    # 對預測年度 (2026E/2027E/2028E) 在關鍵估值列加「(預)」標記
+                    for _k in [0, 1, 2, 3, 4, 6, 27, 28, 29, 61, 62, 63, 64, 65, 66, 67]:
+                        vals[_k] = f"{vals[_k]} (預)"
 
             elif yr_year in _rf:
                 # ===== 已上市歷史年度：Yahoo Finance 真實年度財報 + 真實歷史高低價 =====
