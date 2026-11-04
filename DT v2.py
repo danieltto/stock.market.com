@@ -20,6 +20,43 @@ except ImportError:
     HAS_SEARCHBOX = False
 
 # ==========================================
+# v10：手動聯網門控（預設禁止自動聯網；僅手動更新按鈕觸發的單次 rerun 放行）
+# 舊版切股時頂層自動走「報價競速＋K線多源備援」，新代號 cache miss 時各源 timeout 累加可達 20 秒以上。
+# 此處統一門控：所有網絡入口（urllib 4 處、yfinance 經 _run_with_timeout、fetch_realtime 競速）先檢查
+# _network_allowed()，不許可即「快速失敗、不發任何請求」，由現有離線邏輯回退到本地/快取或 N/A，絕不後台重試。
+# ==========================================
+_MANUAL_NETWORK_KEY = "_manual_network_open"
+_FIRST_INIT_KEY = "_v10_first_init_done"
+
+
+def _network_allowed() -> bool:
+    return bool(st.session_state.get(_MANUAL_NETWORK_KEY, False))
+
+
+def open_manual_network():
+    """手動更新按鈕呼叫：標記本次 rerun 允許聯網（單次）。"""
+    st.session_state[_MANUAL_NETWORK_KEY] = True
+
+
+def close_manual_network():
+    """本次 rerun 抓取結束後關閉，恢復預設禁止自動聯網。"""
+    st.session_state[_MANUAL_NETWORK_KEY] = False
+
+
+# 每次 rerun 開頭明確決定本次門狀態（不依賴腳本末尾，避免異常中斷後門殘留開放）：
+#   ① 手動按鈕會先設 _pending_open=True 再 rerun → 本次開門；
+#   ② 首次開啟會話 → 開門一次以載入默認標的（頁面初始化，非自動/定時更新）；
+#   ③ 其餘一切 rerun（切股、切週期、拖滑桿等）→ 一律關門，網絡入口快速失敗，不自動抓數據。
+_PENDING_OPEN_KEY = "_pending_open"
+if st.session_state.pop(_PENDING_OPEN_KEY, False):
+    st.session_state[_MANUAL_NETWORK_KEY] = True
+elif not st.session_state.get(_FIRST_INIT_KEY):
+    st.session_state[_FIRST_INIT_KEY] = True
+    st.session_state[_MANUAL_NETWORK_KEY] = True
+else:
+    st.session_state[_MANUAL_NETWORK_KEY] = False
+
+# ==========================================
 # 1. 頁面設定與防查看原始碼安全注入
 # ==========================================
 st.set_page_config(
@@ -1019,6 +1056,8 @@ def fetch_stooq_ohlc(symbol: str, stooq_interval: str = "d", days: int = 2600):
         try:
             url = f"https://stooq.com/q/d/l/?s={ss}&i={stooq_interval}"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            if not _network_allowed():
+                raise OSError("manual mode: 自動聯網已關閉")
             with urllib.request.urlopen(req, timeout=12) as resp:
                 raw = resp.read().decode("utf-8", errors="ignore")
             if not raw or "No data" in raw or len(raw) < 40:
@@ -1094,6 +1133,8 @@ def fetch_aastocks_quote(symbol: str):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://www.aastocks.com/"})
+        if not _network_allowed():
+            raise OSError("manual mode: 自動聯網已關閉")
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw = resp.read().decode("utf-8", errors="ignore")
         j = json.loads(raw)
@@ -1172,6 +1213,8 @@ def fetch_aastocks_full_detail(symbol: str):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Referer": "https://www.aastocks.com/"})
+        if not _network_allowed():
+            raise OSError("manual mode: 自動聯網已關閉")
         with urllib.request.urlopen(req, timeout=12) as resp:
             html_raw = resp.read().decode("utf-8", errors="ignore")
         if not html_raw or len(html_raw) < 5000:
@@ -1256,6 +1299,8 @@ _TENCENT_IDX = {
 
 
 def _http_get_text(url: str, encoding: str = "utf-8", timeout: int = 10):
+    if not _network_allowed():
+        raise OSError("manual mode: 自動聯網已關閉，請按手動更新按鈕")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Referer": "https://gu.qq.com/"})
@@ -1610,7 +1655,10 @@ def _race_quote(workers, deadline=3.0):
 def _run_with_timeout(fn, timeout=4.0, default=None):
     """在獨立守護線程執行 fn，最多等 timeout；超時或拋異常回 default。
     用於給 yfinance 這類「內部重試不受 urllib timeout 控制」的調用加上硬性截止，避免單一慢源拖垮整頁；
-    守護線程在超時後於後台自行結束，不阻止進程退出。"""
+    守護線程在超時後於後台自行結束，不阻止進程退出。
+    v10：手動門控關閉時（切股/非更新 rerun）直接回 default，連線程都不啟動，確保零網絡、零等待。"""
+    if not _network_allowed():
+        return default
     import threading
     box = {}
 
@@ -1635,6 +1683,9 @@ def fetch_realtime_market_tick(symbol: str):
     快取 ttl 拉長至 600s，配合手動按鈕刷新，避免切股反覆重抓造成凍結。"""
     base = {"live_ok": False, "bid": None, "ask": None, "bid_size": None,
             "ask_size": None, "quote_time": None, "delayed": None}
+    # v10：門控關閉時不啟動任何競速線程（含 worker_yahoo 內直接 yf.Ticker），立即回 base。
+    if not _network_allowed():
+        return base
 
     # --- 即時源 1：Yahoo（yfinance；慢或被干擾時在獨立線程，不阻塞其他源）---
     def worker_yahoo():
@@ -3713,7 +3764,8 @@ with col_s2:
         )
     with c_tf3:
         st.markdown("<div style='margin-top:26px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 全部更新", help="手動清空快取並重新抓取所有真實數據（v7 已取消自動更新）", use_container_width=True):
+        if st.button("🔄 全部更新", help="手動開門並清空快取，單次重新抓取所有真實數據（v10 預設禁止自動聯網）", use_container_width=True):
+            st.session_state[_PENDING_OPEN_KEY] = True
             for _fn in (fetch_realtime_market_tick, fetch_real_fundamentals,
                         fetch_real_momentum_snapshot, fetch_real_annual_financials,
                         fetch_real_monthly_path, get_price_history, fetch_stooq_ohlc,
@@ -3722,7 +3774,11 @@ with col_s2:
                     _fn.clear()
                 except Exception:
                     pass
-            # 圖表快取 get_multi_tf_ohlcv 定義於本段之後，改由圖表區專用「更新圖表」按鈕清除
+            # 圖表快取 get_multi_tf_ohlcv 一併清除（按鈕執行時該函數已於模塊全局定義）
+            try:
+                get_multi_tf_ohlcv.clear()
+            except Exception:
+                pass
             st.rerun()
 
 # 修正問題5：設置互動式按鈕控制，隨時加入或刪除 RSI, MACD, Volume, MA, 布林通道
@@ -3966,7 +4022,8 @@ with col_chart:
     with _cc1:
         st.markdown("<div style='height:1px;'></div>", unsafe_allow_html=True)
         if st.button("🔄 更新圖表", key="refresh_chart_btn", use_container_width=True,
-                     help="按一下即清除圖表快取，重新從 Yahoo / Stooq 抓取所選時間週期的真實 K 線"):
+                     help="按一下即開門並清除圖表快取，單次重新抓取所選時間週期的真實 K 線"):
+            st.session_state[_PENDING_OPEN_KEY] = True
             for _fn in (get_multi_tf_ohlcv, get_price_history, fetch_stooq_ohlc, fetch_tencent_kline):
                 try:
                     _fn.clear()
@@ -4164,6 +4221,10 @@ def render_quote_panel():
     spx_q = get_or_create_asset_profile("^GSPC", apply_micro_tick=False)
     ndx_q = get_or_create_asset_profile("^IXIC", apply_micro_tick=False)
     dji_q = get_or_create_asset_profile("^DJI", apply_micro_tick=False)
+
+    # v10：手動模式下未取得真實報價時，明確提示，避免用戶把本地基線/快取值誤當成當前最新價
+    if not live_q.get("live_ok"):
+        st.info("📭 尚未載入此標的的即時報價（手動模式不會自動連線）。下方報價卡為本地基線／快取值，可能非最新；請按「🔄 更新報價」或「🔄 全部更新」以取得真實最新數據。")
 
     def _num(v, spec=",.2f", suffix=""):
         try:
@@ -4364,7 +4425,8 @@ def render_quote_panel():
 
     with col_quote:
         if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
-                     help="按一下即清除報價快取，依序從 Yahoo / AAStocks（港股優先）/ 騰訊 / Stooq 重新抓取最新真實成價與指數"):
+                     help="按一下即開門並清除報價快取，單次重新抓取最新真實成價與指數"):
+            st.session_state[_PENDING_OPEN_KEY] = True
             for _fn in (fetch_realtime_market_tick,
                         fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc,
                         fetch_tencent_quote, fetch_tencent_kline, fetch_aastocks_quote, fetch_aastocks_full_detail):
@@ -4726,6 +4788,7 @@ with tabs[0]:
         return sym, prof, mom, fc
 
     if run_real:
+        open_manual_network()
         targets = _symbols[:max_rows]
         results = {}
         prog = st.progress(0.0, text=f"正以真實市場數據計算 0/{len(targets)} …")
@@ -4743,6 +4806,7 @@ with tabs[0]:
         prog.empty()
         st.session_state["real_screener"] = results
         st.session_state["real_screener_key"] = (mkt_filter, max_rows)
+        close_manual_network()
 
     real_results = st.session_state.get("real_screener")
     use_real = bool(real_results) and st.session_state.get("real_screener_key") == (mkt_filter, max_rows)
@@ -5329,7 +5393,8 @@ with tabs[3]:
     with _w_r1:
         st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
         if st.button("🔄 更新波浪分析", key="refresh_wave_btn", use_container_width=True,
-                     help="重新從 Yahoo / 騰訊 / Stooq 抓取真實日線與月度走勢，重算擺動點與標浪"):
+                     help="開門並單次重新抓取真實日線與月度走勢，重算擺動點與標浪"):
+            st.session_state[_PENDING_OPEN_KEY] = True
             for _fn in (fetch_real_monthly_path, fetch_real_momentum_snapshot,
                         get_price_history, fetch_stooq_ohlc, fetch_tencent_kline):
                 try:
