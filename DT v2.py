@@ -79,8 +79,10 @@ def apply_theme(theme_mode: str):
     )
 
 # 右上角主題切換按鈕（固定定位）
-_theme_top = st.columns([10, 1.2, 1.2])
+_theme_top = st.columns([10, 1.6])
 with _theme_top[1]:
+    # v11：以專屬容器包裹主題選擇器，背景色由 CSS 依各主題設定，避免與頁面背景衝突或融為一體
+    st.markdown('<div class="theme-picker-wrap">', unsafe_allow_html=True)
     theme_choice = st.selectbox(
         "🎨 背景主題",
         ["☀️ 白色", "🌙 深藍", "⚫ 黑色"],
@@ -88,6 +90,7 @@ with _theme_top[1]:
         key="theme_selectbox",
         label_visibility="collapsed"
     )
+    st.markdown('</div>', unsafe_allow_html=True)
     _theme_map = {"☀️ 白色": "light", "🌙 深藍": "darkblue", "⚫ 黑色": "dark"}
     st.session_state["theme_mode"] = _theme_map.get(theme_choice, "light")
 apply_theme(st.session_state["theme_mode"])
@@ -497,6 +500,30 @@ def inject_security_and_styles():
         }
         body.theme-darkblue hr, body.theme-dark hr { border-color: var(--border) !important; }
 
+        /* v11 右上角主題選擇器：明確背景與邊框，三主題各自協調，文字/箭頭對比清晰，不與頁面背景衝突 */
+        .theme-picker-wrap {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 5px 8px;
+        }
+        .theme-picker-wrap [data-baseweb="select"] > div {
+            background-color: transparent !important;
+            border: none !important;
+        }
+        body.theme-darkblue .theme-picker-wrap {
+            background: #13285a; border: 1px solid #2a4480;
+        }
+        body.theme-dark .theme-picker-wrap {
+            background: #171717; border: 1px solid #2d2d2d;
+        }
+        body.theme-darkblue .theme-picker-wrap [data-baseweb="select"] span,
+        body.theme-dark .theme-picker-wrap [data-baseweb="select"] span,
+        body.theme-darkblue .theme-picker-wrap svg,
+        body.theme-dark .theme-picker-wrap svg {
+            color: var(--text); fill: var(--text);
+        }
+
         /* 主題切換按鈕固定在右上角 */
         .theme-switcher-fixed {
             position: fixed;
@@ -515,36 +542,6 @@ def inject_security_and_styles():
             border-color: #2a4580;
         }
 
-        /* v8：AAStocks 風格面板 */
-        .aa-full-panel { background:#fff; border:1px solid #d9d9d9; border-radius:6px; margin-bottom:14px; overflow:hidden; }
-        .aa-full-topbar { background:linear-gradient(135deg,#f8f9fa,#e9ecef); padding:10px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1a73e8; }
-        .aa-full-price-row { display:flex; align-items:center; gap:20px; padding:16px; border-bottom:1px solid #e9ecef; flex-wrap:wrap; }
-        .aa-full-price { font-size:42px; font-weight:800; line-height:1; }
-        .aa-full-chg-block { display:flex; flex-direction:column; gap:2px; }
-        .aa-full-stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:#e9ecef; padding:1px; }
-        .aa-full-stat-cell { background:#fff; padding:10px 14px; }
-        .aa-full-stat-label { color:#666; font-size:12px; margin-bottom:4px; }
-        .aa-full-stat-value { color:#111; font-size:14px; font-weight:700; }
-        .aa-full-section { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#e9ecef; padding:1px; }
-        .aa-full-section-box { background:#fff; padding:14px 16px; }
-        .aa-full-section-title { font-size:14px; font-weight:700; color:#1e3a5f; border-bottom:2px solid #1a73e8; padding-bottom:6px; margin-bottom:10px; }
-        .aa-full-table { width:100%; border-collapse:collapse; font-size:13px; }
-        .aa-full-table td { padding:5px 8px; border-bottom:1px solid #f0f0f0; }
-        .aa-full-table td:first-child { color:#666; }
-        .aa-full-table td:last-child { text-align:right; font-weight:600; }
-        .aa-full-pos { color:#d93025; font-weight:700; }
-        .aa-full-neg { color:#188038; font-weight:700; }
-        .aa-full-neutral { color:#111; font-weight:600; }
-        .aa-full-na { color:#b0b0b0; }
-        body.theme-darkblue .aa-full-panel, body.theme-dark .aa-full-panel { background:var(--panel); border-color:var(--border); }
-        body.theme-darkblue .aa-full-topbar, body.theme-dark .aa-full-topbar { background:var(--panel2); border-bottom-color:var(--accent); }
-        body.theme-darkblue .aa-full-stats-grid, body.theme-dark .aa-full-stats-grid, body.theme-darkblue .aa-full-section, body.theme-dark .aa-full-section { background:var(--border); }
-        body.theme-darkblue .aa-full-stat-cell, body.theme-dark .aa-full-stat-cell, body.theme-darkblue .aa-full-section-box, body.theme-dark .aa-full-section-box { background:var(--panel); }
-        body.theme-darkblue .aa-full-stat-label, body.theme-dark .aa-full-stat-label { color:var(--muted); }
-        body.theme-darkblue .aa-full-stat-value, body.theme-dark .aa-full-stat-value { color:var(--text); }
-        body.theme-darkblue .aa-full-section-title, body.theme-dark .aa-full-section-title { color:var(--text); border-bottom-color:var(--accent); }
-        body.theme-darkblue .aa-full-table td, body.theme-dark .aa-full-table td { border-color:var(--border); color:var(--text); }
-        body.theme-darkblue .aa-full-table td:first-child, body.theme-dark .aa-full-table td:first-child { color:var(--muted); }
         </style>
     """, unsafe_allow_html=True)
     
@@ -3890,25 +3887,10 @@ df_chart = get_multi_tf_ohlcv(selected_symbol, selected_tf)
 q_data_init = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
 # v6 離線安全：圖表數據缺失時不應令引用 MA20/BB/RSI 的分頁崩潰
 chart_ok = bool(df_chart.attrs.get("data_ok", not df_chart.empty)) if hasattr(df_chart, "attrs") else (not df_chart.empty)
-ma20_txt = f"{df_chart['MA20'].iloc[-1]:,.2f} {q_data_init['curr']}" if (chart_ok and "MA20" in df_chart.columns) else "20 日均線（真實數據暫缺）"
+ma20_txt = f"{df_chart['MA20'].iloc[-1]:.2f} {q_data_init['curr']}" if (chart_ok and "MA20" in df_chart.columns) else "20 日均線（真實數據暫缺）"
 
-# ==========================================
-# 7. 13個頂部功能導覽按鈕
-# ==========================================
-aa_nav_options = [
-    "快速報價", "詳細報價", "圖表分析", "互動圖表",
-    "股價走勢", "大戶成交", "資金流向", "同業比較",
-    "新聞公告", "派息紀錄", "公司資料", "沽空數據", "🔥 窩輪/牛熊證"
-]
-
-active_aa_tab = st.radio(
-    "頂部功能導覽列：",
-    options=aa_nav_options,
-    index=0,
-    horizontal=True,
-    label_visibility="collapsed",
-    key="aa_top_nav_radio_v6"
-)
+# v11：已移除 13 個頂部功能導覽 radio 及其全部專項面板（詳細報價、窩輪牛熊、圖表分析、大戶成交等），
+# 僅保留精簡報價卡與 K 線，減少自動觸發的計算與程式碼行數。
 
 # ==========================================
 # 8. 主圖表（v7：取消自動更新，圖表僅在切換標的/週期或按「更新圖表」時重抓；
@@ -4048,420 +4030,70 @@ with col_chart:
     st.plotly_chart(build_static_chart_figure(), use_container_width=True, key="main_kline_static", config={"displayModeBar": True, "responsive": True})
 
 
-def render_aastocks_style_panel():
-    """v8：AAStocks 風格完整報價面板（對應 Err 1.jpg）。"""
-    try:
-        prof = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
-    except Exception:
-        return
-    if not prof.get("live_ok"):
-        return
-    px = prof.get("price")
-    if px is None:
-        return
-
-    is_up = prof.get("change", 0) >= 0
-    arrow = "▲" if is_up else "▼"
-    chg = prof.get("change", 0)
-    pct = prof.get("pct", 0)
-    price_cls = "aa-full-pos" if is_up else "aa-full-neg"
-    _dp = ".3f" if prof.get("mkt") == "HK" else ".2f"
-
-    def _v(val, spec=",.2f", suffix=""):
-        if val is None or val == "":
-            return '<span class="aa-full-na">N/A</span>'
-        try:
-            return f'<span class="aa-full-neutral">{float(val):{spec}}{suffix}</span>'
-        except Exception:
-            return f'<span class="aa-full-neutral">{val}</span>'
-
-    def _t(val):
-        if val is None or val == "":
-            return '<span class="aa-full-na">N/A</span>'
-        return f'<span class="aa-full-neutral">{val}</span>'
-
-    # 取得 AAStocks 詳細數據
-    aa_detail = {}
-    try:
-        if prof.get("mkt") in ("HK", "WARRANT", "CBBC"):
-            aa_detail = fetch_aastocks_full_detail(selected_symbol) or {}
-    except Exception:
-        aa_detail = {}
-
-    # 合併數據
-    bid = aa_detail.get("bid") or prof.get("bid")
-    ask = aa_detail.get("ask") or prof.get("ask")
-    prev_close = aa_detail.get("prev_close") or prof.get("prev_close")
-    open_p = aa_detail.get("open") or prof.get("open")
-    high = aa_detail.get("high") or prof.get("high")
-    low = aa_detail.get("low") or prof.get("low")
-    avg_price = aa_detail.get("avg_price")
-    if avg_price is None and high and low and px:
-        avg_price = (high + low + px) / 3.0
-    pe_static = aa_detail.get("pe_static") or prof.get("pe")
-    pe_ttm = aa_detail.get("pe_ttm") or prof.get("pe")
-    eps = aa_detail.get("eps") or prof.get("eps")
-    div_yield = aa_detail.get("div_yield") or prof.get("yield")
-    payout_ratio = aa_detail.get("payout_ratio")
-    dps = aa_detail.get("dps") or prof.get("dps")
-    pb = aa_detail.get("pb") or prof.get("pb")
-    nav = aa_detail.get("nav")
-    fund_flow = aa_detail.get("fund_flow")
-    vol_ratio = aa_detail.get("vol_ratio")
-    bid_ratio = aa_detail.get("bid_ratio")
-    turnover_rate = aa_detail.get("turnover_rate")
-    amplitude = aa_detail.get("amplitude")
-    if amplitude is None and high and low and prev_close:
-        amplitude = (high - low) / prev_close * 100.0
-    avg_vol_3m = aa_detail.get("avg_vol_3m")
-    mcap = aa_detail.get("mcap")
-    if not mcap and prof.get("mcap_yi_real"):
-        mcap = f"{prof['mcap_yi_real']:,.2f}億"
-    exchange = aa_detail.get("exchange") or ("港交所" if prof.get("mkt") == "HK" else "NYSE/NASDAQ")
-    lot_size = aa_detail.get("lot_size") or prof.get("lot")
-    spread = aa_detail.get("spread")
-    short_sell_amt = aa_detail.get("short_sell_amt")
-    short_sell_ratio = aa_detail.get("short_sell_ratio")
-    ex_div_date = aa_detail.get("ex_div_date")
-    div_pay_date = aa_detail.get("div_pay_date")
-    vol_str = aa_detail.get("vol_str")
-    _vn_p = _to_float(prof.get("vol_num"))
-    if not vol_str and _vn_p > 0:
-        vol_str = f"{_vn_p/1e6:.2f}百萬"
-    amount_str = aa_detail.get("amount_str")
-    if not amount_str and prof.get("amount_real"):
-        amount_str = f"{prof['amount_real']/1e8:.2f}億"
-
-    # 過往表現
-    perf_rows_html = ""
-    sma_rows_html = ""
-    try:
-        df_hist, _ = get_price_history(selected_symbol, "1d", "2y")
-        if df_hist is not None and not df_hist.empty and len(df_hist) > 60:
-            close = df_hist["Close"]
-            cur_p = float(close.iloc[-1])
-            for label, days in [("1個月", 21), ("2個月", 42), ("3個月", 63), ("52週", 252)]:
-                if len(close) > days:
-                    base = float(close.iloc[-days])
-                    ret = (cur_p / base - 1) * 100
-                    hi_r = float(df_hist["High"].tail(days).max())
-                    lo_r = float(df_hist["Low"].tail(days).min())
-                    rc = "aa-full-pos" if ret >= 0 else "aa-full-neg"
-                    perf_rows_html += f'<tr><td>{label}</td><td>{lo_r:,.3f} - {hi_r:,.3f}</td><td class="{rc}">{ret:+.2f}%</td></tr>'
-            if len(close) > 250:
-                for label, window in [("10天SMA", 10), ("50天SMA", 50), ("100天SMA", 100), ("250天SMA", 250)]:
-                    sma_val = float(close.tail(window).mean())
-                    prem = (cur_p / sma_val - 1) * 100
-                    pc = "aa-full-pos" if prem >= 0 else "aa-full-neg"
-                    sma_rows_html += f'<tr><td>{label}</td><td>{sma_val:,.3f}</td><td class="{pc}">{prem:+.2f}%</td></tr>'
-    except Exception:
-        pass
-
-    arrow_cls = "aa-full-pos" if is_up else "aa-full-neg"
-    curr_label = "港元" if prof.get("curr") == "HKD" else "美元"
-
-    html_parts = []
-    html_parts.append(f'<div class="aa-full-panel">')
-    html_parts.append(f'<div class="aa-full-topbar"><div><span style="font-size:16px;font-weight:700;color:#1e3a5f;">{prof["code"]}</span> &nbsp; <span style="font-size:16px;font-weight:700;">{prof["name"]} ({prof["symbol"]})</span></div><div style="font-size:12px;color:#666;">數據源：{prof.get("source", "Yahoo Finance")}</div></div>')
-    html_parts.append(f'<div class="aa-full-price-row">')
-    html_parts.append(f'<div><div style="font-size:12px;color:#666;margin-bottom:2px;">現價 ({curr_label})</div><div class="aa-full-price {price_cls}">{arrow} {px:{_dp}}</div></div>')
-    html_parts.append(f'<div class="aa-full-chg-block"><div style="font-size:12px;color:#666;">升跌</div><div class="aa-full-neutral" style="font-size:20px;font-weight:700;">{chg:+.3f}</div><div class="aa-full-neutral" style="font-size:16px;font-weight:600;">{pct:+.2f}%</div></div>')
-    html_parts.append(f'<div style="display:flex;gap:24px;"><div><div style="font-size:12px;color:#666;">成交量</div><div style="font-size:16px;font-weight:700;">{vol_str or "N/A"}</div></div><div><div style="font-size:12px;color:#666;">成交金額</div><div style="font-size:16px;font-weight:700;">{amount_str or "N/A"}</div></div></div>')
-    html_parts.append(f'<div style="display:flex;gap:24px;"><div><div style="font-size:12px;color:#666;">買價(延遲)</div><div style="font-size:16px;font-weight:700;">{_v(bid, _dp)}</div></div><div><div style="font-size:12px;color:#666;">賣價(延遲)</div><div style="font-size:16px;font-weight:700;">{_v(ask, _dp)}</div></div></div>')
-    html_parts.append(f'<div><div style="font-size:12px;color:#666;">前收市價/開市</div><div style="font-size:16px;font-weight:700;">{_v(prev_close, _dp)} / {_v(open_p, _dp)}</div></div>')
-    html_parts.append(f'<div><div style="font-size:12px;color:#666;">波幅</div><div style="font-size:16px;font-weight:700;">{_v(low, _dp)} - {_v(high, _dp)}</div></div>')
-    html_parts.append(f'</div>')
-
-    html_parts.append(f'<div class="aa-full-stats-grid">')
-    stats_items = [
-        ("均價", _v(avg_price, _dp)),
-        ("市盈率(倍)/TTM", f"{_v(pe_static, ".2f")} / {_v(pe_ttm, ".2f")}"),
-        ("每股盈利", _v(eps, ".4f")),
-        ("收益率/TTM", f"{_v(div_yield, ".2f", "%")} / {_v(div_yield, ".2f", "%")}"),
-        ("派息比率/每股派息", f"{_v(payout_ratio, ".2f", "%")} / {_v(dps, ".4f")}"),
-        ("市賬率/資產淨值", f"{_v(pb, ".3f")} / {_v(nav, ".2f")}"),
-        ("資金流向", _t(fund_flow)),
-        ("量比/委比", f"{_v(vol_ratio, ".2f")} / {_v(bid_ratio, ".2f", "%")}"),
-        ("換手率(%)", _v(turnover_rate, ".2f", "%")),
-        ("振幅(%)", _v(amplitude, ".2f", "%")),
-        ("平均成交量(3個月)", _t(avg_vol_3m)),
-        ("市值/流通市值", _t(mcap)),
-        ("交易所", _t(exchange)),
-        ("每手股數", _v(lot_size, "d") if lot_size else "N/A"),
-        ("差價", _v(spread, _dp)),
-        ("沽空額/比率(%)", f"{_t(short_sell_amt)} / {_v(short_sell_ratio, ".2f", "%")}"),
-    ]
-    for lbl, val in stats_items:
-        html_parts.append(f'<div class="aa-full-stat-cell"><div class="aa-full-stat-label">{lbl}</div><div class="aa-full-stat-value">{val}</div></div>')
-    html_parts.append(f'</div>')
-
-    html_parts.append(f'<div class="aa-full-section">')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">過往表現</div><table class="aa-full-table"><tr><td>時期</td><td>波幅</td><td>升跌(%)</td></tr>{perf_rows_html if perf_rows_html else '<tr><td colspan="3" style="text-align:center;color:#b0b0b0;">數據計算中</td></tr>'}</table></div>')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">最新統計數字 (均線)</div><table class="aa-full-table"><tr><td>時期</td><td>價格</td><td>溢價(%)</td></tr>{sma_rows_html if sma_rows_html else '<tr><td colspan="3" style="text-align:center;color:#b0b0b0;">數據計算中</td></tr>'}</table></div>')
-    html_parts.append(f'</div>')
-
-    html_parts.append(f'<div class="aa-full-section">')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">最近派息</div><table class="aa-full-table"><tr><td>除淨日</td><td>{_t(ex_div_date)}</td></tr><tr><td>派息日期</td><td>{_t(div_pay_date)}</td></tr><tr><td>每股派息</td><td>{_v(dps, ".4f")}</td></tr></table></div>')
-    html_parts.append(f'<div class="aa-full-section-box"><div class="aa-full-section-title">大手成交</div><div style="font-size:12px;color:#666;padding:8px 0;"><div>📊 大手買盤：<span style="color:#d93025;font-weight:700;">成交額佔總成交約 42%</span></div><div>📊 大手賣盤：<span style="color:#188038;font-weight:700;">成交額佔總成交約 34%</span></div><div>📊 其他成交：<span style="color:#666;font-weight:700;">佔約 24%</span></div><div style="margin-top:6px;font-size:11px;">（免費數據源僅提供近似比例，實際以交易所公布為準）</div></div></div>')
-    html_parts.append(f'</div>')
-    html_parts.append(f'</div>')
-
-    st.markdown("".join(html_parts), unsafe_allow_html=True)
-
-
 def render_quote_panel():
-    """
-    v7 手動刷新報價面板（已取消 @st.fragment 自動更新）：
-    - 純 HTML markdown 渲染，穩定不閃爍；
-    - 已移除 40 檔買賣盤（Level 2 屬付費數據，免費源不提供，不予編造）；
-    - 數據源實際標示為 Yahoo Finance 或 Stooq（備援）；離線時明確聲明。
-    """
+    """v11 精簡手動報價面板：只顯示現價、升跌與最高/最低/開市/前收，其餘欄位與指數列全部移除，
+    純 HTML 渲染、不閃爍；非更新 rerun 不聯網（門控），按「更新報價」才單次重抓。"""
     live_q = get_or_create_asset_profile(selected_symbol, apply_micro_tick=False)
-    hsi_q = get_or_create_asset_profile("^HSI", apply_micro_tick=False)
-    spx_q = get_or_create_asset_profile("^GSPC", apply_micro_tick=False)
-    ndx_q = get_or_create_asset_profile("^IXIC", apply_micro_tick=False)
-    dji_q = get_or_create_asset_profile("^DJI", apply_micro_tick=False)
 
-    # v10：手動模式下未取得真實報價時，明確提示，避免用戶把本地基線/快取值誤當成當前最新價
     if not live_q.get("live_ok"):
-        st.info("📭 尚未載入此標的的即時報價（手動模式不會自動連線）。下方報價卡為本地基線／快取值，可能非最新；請按「🔄 更新報價」或「🔄 全部更新」以取得真實最新數據。")
+        st.info("📭 尚未載入此標的的最新報價（手動模式不會自動連線）。下方為本地／快取最後已知值，可能非最新；請按「🔄 更新報價」。")
 
-    def _num(v, spec=",.2f", suffix=""):
-        try:
-            if v is None:
-                return "N/A"
-            return f"{float(v):{spec}}{suffix}"
-        except Exception:
-            return "N/A"
-
-    _eps_s = _num(live_q.get("eps"), ".4f")
-    _pe_s = f"{_num(live_q.get('pe'), '.2f', 'x')} / {_num(live_q.get('fwd_pe'), '.2f', 'x')}"
-    _w52lo, _w52hi = live_q.get("w52_low"), live_q.get("w52_high")
-    if _w52lo is not None and _w52hi is not None:
-        _yldw52 = f"{_num(live_q.get('yield'), '.2f', '%')} | {_w52lo:,.1f} - {_w52hi:,.1f}"
-    else:
-        _yldw52 = "N/A"
-    _vol_s = live_q.get("vol") or "N/A"
-    _turn_s = live_q.get("turnover") or "N/A"
-
-    # ===== v8：手機報價 App 樣式欄位（全部源自真實數據；衍生計算包 try；免費源缺的欄位一律 N/A，不編造）=====
-    def _qcell(v, spec, suffix="", cls="mid"):
-        if v is None:
-            return '<span class="qa-na">N/A</span>'
-        try:
-            return f'<span class="qa-{cls}">{float(v):{spec}}{suffix}</span>'
-        except Exception:
-            return '<span class="qa-na">N/A</span>'
-
-    def _qtcell(text, cls="mid"):
-        if text is None or text == "":
-            return '<span class="qa-na">N/A</span>'
-        return f'<span class="qa-{cls}">{text}</span>'
-
-    px = live_q.get("price"); op = live_q.get("open"); pv = live_q.get("prev_close")
-    hi = live_q.get("high"); lo = live_q.get("low")
-    voln = _to_float(live_q.get("vol_num"))
-    mkt = live_q.get("mkt"); is_hk = mkt == "HK"
-    fund_ok = live_q.get("fund_ok")
+    is_hk = live_q.get("mkt") == "HK"
     _dp = ".3f" if is_hk else ".2f"
-
-    # 真實日線：歷史高低（max 真實區間）與量比（今日量 ÷ 前 5 日均量）
-    hist_hi = hist_lo = vol_ratio = None
-    try:
-        _dfh, _ = get_price_history(selected_symbol, "1d", "max")
-        if _dfh is not None and not _dfh.empty:
-            hist_hi = float(_dfh["High"].max()); hist_lo = float(_dfh["Low"].min())
-            try:
-                _vs = _dfh["Volume"].dropna()
-                if len(_vs) >= 6:
-                    _avg5 = float(_vs.iloc[-6:-1].mean())
-                    if _avg5 > 0:
-                        vol_ratio = float(_vs.iloc[-1]) / _avg5
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    mcap_yi = live_q.get("mcap_yi_real")
-    shares_yi = live_q.get("shares_yi")
-    amount_real = live_q.get("amount_real")
-    pe = live_q.get("pe"); fwd_pe = live_q.get("fwd_pe"); pb = live_q.get("pb")
-    beta = live_q.get("beta")
-    yld = live_q.get("yield") if fund_ok else None
-    h52 = live_q.get("w52_high"); l52 = live_q.get("w52_low")
-
-    amp = ((hi - lo) / pv * 100.0) if (hi and lo and pv) else None
-    turnover_rate = (voln / (shares_yi * 1e8) * 100.0) if (voln and shares_yi) else None
-    avg_price = ((hi + lo + px) / 3.0) if (hi and lo and px) else None
-    dps_ttm = (px * yld / 100.0) if (px and yld is not None) else None
-
-    def _mcap_fmt(v):
-        if v is None:
-            return None
-        return f"{v/1e4:.2f}萬億" if abs(v) >= 10000 else f"{v:,.0f}億"
-
-    if voln and voln > 0:
-        # 騰訊/免費源成交量單位為「股」；照報價 App 以「萬股」呈現（港股、美股一致）
-        vol_str = f"{voln/1e4:,.2f}萬股"
-    else:
-        vol_str = None
-    amt_str = f"約 {amount_real/1e8:,.2f}億" if amount_real else None
-    shares_str = f"{shares_yi:,.2f}億" if shares_yi else None
-    lot = live_q.get("lot")
-    lot_str = (f"{lot}股/手" if (is_hk and lot) else (f"{lot}股" if lot else None))
-
-    op_cls = "up" if (op and pv and op >= pv) else ("down" if op else "mid")
-    avg_cls = "down" if (avg_price and px and avg_price >= px) else "up"
-    # 港股全流通：流通值/流通股 ≈ 總值/總股本；美股流通股數免費源無，標 N/A
-    float_mcap = _mcap_fmt(mcap_yi) if is_hk else None
-    float_shares = shares_str if is_hk else None
-    static_pe = pe if fund_ok else None   # 靜態市盈率僅 Yahoo 提供 trailingPE，騰訊源標 N/A
-    # 每行：(左標籤, 左值html, 右標籤, 右值html)
-    _qa_rows = [
-        ("最高", _qcell(hi, _dp, cls="up"), "最低", _qcell(lo, _dp, cls="down")),
-        ("開市", _qcell(op, _dp, cls=op_cls), "前收", _qcell(pv, _dp, cls="mid")),
-        ("成交量", _qtcell(vol_str), "成交額", _qtcell(amt_str)),
-        ("市值", _qtcell(_mcap_fmt(mcap_yi)), "總股本", _qtcell(shares_str)),
-        ("流通值", _qtcell(float_mcap), "流通股", _qtcell(float_shares)),
-        ("市盈率TTM", _qcell(pe, ".2f"), "市盈率(靜)", _qcell(static_pe, ".2f")),
-        ("市淨率", _qcell(pb, ".3f"), "市盈率(動)", _qcell(fwd_pe, ".2f")),
-        ("委比", '<span class="qa-na">N/A</span>', "量比", _qcell(vol_ratio, ".2f")),
-        ("股息TTM", _qcell(dps_ttm, ".3f"), "股息率TTM", _qcell(yld, ".2f", "%")),
-        ("股息LFY", '<span class="qa-na">N/A</span>', "股息率LFY", '<span class="qa-na">N/A</span>'),
-        ("52週最高", _qcell(h52, _dp, cls="up"), "52週最低", _qcell(l52, _dp, cls="down")),
-        ("歷史最高", _qcell(hist_hi, _dp, cls="up"), "歷史最低", _qcell(hist_lo, _dp, cls="down")),
-        ("平均價", _qcell(avg_price, _dp, cls=avg_cls), "振幅", _qcell(amp, ".2f", "%")),
-        ("換手率", _qcell(turnover_rate, ".2f", "%"), "每手", _qtcell(lot_str)),
-        ("Beta", _qcell(beta, ".3f"), "", ""),
-    ]
-    _qa_rows_html = "".join(
-        f'<div class="qa-lab">{a}</div><div class="qa-val">{b}</div>'
-        f'<div class="qa-lab">{c}</div><div class="qa-val">{d}</div>'
-        for a, b, c, d in _qa_rows
-    )
-    _qt_status = live_q.get("quote_time") or live_q.get("update_time") or "N/A"
-    _qa_state = "已收盤 · 最近成價" if live_q.get("live_ok") else "離線 · 最後已知參考值"
-
-    is_up = live_q["change"] >= 0
+    is_up = live_q.get("change", 0) >= 0
     arrow_sym = "▲" if is_up else "▼"
-    price_cls = "aa-price-up" if is_up else "aa-price-down"
-    box_cls = "aa-price-box-up" if is_up else "aa-price-box-down"
-    curr_label = "港元" if live_q["curr"] == "HKD" else "美元"
+    price_cls = "qa-up" if is_up else "qa-down"
+    curr_label = "港元" if live_q.get("curr") == "HKD" else "美元"
+    _state = "已收盤 · 最近成價" if live_q.get("live_ok") else "離線 · 最後已知參考值"
+    _qt = live_q.get("quote_time") or live_q.get("update_time") or "N/A"
+    _src = live_q.get("source") or "Yahoo Finance"
 
-    _src_name = live_q.get("source") or "Yahoo Finance"
-    _src_str = str(live_q.get("source") or "")
-    _is_stooq = "Stooq" in _src_str
-    _is_tencent = "騰訊" in _src_str
-    _is_aastocks = "AAStocks" in _src_str
-    # v7 誠實數據源標示：Yahoo／騰訊／Stooq／AAStocks 四源，真實成價、來源、行情時點、延遲提示；皆失敗時明確聲明
-    if live_q.get("live_ok"):
-        qt = live_q.get("quote_time")
-        if _is_stooq:
-            _data_source_line = (
-                f"🔗 數據源：<b>Stooq 備援源</b>（Yahoo、騰訊連線失敗時自動改用）｜"
-                f"顯示為<b>最近收盤價、非即時</b>（Stooq 免費源僅提供日/週/月線）｜行情日期：{qt if qt else live_q['update_time']}"
-            )
-        elif _is_aastocks:
-            _data_source_line = (
-                f"🔗 數據源：<b>AAStocks 備援源</b>（Yahoo、騰訊、Stooq 連線失敗時自動改用）｜"
-                f"僅適用港股正股／窩輪／牛熊證；港股免費源通常延遲約 15 分鐘｜"
-                f"行情時點：{qt if qt else live_q['update_time']}"
-            )
-        elif _is_tencent:
-            _is_hk = live_q.get("mkt") == "HK"
-            delay_note = "港股免費源通常延遲約 15 分鐘" if _is_hk else "美股盤中接近即時（視交易所）"
-            _data_source_line = (
-                f"🔗 數據源：<b>騰訊財經</b>（Yahoo 連線失敗時自動改用，含報價與 K 線）｜{delay_note}｜"
-                f"行情時點：{qt if qt else live_q['update_time']}｜頁面刷新：{live_q['update_time']}"
-            )
-        else:
-            _is_hk = live_q.get("mkt") == "HK"
-            delay_note = "港股免費源通常延遲約 15 分鐘" if _is_hk else "美股盤中接近即時（視交易所）"
-            _data_source_line = (
-                f"🔗 數據源：Yahoo Finance 真實成價｜{delay_note}｜"
-                f"行情時點：{qt if qt else live_q['update_time']}｜頁面刷新：{live_q['update_time']}"
-            )
-        fund_asof = live_q.get("fund_as_of")
-        if fund_asof:
-            _data_source_line += f"｜基本面數據截至：{fund_asof}"
-    else:
-        _data_source_line = (
-            "⚠️ Yahoo Finance、AAStocks、騰訊財經與 Stooq 目前均無法連線，暫無最新真實報價（現價為最後已知參考值，升跌顯示 0）。"
-            "本系統不會在離線時製造假跳動，請按「🔄 更新報價」或檢查網絡後重試。"
-        )
-    _data_source_line += f"<br>{live_q.get('adr_info', '')}"
+    def _cell(v, cls="qa-mid"):
+        if v is None:
+            return '<span class="qa-na">N/A</span>'
+        try:
+            return f'<span class="{cls}">{float(v):{_dp}}</span>'
+        except Exception:
+            return '<span class="qa-na">N/A</span>'
 
-    st.markdown(f"""
-    <div class="selected-asset-banner">
-        <div>
-            🎯 <strong>當前鎖定檢索標的：</strong>
-            <span style="color:#1a73e8; font-weight:800; font-size:16px;">{live_q['code']} ({live_q['symbol']})</span>
-            &nbsp;|&nbsp;
-            <span style="font-weight:800; font-size:16px;">{live_q['name']}</span>
-            <span style="color:#555; font-size:13.5px;">({live_q['en']})</span>
-            &nbsp;<span class="tag-badge">{live_q['mkt']}</span>
-        </div>
-        <div style="font-size:13px; font-weight:600;">
-            <span class="live-pulse"></span>報價狀態：<strong>手動更新（按「🔄 更新報價」才重抓，不做假跳動）</strong>
-            &nbsp;|&nbsp; 批判性評分：<span style="color:#1a73e8; font-size:15px;">{live_q['score']:.1f} / 10 分</span>
-        </div>
-    </div>
-    <div class="aa-index-bar">
-        <div>
-            <strong style="font-size:15px; color:#1e3a5f;">{live_q['code']}</strong> &nbsp;
-            <strong style="font-size:15px;">{live_q['name']} ({live_q['symbol']})</strong>
-            <span class="tag-badge">{live_q['tag']}</span>
-        </div>
-        <div>
-            恒生指數 <strong>{hsi_q['price']:,.1f}</strong> <span style="color:{'#188038' if hsi_q['change']>=0 else '#d93025'};">({hsi_q['pct']:+.2f}%)</span> |
-            道斯/道瓊斯 <strong>{dji_q['price']:,.1f}</strong> <span style="color:{'#188038' if dji_q['change']>=0 else '#d93025'};">({dji_q['pct']:+.2f}%)</span>
-        </div>
-        <div>
-            標普500 <strong>{spx_q['price']:,.1f}</strong> <span style="color:{'#188038' if spx_q['change']>=0 else '#d93025'};">({spx_q['pct']:+.2f}%)</span> |
-            納斯達克指數 <strong>{ndx_q['price']:,.1f}</strong> <span style="color:{'#188038' if ndx_q['change']>=0 else '#d93025'};">({ndx_q['pct']:+.2f}%)</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    _px = live_q.get("price")
+    _px_html = (f'<span class="{price_cls}">{float(_px):{_dp}}</span>' if _px is not None
+                else '<span class="qa-na">N/A</span>')
 
     with col_quote:
         if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
-                     help="按一下即開門並清除報價快取，單次重新抓取最新真實成價與指數"):
+                     help="按一下即開門並清除報價快取，單次重新抓取最新真實成價"):
             st.session_state[_PENDING_OPEN_KEY] = True
-            for _fn in (fetch_realtime_market_tick,
-                        fetch_real_fundamentals, get_price_history, fetch_stooq_ohlc,
-                        fetch_tencent_quote, fetch_tencent_kline, fetch_aastocks_quote, fetch_aastocks_full_detail):
+            for _fn in (fetch_realtime_market_tick, fetch_real_fundamentals,
+                        get_price_history, fetch_stooq_ohlc, fetch_tencent_quote,
+                        fetch_tencent_kline, fetch_aastocks_quote, fetch_aastocks_full_detail):
                 try:
                     _fn.clear()
                 except Exception:
                     pass
             st.rerun()
-        _qa_cls = "qa-up" if is_up else "qa-down"
-        _qa_price_dp = ",.3f" if is_hk else ",.2f"
+
         st.markdown(f"""
         <div class="qa-card">
             <div class="qa-head">
                 <div>
-                    <div class="qa-name">{live_q['code']} {live_q['name']}（{live_q['symbol']}）</div>
-                    <div class="qa-big {_qa_cls}">
-                        {live_q['price']:{_qa_price_dp}}
-                        <span class="qa-chg">{arrow_sym} {abs(live_q['change']):,.3f} &nbsp;{abs(live_q['pct']):.2f}%</span>
+                    <div class="qa-name">{live_q.get('code')} {live_q.get('name')}（{live_q.get('symbol')}）</div>
+                    <div class="qa-big {price_cls}">
+                        {_px_html}
+                        <span class="qa-chg">{arrow_sym} {abs(live_q.get('change',0)):{_dp}} &nbsp;{abs(live_q.get('pct',0)):.2f}%</span>
                     </div>
                 </div>
                 <div class="qa-status">
-                    <div style="font-weight:700;">{_qa_state}</div>
-                    <div>⏱ {_qt_status}</div>
-                    <div style="margin-top:3px;">{curr_label} · {_src_name}</div>
+                    <div style="font-weight:700;">{_state}</div>
+                    <div>⏱ {_qt}</div>
+                    <div style="margin-top:3px;">{curr_label} · {_src}</div>
                 </div>
             </div>
             <div class="qa-grid">
-                {_qa_rows_html}
-            </div>
-            <div style="font-size:12px; color:#1a73e8; margin:9px 0 2px; font-weight:600;">
-                {live_q['news']}
-            </div>
-            <div class="qa-foot" style="color:#188038;">
-                {_data_source_line}
-                <br><b>誠實說明：</b>委比屬 Level 2 付費盤口；股息 LFY、靜態/預測 PE、Beta、流通股數等僅部分數據源提供，免費源缺失時一律顯示 <b>N/A</b>，系統不予編造；總股本、換手率、振幅、平均價、量比為真實數據的算術衍生；成交額以「真實成交量×真實價格」估算（標「約」）。
+                <div class="qa-lab">最高</div>{_cell(live_q.get('high'), 'qa-up')}
+                <div class="qa-lab">最低</div>{_cell(live_q.get('low'), 'qa-down')}
+                <div class="qa-lab">開市</div>{_cell(live_q.get('open'))}
+                <div class="qa-lab">前收</div>{_cell(live_q.get('prev_close'))}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -4469,241 +4101,7 @@ def render_quote_panel():
 # v7：統一以手動面板渲染（不再有自動/靜態分支）
 render_quote_panel()
 
-# v8：AAStocks 風格完整報價面板（對應 Err 1.jpg）
-render_aastocks_style_panel()
-
 q_data = q_data_init
-
-# ==========================================
-# 9. 頂部 13 個導覽按鈕之專屬功能面板 (全部改用可自由調校直行與橫行之完整中文表格)
-# ==========================================
-if active_aa_tab != "快速報價":
-    with st.container():
-        st.markdown(f"### 📌 專項功能模組：【{active_aa_tab}】 — {q_data['code']} {q_data['name']}")
-        p_cur = q_data["price"]
-        
-        if active_aa_tab == "🔥 窩輪/牛熊證":
-            st.markdown("""
-            **香港交易所結構性衍生工具（窩輪 Warrants 及 牛熊證 CBBC）即時參考中心**：
-            * **批判性風險提示**：窩輪受引伸波幅（IV）及時間值每日耗損影響；牛熊證則具備**強制收回機制（俗稱「打靶」）**，一旦正股或指數觸及收回價即立刻停止交易並可能損失全部本金。
-            """)
-            w_filter = st.radio("篩選衍生工具類別：", ["全部窩輪及牛熊證", "認購證 (Call 輪)", "認沽證 (Put 輪)", "牛證 (Bull CBBC)", "熊證 (Bear CBBC)"], horizontal=True)
-            
-            warrant_cbbc_table = [
-                {"代號": "19888.HK", "名稱": "騰訊摩通六乙購A", "類別": "認購證 (Call)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.185, "行使價": "480.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "7.8x", "街貨量%": "12.4%", "引伸波幅": "31.5%", "到期日": "2026-12-28"},
-                {"代號": "21055.HK", "名稱": "騰訊高盛七甲購B", "類別": "認購證 (Call)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.240, "行使價": "450.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "6.9x", "街貨量%": "8.5%", "引伸波幅": "30.2%", "到期日": "2027-01-26"},
-                {"代號": "18422.HK", "名稱": "騰訊瑞銀六十一沽A", "類別": "認沽證 (Put)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.112, "行使價": "380.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "8.4x", "街貨量%": "15.2%", "引伸波幅": "33.8%", "到期日": "2026-11-25"},
-                {"代號": "54321.HK", "名稱": "騰訊法興七甲牛C", "類別": "牛證 (Bull)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.245, "行使價": "387.20", "收回價": "390.00", "距離收回%": "+5.06%", "實際槓桿": "16.5x", "街貨量%": "9.8%", "引伸波幅": "—", "到期日": "2027-01-28"},
-                {"代號": "62700.HK", "名稱": "騰訊高盛六乙熊A", "類別": "熊證 (Bear)", "掛鉤正股": "00700 騰訊控股", "現價(HKD)": 0.380, "行使價": "447.80", "收回價": "445.00", "距離收回%": "-8.33%", "實際槓桿": "10.8x", "街貨量%": "11.2%", "引伸波幅": "—", "到期日": "2026-12-30"},
-                {"代號": "56788.HK", "名稱": "恒指法興七甲牛A", "類別": "牛證 (Bull)", "掛鉤正股": "HSI 恒生指數", "現價(HKD)": 0.068, "行使價": "23,300", "收回價": "23,400", "距離收回%": "+2.32%", "實際槓桿": "34.5x", "街貨量%": "28.4%", "引伸波幅": "—", "到期日": "2027-01-28"},
-                {"代號": "58912.HK", "名稱": "恒指摩通七乙牛B", "類別": "牛證 (Bull)", "掛鉤正股": "HSI 恒生指數", "現價(HKD)": 0.118, "行使價": "22,800", "收回價": "22,900", "距離收回%": "+4.41%", "實際槓桿": "19.8x", "街貨量%": "14.2%", "引伸波幅": "—", "到期日": "2027-02-25"},
-                {"代號": "61234.HK", "名稱": "恒指瑞銀六乙熊A", "類別": "熊證 (Bear)", "掛鉤正股": "HSI 恒生指數", "現價(HKD)": 0.065, "行使價": "24,600", "收回價": "24,500", "距離收回%": "-2.27%", "實際槓桿": "36.0x", "街貨量%": "35.6%", "引伸波幅": "—", "到期日": "2026-12-30"},
-                {"代號": "22318.HK", "名稱": "阿里匯豐七乙購A", "類別": "認購證 (Call)", "掛鉤正股": "09988 阿里巴巴", "現價(HKD)": 0.158, "行使價": "122.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "6.5x", "街貨量%": "18.6%", "引伸波幅": "36.8%", "到期日": "2027-02-23"},
-                {"代號": "59988.HK", "名稱": "阿里摩通七甲牛A", "類別": "牛證 (Bull)", "掛鉤正股": "09988 阿里巴巴", "現價(HKD)": 0.135, "行使價": "93.50", "收回價": "95.00", "距離收回%": "+10.71%", "實際槓桿": "7.9x", "街貨量%": "16.4%", "引伸波幅": "—", "到期日": "2027-01-28"},
-                {"代號": "23690.HK", "名稱": "美團法興七甲購A", "類別": "認購證 (Call)", "掛鉤正股": "03690 美團-W", "現價(HKD)": 0.195, "行使價": "195.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "6.1x", "街貨量%": "14.0%", "引伸波幅": "41.2%", "到期日": "2027-01-22"},
-                {"代號": "21810.HK", "名稱": "小米中銀七丙購A", "類別": "認購證 (Call)", "掛鉤正股": "01810 小米集團", "現價(HKD)": 0.142, "行使價": "31.50", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "5.8x", "街貨量%": "21.5%", "引伸波幅": "43.5%", "到期日": "2027-03-19"},
-                {"代號": "20388.HK", "名稱": "港交摩通七乙購A", "類別": "認購證 (Call)", "掛鉤正股": "00388 香港交易所", "現價(HKD)": 0.168, "行使價": "415.00", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "7.2x", "街貨量%": "11.8%", "引伸波幅": "33.0%", "到期日": "2027-02-18"},
-                {"代號": "10588.HK", "名稱": "輝達法巴七甲購A", "類別": "認購證 (Call)", "掛鉤正股": "NVDA 輝達(美股)", "現價(HKD)": 0.215, "行使價": "US$250", "收回價": "不適用(窩輪)", "距離收回%": "—", "實際槓桿": "5.2x", "街貨量%": "19.0%", "引伸波幅": "52.0%", "到期日": "2027-01-29"}
-            ]
-            df_wc = pd.DataFrame(warrant_cbbc_table)
-            if "認購證" in w_filter:
-                df_wc = df_wc[df_wc["類別"].str.contains("Call")]
-            elif "認沽證" in w_filter:
-                df_wc = df_wc[df_wc["類別"].str.contains("Put")]
-            elif "牛證" in w_filter:
-                df_wc = df_wc[df_wc["類別"].str.contains("Bull")]
-            elif "熊證" in w_filter:
-                df_wc = df_wc[df_wc["類別"].str.contains("Bear")]
-            render_resizable_table(df_wc, key_prefix="wc_tbl", default_col_w=105, default_text_w=180, default_row_h=42)
-
-        elif active_aa_tab == "詳細報價":
-            # v6 離線安全 + 移除偽造 VWAP（改為真實當日典型價近似，缺數據則 N/A）
-            if chart_ok and "RSI14" in df_chart.columns:
-                _rsi14 = float(df_chart["RSI14"].iloc[-1])
-                rsi_disp, rsi_delta = f"{_rsi14:.1f}", ("超賣區 (<35)" if _rsi14 < 35 else ("超買區 (>70)" if _rsi14 > 70 else "中性區間"))
-                bb_disp = f"{df_chart['BB_Lower'].iloc[-1]:,.1f} - {df_chart['BB_Upper'].iloc[-1]:,.1f}"
-                bb_delta = f"中軌 {df_chart['MA20'].iloc[-1]:,.1f}"
-                _typ = (float(df_chart["High"].iloc[-1]) + float(df_chart["Low"].iloc[-1]) + float(df_chart["Close"].iloc[-1])) / 3.0
-                vwap_disp, vwap_delta = f"{_typ:,.3f} {q_data['curr']}", "當日典型價(近似,非VWAP)"
-            else:
-                rsi_disp = bb_disp = vwap_disp = "N/A"
-                rsi_delta = bb_delta = vwap_delta = "真實數據暫缺"
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("典型價 (H+L+C)/3", vwap_disp, vwap_delta)
-            d2.metric("14日 RSI 強弱指標", rsi_disp, rsi_delta)
-            d3.metric("布林通道上下軌", bb_disp, bb_delta)
-            d4.metric("每股帳面淨值 / 市帳率", f"{_sf(q_data['bps'], ',.2f')} / {_sf(q_data['pb'], '.2f', 'x')}", f"ROE {_sf(q_data['roe'], '.1f', '%')}")
-            
-            tick = round(max(p_cur * 0.001, 0.01), 3)
-            ob_rows = []
-            for i in range(1, 6):
-                ob_rows.append({
-                    "買盤檔位": f"買入 {i} 檔 (Bid {i})", "買入價": f"{(p_cur - i*tick):,.3f}",
-                    "買盤股數/手數": f"{int(180000 / i):,} 股 ({int(1800/i)} 手)",
-                    "賣盤檔位": f"賣出 {i} 檔 (Ask {i})", "賣出價": f"{(p_cur + i*tick):,.3f}",
-                    "賣盤股數/手數": f"{int(150000 / i):,} 股 ({int(1500/i)} 手)"
-                })
-            render_resizable_table(pd.DataFrame(ob_rows), key_prefix="ob_tbl", default_col_w=135, default_text_w=200, default_row_h=40)
-
-        elif active_aa_tab == "圖表分析":
-            if not chart_ok:
-                st.warning("⚠️ 真實圖表數據暫時無法取得（Yahoo Finance 連線失敗或該商品無此週期），僅顯示空框架，不繪製模擬數據。")
-            fig_ta = make_subplots(
-                rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
-                row_heights=[0.55, 0.22, 0.23],
-                subplot_titles=(f"{q_data['name']} — 布林通道 (Bollinger Bands) 與均線系統", "RSI (14) 相對強弱指標", "MACD (12, 26, 9) 動能指標")
-            )
-            xl = df_chart.index.strftime("%Y-%m-%d %H:%M") if ("小時" in selected_tf or "分鐘" in selected_tf) else df_chart.index.strftime("%Y-%m-%d")
-            fig_ta.add_trace(go.Candlestick(x=xl, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], name="K線"), row=1, col=1)
-            fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["BB_Upper"], line=dict(color="#888", dash="dot"), name="BB上軌"), row=1, col=1)
-            fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["MA20"], line=dict(color="#1a73e8"), name="BB中軌(MA20)"), row=1, col=1)
-            fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["BB_Lower"], line=dict(color="#888", dash="dot"), name="BB下軌"), row=1, col=1)
-            fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["RSI14"], line=dict(color="#9c27b0", width=2), name="RSI(14)"), row=2, col=1)
-            fig_ta.add_hline(y=70, line_dash="dash", line_color="#d93025", row=2, col=1)
-            fig_ta.add_hline(y=30, line_dash="dash", line_color="#188038", row=2, col=1)
-            fig_ta.add_trace(go.Bar(x=xl, y=df_chart["Hist"], name="MACD柱", marker_color=["#188038" if v >= 0 else "#d93025" for v in df_chart["Hist"]]), row=3, col=1)
-            fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["MACD"], line=dict(color="#1a73e8"), name="DIF"), row=3, col=1)
-            fig_ta.add_trace(go.Scatter(x=xl, y=df_chart["Signal"], line=dict(color="#fa903e"), name="DEA"), row=3, col=1)
-            fig_ta.update_layout(height=540, xaxis_rangeslider_visible=False, margin=dict(l=15, r=30, t=35, b=15))
-            st.plotly_chart(fig_ta, use_container_width=True)
-
-        elif active_aa_tab == "互動圖表":
-            if not chart_ok:
-                st.warning("⚠️ 真實圖表數據暫時無法取得，無法繪製互動圖表與標準化對比（不使用模擬數據）。")
-            ic1, ic2 = st.columns([2, 2])
-            with ic1:
-                overlays = st.multiselect("疊加技術指標線：", ["MA10", "MA20", "MA50", "BB_Upper", "BB_Lower"], default=["MA10", "MA20", "BB_Upper", "BB_Lower"])
-            with ic2:
-                norm_bench = st.selectbox("疊加對比基準資產 (標準化收益率 %)：", ["不疊加對比", "^HSI (恒生指數)", "^GSPC (標普500指數)", "^IXIC (納斯達克指數)", "^DJI (道斯/道瓊斯指數)", "GC=F (黃金期貨)"])
-            fig_ic = go.Figure()
-            xl = df_chart.index.strftime("%Y-%m-%d %H:%M") if ("小時" in selected_tf or "分鐘" in selected_tf) else df_chart.index.strftime("%Y-%m-%d")
-            if not chart_ok:
-                pass  # 數據缺失，上方已提示，不繪圖
-            elif norm_bench == "不疊加對比":
-                fig_ic.add_trace(go.Scatter(x=xl, y=df_chart["Close"], mode="lines", name=f"{q_data['name']} 收市價", line=dict(color="#1a73e8", width=2.5)))
-                for ov in overlays:
-                    fig_ic.add_trace(go.Scatter(x=xl, y=df_chart[ov], mode="lines", name=ov))
-            else:
-                base_ret = (df_chart["Close"] / df_chart["Close"].iloc[0] - 1.0) * 100.0
-                bench_sym = norm_bench.split(" ")[0]
-                df_b = get_multi_tf_ohlcv(bench_sym, selected_tf)
-                n_min = min(len(base_ret), len(df_b))
-                if n_min >= 2:
-                    bench_ret = (df_b["Close"].iloc[-n_min:] / df_b["Close"].iloc[-n_min] - 1.0) * 100.0
-                    fig_ic.add_trace(go.Scatter(x=xl[-n_min:], y=base_ret.iloc[-n_min:], mode="lines", name=f"{q_data['name']} 累積表現(%)", line=dict(color="#1a73e8", width=2.5)))
-                    fig_ic.add_trace(go.Scatter(x=xl[-n_min:], y=bench_ret, mode="lines", name=f"{norm_bench} 累積表現(%)", line=dict(color="#fa903e", width=2, dash="dash")))
-            fig_ic.update_layout(height=380, margin=dict(l=15, r=25, t=30, b=15))
-            st.plotly_chart(fig_ic, use_container_width=True)
-
-        elif active_aa_tab == "股價走勢":
-            if not chart_ok:
-                st.warning("⚠️ 真實歷史 K 線暫時無法取得，週期回報與明細表無法計算（不使用模擬數據）。")
-            c0 = float(df_chart["Close"].iloc[-1]) if chart_ok else q_data["price"]
-            def _pct_over(n):
-                if chart_ok and len(df_chart["Close"]) > n:
-                    return f"{((c0/df_chart['Close'].iloc[max(len(df_chart)-n,0)]-1)*100):+.2f}%"
-                return "N/A"
-            perf_horizons = [
-                ("1個週期變動", f"{q_data['pct']:+.2f}%"),
-                ("近5個週期", _pct_over(5)),
-                ("近20個週期", _pct_over(20)),
-                ("近60個週期", _pct_over(60)),
-                ("距離52週低位", f"{((c0/q_data['w52_low']-1)*100):+.2f}%" if q_data.get('w52_low') else "N/A"),
-                ("距離52週高位", f"{((c0/q_data['w52_high']-1)*100):+.2f}%" if q_data.get('w52_high') else "N/A")
-            ]
-            p_cols = st.columns(6)
-            for idx, (plab, pval) in enumerate(perf_horizons):
-                p_cols[idx].metric(plab, pval)
-            df_log = df_chart[["Open", "High", "Low", "Close", "Volume", "MA20", "RSI14", "MACD"]].tail(25).iloc[::-1].round(2)
-            df_log.index.name = "日期/時間"
-            render_resizable_table(df_log, key_prefix="log_tbl", default_col_w=115, default_text_w=160, default_row_h=38, freeze_first_col=True)
-
-        elif active_aa_tab == "大戶成交":
-            c_blk1, c_blk2 = st.columns([1, 1.3])
-            with c_blk1:
-                fig_pie = go.Figure(data=[go.Pie(
-                    labels=["特大戶買入 (>100萬)", "大戶買入 (50-100萬)", "散戶買入", "特大戶賣出 (>100萬)", "大戶賣出", "散戶賣出"],
-                    values=[31.5, 16.8, 12.2, 21.0, 10.5, 8.0], hole=0.45,
-                    marker_colors=["#188038", "#4caf50", "#81c995", "#d93025", "#e57373", "#f4a29e"]
-                )])
-                fig_pie.update_layout(title="大戶 vs 散戶資金成交佔比", height=300, margin=dict(l=10, r=10, t=35, b=10))
-                st.plotly_chart(fig_pie, use_container_width=True)
-            with c_blk2:
-                blk_df = pd.DataFrame([
-                    {"時間": "15:59:42", "成交價": f"{p_cur:,.3f}", "成交股數": "150,000", "涉資金額": f"{p_cur*0.15:,.2f}百萬 {q_data['curr']}", "性質": "🟢 機構主動買盤 (Uptick)"},
-                    {"時間": "15:48:15", "成交價": f"{(p_cur*0.999):,.3f}", "成交股數": "85,000", "涉資金額": f"{p_cur*0.085:,.2f}百萬 {q_data['curr']}", "性質": "🟢 大戶掃貨 (Buy Block)"},
-                    {"時間": "15:12:08", "成交價": f"{(p_cur*1.002):,.3f}", "成交股數": "110,000", "涉資金額": f"{p_cur*0.11:,.2f}百萬 {q_data['curr']}", "性質": "⚪ 交叉盤成交 (Cross Trade)"},
-                    {"時間": "14:35:29", "成交價": f"{(p_cur*0.996):,.3f}", "成交股數": "220,000", "涉資金額": f"{p_cur*0.22:,.2f}百萬 {q_data['curr']}", "性質": "🟢 機構低位承接 (Accumulation)"},
-                    {"時間": "11:28:50", "成交價": f"{(p_cur*1.004):,.3f}", "成交股數": "95,000", "涉資金額": f"{p_cur*0.095:,.2f}百萬 {q_data['curr']}", "性質": "🔴 獲利盤減持 (Downtick)"}
-                ])
-                render_resizable_table(blk_df, key_prefix="blk_tbl", default_col_w=110, default_text_w=200, default_row_h=40)
-
-        elif active_aa_tab == "資金流向":
-            days_10 = pd.date_range(end=datetime.now(), periods=10, freq="B").strftime("%m-%d")
-            net_flows = [4.2, -1.8, 3.5, 6.8, -2.4, 5.1, 8.4, -1.2, 4.9, 7.6]
-            fig_cf = go.Figure(go.Bar(
-                x=days_10, y=net_flows, marker_color=["#188038" if v >= 0 else "#d93025" for v in net_flows],
-                text=[f"{v:+.1f}億" for v in net_flows], textposition="outside"
-            ))
-            fig_cf.update_layout(title=f"{q_data['name']} — 近 10 個交易日主力資金淨流向 (億 {q_data['curr']})", height=310, margin=dict(l=15, r=15, t=35, b=15))
-            st.plotly_chart(fig_cf, use_container_width=True)
-
-        elif active_aa_tab == "同業比較":
-            peer_syms = ["00700.HK", "09988.HK", "00388.HK", "NVDA", "TSM", "MSFT", "PLTR"]
-            if selected_symbol not in peer_syms:
-                peer_syms = [selected_symbol] + peer_syms[:6]
-            rows_p = []
-            for ps in peer_syms:
-                pr = get_or_create_asset_profile(ps)
-                rows_p.append({
-                    "代號": pr["symbol"], "名稱": pr["name"], "現價": f"{pr['price']:,.2f} {pr['curr']}",
-                    "預測PE": _sf(pr['fwd_pe'], ".1f", "x"), "市銷率PS": _sf(pr['ps'], ".2f", "x"), "市帳率PB": _sf(pr['pb'], ".2f", "x"),
-                    "毛利率": f"{pr['gross_margin']:.1f}%", "批判評分": f"{pr['score']}/10", "估值定性": pr["verdict"]
-                })
-            render_resizable_table(pd.DataFrame(rows_p), key_prefix="aa_peer_tbl", default_col_w=110, default_text_w=260, default_row_h=45)
-
-        elif active_aa_tab == "新聞公告":
-            st.markdown(f"""
-            - **[即時批判性研究診斷]** {q_data['catalyst']}
-            - **[機構倉位動態]** 對沖基金與長線外資於財報季前夕審慎檢視資本開支回報率與利潤率指引。
-            - **[宏觀利率衝擊]** 美國 9 月 CPI 高於預期引發美債孳息率抽升，高估值泡沫股面臨均值回歸壓力。
-            """)
-
-        elif active_aa_tab == "派息紀錄":
-            if q_data["dps"] and q_data["dps"] > 0 and q_data["mkt"] not in ["WARRANT", "CBBC", "FUTURES"]:
-                _y = q_data.get("yield")
-                _y0 = _sf(_y, ".2f", "%")
-                _y1 = _sf((_y * 0.85) if _y is not None else None, ".2f", "%")
-                _y2 = _sf((_y * 0.72) if _y is not None else None, ".2f", "%")
-                div_df = pd.DataFrame([
-                    {"財政年度": "2026E (預測)", "每股派息": f"{q_data['dps']:.2f} {q_data['curr']}", "除淨日": "2027-05-18 (預估)", "派息率": "20.5%", "現價股息率": _y0},
-                    {"財政年度": "2025 全年", "每股派息": f"{(q_data['dps']*0.85):.2f} {q_data['curr']}", "除淨日": "2026-05-20", "派息率": "19.2%", "現價股息率": _y1},
-                    {"財政年度": "2024 全年", "每股派息": f"{(q_data['dps']*0.72):.2f} {q_data['curr']}", "除淨日": "2025-05-16", "派息率": "18.8%", "現價股息率": _y2}
-                ])
-                render_resizable_table(div_df, key_prefix="div_tbl", default_col_w=130, default_text_w=180, default_row_h=40)
-            else:
-                st.info(f"ℹ️ {q_data['name']} ({q_data['symbol']}) 無固定現金派息（或屬於衍生工具/期貨合約）。")
-
-        elif active_aa_tab == "公司資料":
-            info_df = pd.DataFrame([
-                {"基本項目": "標準代號與名稱", "詳細內容": f"{q_data['symbol']} — {q_data['name']} ({q_data['en']})"},
-                {"基本項目": "資產類別與交易貨幣", "詳細內容": f"{q_data['mkt']} 主板市場 | 計價貨幣: {q_data['curr']} | 每手單位: {q_data['lot']}"},
-                {"基本項目": "總市值與發行股數", "詳細內容": f"{q_data['mkt_cap']} (約 US${q_data['mkt_cap_usd']}B) | 已發行股數: {q_data['shares_m']:,.2f} 百萬"},
-                {"基本項目": "批判性評分與定性结论", "詳細內容": f"{q_data['score']} / 10 分 — {q_data['verdict']}"},
-                {"基本項目": "所處企業發展階段", "詳細內容": q_data["stage"]},
-                {"基本項目": "核心基本面與風險剖析", "詳細內容": q_data["catalyst"]}
-            ])
-            render_resizable_table(info_df, key_prefix="comp_info_tbl", default_col_w=180, default_text_w=520, default_row_h=46)
-
-        elif active_aa_tab == "沽空數據":
-            days_10 = pd.date_range(end=datetime.now(), periods=10, freq="B").strftime("%m-%d")
-            sr_vals = [14.2, 15.6, 18.4, 16.85, 19.2, 21.6, 17.5, 16.1, 15.4, 14.8]
-            fig_sr = go.Figure(go.Scatter(
-                x=days_10, y=sr_vals, mode="lines+markers+text", line=dict(color="#d93025", width=2.5),
-                text=[f"{v:.1f}%" for v in sr_vals], textposition="top center", name="沽空比率(%)"
-            ))
-            fig_sr.update_layout(title=f"{q_data['name']} — 近 10 日沽空佔成交金額比率 (%) 走勢", height=300, margin=dict(l=15, r=15, t=35, b=15))
-            st.plotly_chart(fig_sr, use_container_width=True)
 
 st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
 
