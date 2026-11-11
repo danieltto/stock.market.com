@@ -65,47 +65,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ===== 主題狀態初始化（白色 / 深藍 / 黑色）=====
-if "theme_mode" not in st.session_state:
-    st.session_state["theme_mode"] = "light"
-
-def apply_theme(theme_mode: str):
-    """注入 JS 將主題 class 加到頂層 document.body（components.html 跑在 iframe，須用 window.parent.document）。"""
-    class_map = {"light": "theme-light", "darkblue": "theme-darkblue", "dark": "theme-dark"}
-    cls = class_map.get(theme_mode, "theme-light")
-    components.html(
-        f"<script>try{{var d=window.parent.document; d.body.classList.remove('theme-light','theme-darkblue','theme-dark'); d.body.classList.add('{cls}');}}catch(e){{}}</script>",
-        height=0, width=0
-    )
-
-# 右上角主題切換按鈕（固定定位）
-_theme_top = st.columns([10, 1.6])
-with _theme_top[1]:
-    # v11：以專屬容器包裹主題選擇器，背景色由 CSS 依各主題設定，避免與頁面背景衝突或融為一體
-    st.markdown('<div class="theme-picker-wrap">', unsafe_allow_html=True)
-    theme_choice = st.selectbox(
-        "🎨 背景主題",
-        ["☀️ 白色", "🌙 深藍", "⚫ 黑色"],
-        index=["light", "darkblue", "dark"].index(st.session_state["theme_mode"]),
-        key="theme_selectbox",
-        label_visibility="collapsed"
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-    _theme_map = {"☀️ 白色": "light", "🌙 深藍": "darkblue", "⚫ 黑色": "dark"}
-    st.session_state["theme_mode"] = _theme_map.get(theme_choice, "light")
-apply_theme(st.session_state["theme_mode"])
-
-# 主題對應的圖表配色（Plotly 背景與文字色）
+# 圖表配色（主題切換已移除，固定淺色背景）
 def get_theme_chart_colors():
-    m = st.session_state["theme_mode"]
-    if m == "darkblue":
-        return dict(paper="#0b1a3a", plot="#10224a", text="#e8eefc", grid="#2a4580",
-                    up="#26a69a", down="#ef5350", ma10="#ce93d8", ma20="#64b5f6", ma50="#ffb74d",
-                    vol="#90caf9", rsi="#ba68c8", macd_dif="#64b5f6", macd_dea="#ffb74d")
-    elif m == "dark":
-        return dict(paper="#0a0a0a", plot="#1a1a1a", text="#e8e8e8", grid="#333333",
-                    up="#26a69a", down="#ef5350", ma10="#ab47bc", ma20="#42a5f5", ma50="#ffa726",
-                    vol="#90caf9", rsi="#ab47bc", macd_dif="#42a5f5", macd_dea="#ffa726")
     return dict(paper="#ffffff", plot="#ffffff", text="#111111", grid="#f0f0f0",
                 up="#188038", down="#d93025", ma10="#9c27b0", ma20="#1a73e8", ma50="#fa903e",
                 vol=None, rsi="#8e24aa", macd_dif="#1a73e8", macd_dea="#fa903e")
@@ -271,275 +232,6 @@ def inject_security_and_styles():
         }
         table.custom-resizable-grid tr:hover {
             background-color: #eef2ff;
-        }
-
-        /* ============================================================
-           v7 全畫面主題系統（白色 / 深藍 / 黑色）
-           機制：body 加上 theme-darkblue / theme-dark class，並用 CSS 變數
-           統一覆蓋所有 Streamlit 容器、widget、表格、自訂卡片，確保「整個畫面」變色。
-           ============================================================ */
-        body.theme-darkblue {
-            --bg:#101d36; --bg2:#13213d; --panel:#18294a; --panel2:#152647;
-            --border:#33456b; --text:#cdd7ea; --muted:#93a3c0; --accent:#8fb4ee; --th:#223763;
-        }
-        body.theme-dark {
-            --bg:#16181c; --bg2:#1a1d22; --panel:#21252b; --panel2:#1d2127;
-            --border:#343a44; --text:#c8cdd6; --muted:#9099a6; --accent:#8fc0ef; --th:#2b3038;
-        }
-        body.theme-darkblue, body.theme-dark { background: var(--bg) !important; }
-
-        /* 頂層容器全覆蓋（含主內容區、側邊欄、Header、區塊）*/
-        body.theme-darkblue .stApp, body.theme-dark .stApp,
-        body.theme-darkblue [data-testid="stAppViewContainer"], body.theme-dark [data-testid="stAppViewContainer"],
-        body.theme-darkblue [data-testid="stMainBlockContainer"], body.theme-dark [data-testid="stMainBlockContainer"],
-        body.theme-darkblue [data-testid="stMain"], body.theme-dark [data-testid="stMain"],
-        body.theme-darkblue section.main, body.theme-dark section.main,
-        body.theme-darkblue [data-testid="stSidebar"], body.theme-dark [data-testid="stSidebar"],
-        body.theme-darkblue [data-testid="stSidebarContent"], body.theme-dark [data-testid="stSidebarContent"],
-        body.theme-darkblue [data-testid="stSidebarUserContent"], body.theme-dark [data-testid="stSidebarUserContent"],
-        body.theme-darkblue [data-testid="stHeader"], body.theme-dark [data-testid="stHeader"],
-        body.theme-darkblue [data-testid="stToolbar"], body.theme-dark [data-testid="stToolbar"],
-        body.theme-darkblue [data-testid="stVerticalBlock"], body.theme-dark [data-testid="stVerticalBlock"],
-        body.theme-darkblue [data-testid="stHorizontalBlock"], body.theme-dark [data-testid="stHorizontalBlock"],
-        body.theme-darkblue [data-testid="stElementContainer"], body.theme-dark [data-testid="stElementContainer"],
-        body.theme-darkblue .stBlock, body.theme-dark .stBlock {
-            background-color: var(--bg) !important;
-            color: var(--text) !important;
-            border-color: var(--border) !important;
-        }
-
-        /* 所有文字 */
-        body.theme-darkblue p, body.theme-dark p,
-        body.theme-darkblue li, body.theme-dark li,
-        body.theme-darkblue h1, body.theme-dark h1,
-        body.theme-darkblue h2, body.theme-dark h2,
-        body.theme-darkblue h3, body.theme-dark h3,
-        body.theme-darkblue h4, body.theme-dark h4,
-        body.theme-darkblue h5, body.theme-dark h5,
-        body.theme-darkblue h6, body.theme-dark h6,
-        body.theme-darkblue label, body.theme-dark label,
-        body.theme-darkblue .stMarkdown, body.theme-dark .stMarkdown,
-        body.theme-darkblue .stText, body.theme-dark .stText,
-        body.theme-darkblue .stCaption, body.theme-dark .stCaption,
-        body.theme-darkblue [data-testid="stWidgetLabel"], body.theme-dark [data-testid="stWidgetLabel"],
-        body.theme-darkblue .stMetric, body.theme-dark .stMetric,
-        body.theme-darkblue .stMetricValue, body.theme-dark .stMetricValue,
-        body.theme-darkblue .stMetricLabel, body.theme-dark .stMetricLabel,
-        body.theme-darkblue .stMetricDirection, body.theme-dark .stMetricDirection,
-        body.theme-darkblue small, body.theme-dark small {
-            color: var(--text) !important;
-        }
-        body.theme-darkblue .stCaption, body.theme-dark .stCaption { color: var(--muted) !important; }
-
-        /* 漲跌色保留（深色用較亮的綠/紅，避免與背景相撞）*/
-        body.theme-darkblue .aa-price-up, body.theme-dark .aa-price-up { color:#26a69a !important; }
-        body.theme-darkblue .aa-price-down, body.theme-dark .aa-price-down { color:#ef5350 !important; }
-
-        /* 輸入控件：selectbox / multiselect / text / number input */
-        body.theme-darkblue [data-baseweb="select"] > div, body.theme-dark [data-baseweb="select"] > div,
-        body.theme-darkblue [data-baseweb="input"], body.theme-dark [data-baseweb="input"],
-        body.theme-darkblue [data-baseweb="base-input"], body.theme-dark [data-baseweb="base-input"],
-        body.theme-darkblue input, body.theme-dark input,
-        body.theme-darkblue textarea, body.theme-dark textarea {
-            background-color: var(--panel) !important;
-            color: var(--text) !important;
-            border-color: var(--border) !important;
-        }
-        body.theme-darkblue [data-baseweb="select"] span, body.theme-dark [data-baseweb="select"] span,
-        body.theme-darkblue [data-baseweb="select"] input, body.theme-dark [data-baseweb="select"] input,
-        body.theme-darkblue [data-baseweb="input"] input, body.theme-dark [data-baseweb="input"] input {
-            color: var(--text) !important;
-        }
-        body.theme-darkblue [data-baseweb="tag"], body.theme-dark [data-baseweb="tag"] {
-            background-color: var(--th) !important; color: var(--text) !important;
-        }
-        /* 下拉彈層（baseweb portal 掛在 body 下）*/
-        body.theme-darkblue [data-baseweb="menu"], body.theme-dark [data-baseweb="menu"],
-        body.theme-darkblue ul[role="listbox"], body.theme-dark ul[role="listbox"],
-        body.theme-darkblue [data-baseweb="popover"], body.theme-dark [data-baseweb="popover"] {
-            background-color: var(--panel) !important; border:1px solid var(--border) !important;
-        }
-        body.theme-darkblue li[role="option"], body.theme-dark li[role="option"],
-        body.theme-darkblue [role="option"], body.theme-dark [role="option"] {
-            background-color: var(--panel) !important; color: var(--text) !important;
-        }
-        body.theme-darkblue li[role="option"]:hover, body.theme-dark li[role="option"]:hover,
-        body.theme-darkblue [role="option"][aria-selected="true"], body.theme-dark [role="option"][aria-selected="true"] {
-            background-color: var(--th) !important;
-        }
-
-        /* 按鈕 */
-        body.theme-darkblue .stButton > button, body.theme-dark .stButton > button,
-        body.theme-darkblue .stDownloadButton > button, body.theme-dark .stDownloadButton > button {
-            background-color: var(--panel) !important; color: var(--text) !important;
-            border:1px solid var(--border) !important;
-        }
-        body.theme-darkblue .stButton > button:hover, body.theme-dark .stButton > button:hover {
-            background-color: var(--th) !important; border-color: var(--accent) !important;
-        }
-
-        /* 核取方塊 / 單選 / 滑桿 */
-        body.theme-darkblue [data-baseweb="checkbox"], body.theme-dark [data-baseweb="checkbox"],
-        body.theme-darkblue [data-baseweb="radio"], body.theme-dark [data-baseweb="radio"] {
-            color: var(--text) !important;
-        }
-        body.theme-darkblue [data-testid="stTickBarMin"], body.theme-dark [data-testid="stTickBarMin"],
-        body.theme-darkblue [data-testid="stTickBarMax"], body.theme-dark [data-testid="stTickBarMax"] {
-            color: var(--muted) !important; fill: var(--muted) !important;
-        }
-
-        /* Expander 折疊面板 */
-        body.theme-darkblue [data-testid="stExpander"], body.theme-dark [data-testid="stExpander"],
-        body.theme-darkblue details, body.theme-dark details {
-            background-color: var(--panel) !important; border:1px solid var(--border) !important;
-            color: var(--text) !important;
-        }
-        body.theme-darkblue [data-testid="stExpander"] summary, body.theme-dark [data-testid="stExpander"] summary,
-        body.theme-darkblue details summary, body.theme-dark details summary {
-            color: var(--text) !important;
-        }
-        body.theme-darkblue [data-testid="stExpanderDetails"], body.theme-dark [data-testid="stExpanderDetails"] {
-            background-color: var(--panel) !important;
-        }
-
-        /* Tabs 分頁 */
-        body.theme-darkblue [data-baseweb="tab-list"], body.theme-dark [data-baseweb="tab-list"] {
-            background-color: var(--panel2) !important;
-        }
-        body.theme-darkblue [data-baseweb="tab"], body.theme-dark [data-baseweb="tab"] {
-            color: var(--muted) !important;
-        }
-        body.theme-darkblue [data-baseweb="tab"][aria-selected="true"], body.theme-dark [data-baseweb="tab"][aria-selected="true"] {
-            background-color: var(--panel) !important; color: var(--text) !important;
-        }
-        body.theme-darkblue [data-baseweb="tab-highlight"], body.theme-dark [data-baseweb="tab-highlight"],
-        body.theme-darkblue [data-baseweb="tab-border"], body.theme-dark [data-baseweb="tab-border"] {
-            background-color: var(--accent) !important;
-        }
-
-        /* 數據框 / 表格 */
-        body.theme-darkblue .stDataFrame, body.theme-dark .stDataFrame,
-        body.theme-darkblue [data-testid="stDataFrame"], body.theme-dark [data-testid="stDataFrame"],
-        body.theme-darkblue .stTable, body.theme-dark .stTable,
-        body.theme-darkblue .resizable-table-wrapper, body.theme-dark .resizable-table-wrapper {
-            background-color: var(--panel) !important; border-color: var(--border) !important;
-        }
-        body.theme-darkblue table, body.theme-dark table {
-            background-color: var(--panel) !important; color: var(--text) !important;
-        }
-        body.theme-darkblue table th, body.theme-dark table th {
-            background-color: var(--th) !important; color: var(--text) !important;
-            border-color: var(--border) !important;
-        }
-        body.theme-darkblue table td, body.theme-dark table td {
-            color: var(--text) !important; border-color: var(--border) !important;
-        }
-        body.theme-darkblue table.custom-resizable-grid tr:nth-child(even),
-        body.theme-dark table.custom-resizable-grid tr:nth-child(even) {
-            background-color: var(--panel2) !important;
-        }
-
-        /* Alert 提示框：保留語意底色，文字轉淺色 */
-        body.theme-darkblue [data-testid="stAlert"] p, body.theme-dark [data-testid="stAlert"] p,
-        body.theme-darkblue [data-testid="stAlert"] span, body.theme-dark [data-testid="stAlert"] span {
-            color: #dde3ee !important;
-        }
-
-        /* 自訂 HTML 卡片 */
-        body.theme-darkblue .aa-quote-container, body.theme-dark .aa-quote-container,
-        body.theme-darkblue .aa-index-bar, body.theme-dark .aa-index-bar,
-        body.theme-darkblue .section-card, body.theme-dark .section-card {
-            background-color: var(--panel) !important; border-color: var(--border) !important;
-            color: var(--text) !important;
-        }
-        body.theme-darkblue .selected-asset-banner, body.theme-dark .selected-asset-banner {
-            background-color: var(--panel2) !important; color: var(--text) !important;
-        }
-        body.theme-darkblue .aa-label, body.theme-dark .aa-label { color: var(--muted) !important; }
-        body.theme-darkblue .aa-val, body.theme-dark .aa-val { color: var(--text) !important; }
-        body.theme-darkblue .aa-price-box-up, body.theme-dark .aa-price-box-up {
-            background-color: rgba(38,166,154,0.14) !important;
-        }
-        body.theme-darkblue .aa-price-box-down, body.theme-dark .aa-price-box-down {
-            background-color: rgba(239,83,80,0.14) !important;
-        }
-        body.theme-darkblue .aa-metric-table td, body.theme-dark .aa-metric-table td {
-            border-color: var(--border) !important;
-        }
-        body.theme-darkblue .tag-badge, body.theme-dark .tag-badge {
-            background-color: rgba(239,83,80,0.18) !important; color:#ff9b97 !important;
-            border-color: rgba(239,83,80,0.4) !important;
-        }
-
-        /* v8 手機報價卡片：深色主題覆蓋 */
-        body.theme-darkblue .qa-card, body.theme-dark .qa-card {
-            background-color: var(--panel) !important; border-color: var(--border) !important;
-        }
-        body.theme-darkblue .qa-head, body.theme-dark .qa-head { border-color: var(--border) !important; }
-        body.theme-darkblue .qa-name, body.theme-dark .qa-name { color: var(--text) !important; }
-        body.theme-darkblue .qa-sub, body.theme-dark .qa-sub,
-        body.theme-darkblue .qa-status, body.theme-dark .qa-status { color: var(--muted) !important; }
-        body.theme-darkblue .qa-lab, body.theme-dark .qa-lab {
-            color: var(--muted) !important; border-color: var(--border) !important;
-        }
-        body.theme-darkblue .qa-val, body.theme-dark .qa-val {
-            color: var(--text) !important; border-color: var(--border) !important;
-        }
-        body.theme-darkblue .qa-up, body.theme-dark .qa-up { color:#26a69a !important; }
-        body.theme-darkblue .qa-down, body.theme-dark .qa-down { color:#ef5350 !important; }
-        body.theme-darkblue .qa-mid, body.theme-dark .qa-mid { color: var(--text) !important; }
-        body.theme-darkblue .qa-na, body.theme-dark .qa-na { color:#6b7689 !important; }
-        body.theme-darkblue .qa-foot, body.theme-dark .qa-foot { border-color: var(--border) !important; }
-
-        /* 程式碼 / 分隔線 / 引用 */
-        body.theme-darkblue code, body.theme-dark code {
-            background-color: var(--panel2) !important; color: var(--text) !important;
-        }
-        body.theme-darkblue pre, body.theme-dark pre {
-            background-color: var(--panel2) !important; border:1px solid var(--border) !important;
-        }
-        body.theme-darkblue hr, body.theme-dark hr { border-color: var(--border) !important; }
-
-        /* v11 右上角主題選擇器：明確背景與邊框，三主題各自協調，文字/箭頭對比清晰，不與頁面背景衝突 */
-        .theme-picker-wrap {
-            background: #f1f5f9;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            padding: 5px 8px;
-        }
-        .theme-picker-wrap [data-baseweb="select"] > div {
-            background-color: transparent !important;
-            border: none !important;
-        }
-        body.theme-darkblue .theme-picker-wrap {
-            background: var(--panel); border: 1px solid var(--border);
-        }
-        body.theme-dark .theme-picker-wrap {
-            background: var(--panel); border: 1px solid var(--border);
-        }
-        body.theme-darkblue .theme-picker-wrap [data-baseweb="select"] span,
-        body.theme-dark .theme-picker-wrap [data-baseweb="select"] span,
-        body.theme-darkblue .theme-picker-wrap svg,
-        body.theme-dark .theme-picker-wrap svg {
-            color: var(--text); fill: var(--text);
-        }
-
-        /* 主題切換按鈕固定在右上角 */
-        .theme-switcher-fixed {
-            position: fixed;
-            top: 12px;
-            right: 16px;
-            z-index: 9999;
-            background: rgba(255,255,255,0.95);
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            padding: 6px 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-        }
-        .theme-darkblue .theme-switcher-fixed,
-        .theme-dark .theme-switcher-fixed {
-            background: rgba(28,34,48,0.95);
-            border-color: var(--border);
         }
 
         </style>
@@ -3235,6 +2927,74 @@ def label_elliott(pivots):
     return labels
 
 
+def _impulse_rule_check(seq, up: bool):
+    """對 6 個樞紐價 P0..P5 逐一檢查 Elliott 推動浪守則（用戶 Err4 規則）。
+    回傳 (全部合規, 各守則 bool, 違規數)。上升與下降鏡像。"""
+    p0, p1, p2, p3, p4, p5 = seq
+    if up:
+        r = {
+            "浪1在零上方": p1 > p0,
+            "浪2低於浪1": p2 < p1,
+            "浪2仍在零上方": p2 > p0,
+            "浪3高於浪1": p3 > p1,
+            "浪3高於浪2": p3 > p2,
+            "浪4低於浪3": p4 < p3,
+            "浪4不進入浪1區域": p4 >= p1,
+            "浪5高於浪3": p5 > p3,
+            "浪5高於浪4": p5 > p4,
+        }
+        w1, w3, w5 = abs(p1 - p0), abs(p3 - p2), abs(p5 - p4)
+        r["浪3非最短推動浪"] = (w3 >= w1) or (w3 >= w5)
+    else:
+        r = {
+            "浪1在零下方": p1 < p0,
+            "浪2高於浪1": p2 > p1,
+            "浪2仍在零下方": p2 < p0,
+            "浪3低於浪1": p3 < p1,
+            "浪3低於浪2": p3 < p2,
+            "浪4高於浪3": p4 > p3,
+            "浪4不進入浪1區域": p4 <= p1,
+            "浪5低於浪3": p5 < p3,
+            "浪5低於浪4": p5 < p4,
+        }
+        w1, w3, w5 = abs(p0 - p1), abs(p2 - p3), abs(p4 - p5)
+        r["浪3非最短推動浪"] = (w3 >= w1) or (w3 >= w5)
+    violations = [k for k, ok in r.items() if not ok]
+    return (len(violations) == 0), r, violations
+
+
+def find_impulse_waves(pivots):
+    """從 ZigZag 樞紐中尋找符合 Elliott 守則的五浪推動序列（含後續 ABC）。
+    不同於機械交替標號：逐個連續 6 樞紐窗口驗證守則，選違規最少、最末端者。
+    回傳 dict：ok/up/start/anchor(各浪樞紐索引)/rules/violations/abc。"""
+    best = None
+    if len(pivots) < 6:
+        return {"ok": False, "reason": "擺動點不足 6 個，無法構成五浪結構"}
+    for s in range(0, len(pivots) - 5):
+        window = pivots[s:s + 6]
+        prices = [float(p) for _, p, _ in window]
+        # 方向由首段決定
+        up = prices[1] > prices[0]
+        ok, rules, viol = _impulse_rule_check(prices, up)
+        cand = {"ok": ok, "up": up, "start": s, "anchor": list(range(s, s + 6)),
+                "prices": prices, "rules": rules, "violations": viol,
+                "n_viol": len(viol)}
+        # 優先完全合規；同級取最末端（最貼近當前）
+        if best is None or (cand["n_viol"], -s) < (best["n_viol"], -best["start"]):
+            best = cand
+    # ABC：五浪末端（索引 start+5）之後的樞紐
+    end = best["start"] + 5
+    abc = []
+    for k, nm in enumerate(["A", "B", "C"]):
+        j = end + 1 + k
+        if j < len(pivots):
+            abc.append({"label": nm, "pivot": j,
+                        "price": float(pivots[j][1]), "kind": pivots[j][2]})
+    best["abc"] = abc
+    best["end"] = end
+    return best
+
+
 def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420):
     """v7：取真實日線（Yahoo→Stooq 多源）→ ZigZag 擺動點 → 啟發式艾略特標浪。失敗回傳 ok=False。"""
     out = {"ok": False, "pivots": [], "labels": [], "dates": [], "prices": [], "kinds": [],
@@ -3254,6 +3014,7 @@ def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420):
             "ok": True,
             "pivots": pivots,
             "labels": labels,
+            "impulse": find_impulse_waves(pivots),
             "dates": [str(idx[i])[:10] for i, _, _ in pivots],
             "prices": [float(p) for _, p, _ in pivots],
             "kinds": [str(k) for _, _, k in pivots],
@@ -3266,6 +3027,171 @@ def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420):
     except Exception:
         pass
     return out
+
+
+def _8p_series(rec8, label_key):
+    """從 8P 記錄依標籤關鍵字取該指標 23 年序列；無記錄回 None。"""
+    if not rec8:
+        return None
+    for i, lab in enumerate(_8P_LABELS):
+        if label_key in lab:
+            return list(rec8["v"][i])
+    return None
+
+
+def _latest_real(series, cutoff=19):
+    """取歷史實際區（idx<=cutoff，2025 止）最後一個非空值與其索引。"""
+    if not series:
+        return None, None
+    for j in range(min(cutoff, len(series) - 1), -1, -1):
+        v = series[j]
+        if isinstance(v, (int, float)):
+            return v, j
+    return None, None
+
+
+def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict = None):
+    """六維交叉判斷：整合 8P 財報、估值、成長、技術動能、波浪結構、宏觀/風險，
+    每維給子分數（-2..2）與證據，加權映射爆升/偏多/中性/偏空/爆跌。缺失維度如實標 N/A、不編造。
+    回傳 dims[(名, 分數, 證據, 可用)]、total、verdict、direction。"""
+    if mom is None:
+        mom = fetch_real_momentum_snapshot(symbol)
+    rec8 = get_8p_record(symbol)
+    dims = []
+
+    # 維度 1：8P 長期財報
+    s1 = 0.0; ev1 = []
+    rev_s = _8p_series(rec8, "Revenue（收入）")
+    pm_s = _8p_series(rec8, "Profit Margin（純利率）")
+    roe_s = _8p_series(rec8, "ROE（股本回報率）")
+    if rec8:
+        rev_now, jn = _latest_real(rev_s)
+        if rev_now and jn and jn >= 5:
+            rev_then = rev_s[jn - 5]
+            if isinstance(rev_then, (int, float)) and rev_then > 0:
+                cagr = ((rev_now / rev_then) ** 0.2 - 1) * 100
+                s1 += max(min(cagr / 12, 1.2), -1.2)
+                ev1.append(f"近5年營收CAGR {cagr:+.1f}%")
+        roe_now, _ = _latest_real(roe_s)
+        if isinstance(roe_now, (int, float)):
+            # ROE 口徑不一：>1.5 視為百分比數字，否則為小數
+            roe_pct = roe_now if roe_now > 1.5 else roe_now * 100
+            s1 += 0.8 if roe_pct >= 20 else (-0.6 if roe_pct < 0 else 0.2)
+            ev1.append(f"最新ROE {roe_pct:.1f}%")
+        # 當前 PE 對歷史估值分區
+        pe_now = prof.get("pe")
+        hi_pe_s = _8p_series(rec8, "High PE（最高市盈率）")
+        lo_pe_s = _8p_series(rec8, "Low PE（最低市盈率）")
+        hi_pe, _ = _latest_real(hi_pe_s); lo_pe, _ = _latest_real(lo_pe_s)
+        if isinstance(pe_now, (int, float)) and hi_pe and lo_pe:
+            if pe_now <= lo_pe * 1.1:
+                s1 += 0.7; ev1.append(f"現PE {pe_now:.1f} 貼近歷史低位 {lo_pe:.1f}")
+            elif pe_now >= hi_pe * 0.9:
+                s1 -= 0.7; ev1.append(f"現PE {pe_now:.1f} 逼近歷史高位 {hi_pe:.1f}")
+            else:
+                ev1.append(f"現PE {pe_now:.1f} 處歷史 {lo_pe:.1f}–{hi_pe:.1f} 區間內")
+        dims.append(("8P 長期財報", round(max(min(s1, 2), -2), 2), "；".join(ev1) or "8P 數據不足", True))
+    else:
+        dims.append(("8P 長期財報", 0.0, "此標的未含於 8P 數據包", False))
+
+    # 維度 2：估值
+    s2 = 0.0; ev2 = []
+    fpe = prof.get("fwd_pe") or prof.get("pe")
+    eps = prof.get("fwd_eps") or prof.get("eps")
+    if isinstance(fpe, (int, float)) and isinstance(eps, (int, float)) and eps > 0:
+        if fpe < 12: s2 += 1.5; ev2.append(f"遠期PE {fpe:.1f}x 偏低")
+        elif fpe < 22: s2 += 0.6; ev2.append(f"遠期PE {fpe:.1f}x 合理")
+        elif fpe < 40: s2 -= 0.6; ev2.append(f"遠期PE {fpe:.1f}x 偏貴")
+        else: s2 -= 1.5; ev2.append(f"遠期PE {fpe:.1f}x 泡沫風險")
+    else:
+        s2 -= 1.2; ev2.append("未盈利或無 PE，缺乏估值支撐")
+    ps = prof.get("ps")
+    if isinstance(ps, (int, float)) and ps > 15:
+        s2 -= 0.5; ev2.append(f"PS {ps:.1f}x 偏高")
+    dims.append(("估值", round(max(min(s2, 2), -2), 2), "；".join(ev2), True))
+
+    # 維度 3：成長與盈利質素
+    s3 = 0.0; ev3 = []
+    rev_g = prof.get("rev_growth")
+    if isinstance(rev_g, (int, float)):
+        s3 += max(min(rev_g / 15, 1.2), -1.2)
+        ev3.append(f"營收增長 {rev_g:+.1f}%")
+    nm = prof.get("net_margin")
+    if isinstance(nm, (int, float)):
+        if nm < 0: s3 -= 0.7; ev3.append(f"淨利率 {nm:.1f}% 為負")
+        elif nm >= 20: s3 += 0.5; ev3.append(f"淨利率 {nm:.1f}% 優")
+    dims.append(("成長與盈利質素", round(max(min(s3, 2), -2), 2), "；".join(ev3) or "成長數據缺失", bool(ev3)))
+
+    # 維度 4：技術動能
+    s4 = 0.0; ev4 = []
+    if mom.get("ok"):
+        rsi = mom.get("rsi"); pos52 = mom.get("pos52"); r63 = mom.get("r63")
+        if isinstance(r63, (int, float)):
+            s4 += max(min(r63 / 25, 1.0), -1.0); ev4.append(f"近3月 {r63:+.0f}%")
+        if isinstance(rsi, (int, float)):
+            if rsi >= 75: s4 -= 0.5; ev4.append(f"RSI {rsi:.0f} 超買")
+            elif rsi <= 28: s4 += 0.4; ev4.append(f"RSI {rsi:.0f} 超賣")
+        if mom.get("above_ma200") is True: s4 += 0.5; ev4.append("站穩200日線")
+        elif mom.get("above_ma200") is False: s4 -= 0.5; ev4.append("失守200日線")
+        if isinstance(pos52, (int, float)):
+            if pos52 >= 92: s4 -= 0.4; ev4.append(f"52週 {pos52:.0f}% 高位")
+            elif pos52 <= 12: s4 += 0.4; ev4.append(f"52週 {pos52:.0f}% 低位")
+        dims.append(("技術動能", round(max(min(s4, 2), -2), 2), "；".join(ev4), True))
+    else:
+        dims.append(("技術動能", 0.0, "動能數據離線缺失", False))
+
+    # 維度 5：波浪結構
+    s5 = 0.0; ev5 = []
+    if wave is None:
+        wave = compute_wave_analysis(symbol)
+    imp = wave.get("impulse") if wave else None
+    if imp and imp.get("rules"):
+        if imp.get("ok"):
+            s5 = 1.2 if imp.get("up") else -1.2
+            ev5.append("五浪完全合規，方向" + ("向上" if imp.get("up") else "向下"))
+        else:
+            s5 = 0.3 if imp.get("up") else -0.3
+            ev5.append(f"候選五浪有 {imp.get('n_viol')} 項違規，結構未確認")
+        dims.append(("波浪結構", round(s5, 2), "；".join(ev5), True))
+    else:
+        dims.append(("波浪結構", 0.0, "波浪數據不足", False))
+
+    # 維度 6：宏觀與風險
+    s6 = 0.0; ev6 = []
+    idx_sym = "^HSI" if prof.get("mkt") == "HK" else "^GSPC"
+    mm = fetch_real_momentum_snapshot(idx_sym)
+    if mm.get("ok"):
+        if mm.get("above_ma200") is True: s6 += 0.8; ev6.append("所屬市場指數站穩200日線（宏觀偏多）")
+        elif mm.get("above_ma200") is False: s6 -= 0.8; ev6.append("所屬市場指數失守200日線（宏觀偏空）")
+    else:
+        ev6.append("宏觀指數離線，本維度不計分")
+    d2e = prof.get("debt_to_equity")
+    if isinstance(d2e, (int, float)) and d2e > 150:
+        s6 -= 0.8; ev6.append(f"負債/權益 {d2e:.0f}% 偏高")
+    dims.append(("宏觀與風險", round(max(min(s6, 2), -2), 2), "；".join(ev6), bool(mm.get("ok"))))
+
+    # 加權：僅對可用維度取平均，再乘 6（維度數），避免缺失維度稀釋
+    usable = [s for _, s, _, ok in dims if ok]
+    total = round(sum(s for _, s, _, ok in dims if ok) / max(len(usable), 1) * 3, 2)
+    if total >= 3.5:
+        verdict, direction = "🟢 爆升潛力（六維一致偏多）", "up"
+    elif total >= 1.2:
+        verdict, direction = "🟢 溫和偏多", "up"
+    elif total <= -3.5:
+        verdict, direction = "🔴 爆跌預警（六維一致偏空）", "down"
+    elif total <= -1.2:
+        verdict, direction = "🔴 偏空回撤風險", "down"
+    else:
+        verdict, direction = "⚪ 中性區間", "neutral"
+    return {"dims": dims, "total": total, "verdict": verdict, "direction": direction}
+
+
+def cross_analysis_frame(ca: dict):
+    """把六維交叉結果轉成 DataFrame 供表格渲染。"""
+    return pd.DataFrame([
+        {"分析維度": n, "子分數": s, "證據與交叉依據": ev, "數據可用": "是" if ok else "否（N/A）"}
+        for n, s, ev, ok in ca["dims"]
+    ])
 
 
 def compute_real_forecast(prof: dict, mom: dict):
@@ -3763,11 +3689,13 @@ else:
 if not selected_symbol:
     selected_symbol = "00700.HK"
 
-# 切股只記錄符號，不做清快取或網絡等阻塞操作；重抓一律由手動按鈕觸發
+# 切股：記錄新符號，並為本次選股「單次開門」，使後台自動抓取真實報價（含真實升跌）；
+# 仍受並行競速硬超時約束，不會無限重試或長時間凍結。手動刷新另由「更新報價」按鈕觸發。
 if "last_symbol" not in st.session_state:
     st.session_state["last_symbol"] = selected_symbol
 elif st.session_state["last_symbol"] != selected_symbol:
     st.session_state["last_symbol"] = selected_symbol
+    st.session_state[_MANUAL_NETWORK_KEY] = True
 
 # ==========================================
 # 報價卡（全寬，手動更新；不顯示任何數據來源；右側股票圖已移除）
@@ -3882,6 +3810,13 @@ with tabs[0]:
     * **絕非每隻股票都會爆升**：市值逾百億美元的大型股僅有少數具備「極端低估值修復」或「AI 算力業績非線性爆發」的股票能實現 +20% 至 +50% 升幅；大量成熟藍籌僅屬區間震盪；而估值處於極端泡沫（如 PE > 50x、PS > 30x）或面臨基本面惡化、關稅與加息衝擊的股票，則存在 **-15% 至 -45% 的高危爆跌（均值回歸）風險**。
     * **完整中文顯示與直行/橫行自由調校**：下方表格已啟用 **100% 自動換行完整顯示所有中文字**，你可展開表格上方的「📐 表格顯示設定」滑桿調校直行闊度與橫行高度，或直接用滑鼠拖曳任何表格儲存格邊框。
     """)
+
+    # 六維交叉判斷示範：當前標的如何由 6 個分頁證據交叉得出爆升/爆跌/中性
+    with st.expander("🔗 當前標的六維交叉判斷（8P／估值／成長／動能／波浪／宏觀）", expanded=False):
+        _ca = build_cross_analysis(selected_symbol, q_data)
+        st.markdown(f"**綜合結論：{_ca['verdict']}（加權總分 {_ca['total']}）**")
+        st.dataframe(cross_analysis_frame(_ca), use_container_width=True, hide_index=True)
+        st.caption("批量表格的方向定性與此同一邏輯：各維度證據交叉，避免單一指標誤導；缺失維度不計分、不編造。")
     
     sc_col1, sc_col2, sc_col3 = st.columns([1.3, 1.8, 1.0])
     with sc_col1:
@@ -4121,6 +4056,12 @@ with tabs[1]:
 with tabs[2]:
     st.subheader(f"🎯 {q_data['code']} {q_data['name']} — 2026年基本面高低位分析與歷史倍數推算")
     tab_refresh_button("refresh_tab_fund", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
+
+    # 六維交叉判斷：基本面高低位須與 8P、估值、動能、波浪、宏觀交叉驗證
+    _ca_fund = build_cross_analysis(selected_symbol, q_data)
+    st.markdown(f"##### 🔗 六維交叉判斷：{_ca_fund['verdict']}（加權總分 {_ca_fund['total']}）")
+    st.dataframe(cross_analysis_frame(_ca_fund), use_container_width=True, hide_index=True)
+    st.caption("下方歷史倍數推算僅為其中一維；是否爆升/爆跌須與其餘五維交叉，避免單純由 PE 區間線性外推。")
     
     eps_26 = q_data.get("fwd_eps")
     bps_26 = q_data.get("bps")
@@ -4409,6 +4350,38 @@ with tabs[3]:
             })
         with st.expander("📋 檢視 ZigZag 擺動點明細（含自動標號）", expanded=False):
             st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+
+        # ===== Elliott 守則驗證（對應 Err4：五浪相對高低規則 + ABC）=====
+        imp = wave.get("impulse") or {}
+        st.markdown("##### 📏 艾略特推動浪守則合規檢查（依原始規則驗證，非機械交替）")
+        if imp.get("ok", False) or imp.get("rules"):
+            _dir = "上升推動" if imp.get("up") else "下降推動"
+            _wnames = ["零（起點）", "浪1", "浪2", "浪3", "浪4", "浪5"]
+            _anchor_rows = []
+            for k, ai in enumerate(imp.get("anchor", [])):
+                _anchor_rows.append({
+                    "位置": _wnames[k],
+                    "日期": zz_dates[ai] if ai < len(zz_dates) else "—",
+                    f"價格({q_data['curr']})": round(imp["prices"][k], 3),
+                    "樞紐型態": "高點" if str(zz_kinds[ai]).startswith("H") else "低點",
+                })
+            if imp.get("ok"):
+                st.success(f"✅ 找到**完全符合守則**的{_dir}五浪序列（共 {len(imp['anchor'])} 個樞紐）。")
+            else:
+                st.warning("⚠️ 未找到完全合規的五浪；下列為**違規最少**的候選，違規守則："
+                           + "、".join(imp.get("violations", [])) + "。實際數法仍需人工確認。")
+            st.dataframe(pd.DataFrame(_anchor_rows), use_container_width=True, hide_index=True)
+
+            _rule_rows = [{"守則": r, "結果": ("符合" if ok else "違反")}
+                          for r, ok in imp.get("rules", {}).items()]
+            with st.expander("📐 逐條守則檢視", expanded=False):
+                st.dataframe(pd.DataFrame(_rule_rows), use_container_width=True, hide_index=True)
+
+            if imp.get("abc"):
+                _abc_rows = [{"修正浪": x["label"], "日期": zz_dates[x["pivot"]] if x["pivot"] < len(zz_dates) else "—",
+                              f"價格({q_data['curr']})": round(x["price"], 3)} for x in imp["abc"]]
+                st.markdown("**後續 ABC 修正浪**")
+                st.dataframe(pd.DataFrame(_abc_rows), use_container_width=True, hide_index=True)
     else:
         st.warning(
             "⚠️ 目前無法提供此標的足夠長的真實日線，無法計算 ZigZag 擺動點與標浪。"
@@ -4471,6 +4444,12 @@ with tabs[3]:
 with tabs[4]:
     st.subheader(f"⚖️ {q_data['code']} {q_data['name']} — 批判性入市判斷、客觀估值評分與同行比較")
     tab_refresh_button("refresh_tab_entry", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
+
+    # 六維交叉判斷：入市結論須由 6 個分頁證據交叉，而非單一估值分數
+    _ca_entry = build_cross_analysis(selected_symbol, q_data)
+    st.markdown(f"##### 🔗 六維交叉入市判斷：{_ca_entry['verdict']}（加權總分 {_ca_entry['total']}）")
+    st.dataframe(cross_analysis_frame(_ca_entry), use_container_width=True, hide_index=True)
+    st.caption("六維方向與下方估值評分、同行比較互相制衡；若方向與估值分數矛盾，以分歧本身作風險提示，不強行給單一結論。")
     
     _lo52, _hi52 = q_data.get("w52_low"), q_data.get("w52_high")
     if isinstance(_lo52, (int, float)) and isinstance(_hi52, (int, float)) and _hi52 > _lo52:
