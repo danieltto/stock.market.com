@@ -11,6 +11,7 @@ import html
 import io
 import json
 import re
+import math
 import urllib.request
 
 try:
@@ -1097,53 +1098,100 @@ def fetch_tencent_quote(symbol: str):
 
 
 @st.cache_data(ttl=15, show_spinner=False)
+def _tencent_kline_url(code, mkt, tperiod, count, start=None, end=None):
+    """構造騰訊 K 線請求 URL；提供 start/end 時走日期範圍（用於長周期往回翻頁）。"""
+    if str(tperiod).startswith("m"):
+        return (f"https://web.ifzq.gtimg.cn/appstock/app/kline/mkline"
+                f"?param={code},{tperiod},,{count}")
+    if start and end:
+        seg = f"{code},{tperiod},{start},{end},{count},qfq"
+    else:
+        seg = f"{code},{tperiod},,,{count},qfq"
+    if mkt == "hk":
+        return f"https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get?param={seg}"
+    return f"https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param={seg}"
+
+
+def _parse_tencent_kline(raw, code, tperiod):
+    """解析騰訊 K 線 JSON 為 OHLCV DataFrame；無效回空 DataFrame。"""
+    j = json.loads(raw)
+    node = (j.get("data") or {}).get(code)
+    if not isinstance(node, dict):
+        return pd.DataFrame()
+    arr = node.get(f"qfq{tperiod}") or node.get(tperiod)
+    if arr is None:
+        for k, v in node.items():
+            if tperiod in k and isinstance(v, list) and v:
+                arr = v
+                break
+    if not arr:
+        return pd.DataFrame()
+    rows = []
+    for item in arr:
+        try:
+            o, c, h, l = float(item[1]), float(item[2]), float(item[3]), float(item[4])
+            v = float(item[5]) if len(item) > 5 and item[5] not in ("", None) else 0.0
+            rows.append((item[0], o, h, l, c, v))
+        except Exception:
+            continue
+    if len(rows) < 6:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=["t", "Open", "High", "Low", "Close", "Volume"])
+    df["dt"] = pd.to_datetime(df["t"], errors="coerce")
+    return df.dropna(subset=["dt"]).set_index("dt").sort_index()[
+        ["Open", "High", "Low", "Close", "Volume"]]
+
+
+def _fetch_tencent_daily_paged(codes, mkt, target, max_pages=10):
+    """長周期日線：騰訊單次請求上限約 2000 根，超出時以 end 日期往回翻頁拼接、去重。"""
+    frames = []
+    for code in codes:
+        try:
+            first_url = _tencent_kline_url(code, mkt, "day", min(target, 2000))
+            first = _parse_tencent_kline(_http_get_text(first_url, encoding="utf-8", timeout=12),
+                                         code, "day")
+            if first.empty:
+                continue
+            frames.append(first)
+            for _ in range(max_pages):
+                if len(pd.concat(frames)) >= target:
+                    break
+                earliest = pd.concat(frames).index.min()
+                url = _tencent_kline_url(code, mkt, "day", 640,
+                                          start="1990-01-01",
+                                          end=earliest.strftime("%Y-%m-%d"))
+                nxt = _parse_tencent_kline(_http_get_text(url, encoding="utf-8", timeout=12),
+                                           code, "day")
+                if nxt.empty:
+                    break
+                merged = pd.concat(frames + [nxt])
+                if merged.index.min() >= earliest:
+                    break  # 沒有更早數據，視為數據用盡
+                frames.append(nxt)
+            full = pd.concat(frames)
+            full = full[~full.index.duplicated(keep="first")].sort_index()
+            if not full.empty:
+                return full
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+
 def fetch_tencent_kline(symbol: str, tperiod: str, count: int = 640):
-    """騰訊財經 K 線。tperiod: day/week/month/m15/m30/m60。回傳 OHLCV DataFrame；失敗回空。"""
+    """騰訊財經 K 線。tperiod: day/week/month/m15/m30/m60。回傳 OHLCV DataFrame；失敗回空。
+    day 線且 count>2000（10 年/全部）時自動往回翻頁，覆蓋更長歷史。"""
     out = pd.DataFrame()
     try:
         codes, mkt = tencent_kline_codes(symbol)
         if not codes:
             return out
-        is_min = str(tperiod).startswith("m")
+        if tperiod == "day" and count > 2000:
+            return _fetch_tencent_daily_paged(codes, mkt, count)
         for code in codes:
             try:
-                if is_min:
-                    url = (f"https://web.ifzq.gtimg.cn/appstock/app/kline/mkline"
-                           f"?param={code},{tperiod},,{count}")
-                elif mkt == "hk":
-                    url = (f"https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get"
-                           f"?param={code},{tperiod},,,{count},qfq")
-                else:
-                    url = (f"https://web.ifzq.gtimg.cn/appstock/app/kline/kline"
-                           f"?param={code},{tperiod},,,{count},qfq")
-                raw = _http_get_text(url, encoding="utf-8", timeout=12)
-                j = json.loads(raw)
-                node = (j.get("data") or {}).get(code)
-                if not isinstance(node, dict):
-                    continue
-                arr = node.get(f"qfq{tperiod}") or node.get(tperiod)
-                if arr is None:
-                    for k, v in node.items():
-                        if tperiod in k and isinstance(v, list) and v:
-                            arr = v
-                            break
-                if not arr:
-                    continue
-                rows = []
-                for item in arr:
-                    try:
-                        # 騰訊 K 線順序固定為：[時間, 開盤, 收盤, 最高, 最低, 成交量]
-                        o, c, h, l = float(item[1]), float(item[2]), float(item[3]), float(item[4])
-                        v = float(item[5]) if len(item) > 5 and item[5] not in ("", None) else 0.0
-                        rows.append((item[0], o, h, l, c, v))
-                    except Exception:
-                        continue
-                if len(rows) < 6:
-                    continue
-                df = pd.DataFrame(rows, columns=["t", "Open", "High", "Low", "Close", "Volume"])
-                df["dt"] = pd.to_datetime(df["t"], errors="coerce")
-                df = df.dropna(subset=["dt"]).set_index("dt").sort_index()
-                df = df[["Open", "High", "Low", "Close", "Volume"]]
+                url = _tencent_kline_url(code, mkt, tperiod, count)
+                df = _parse_tencent_kline(_http_get_text(url, encoding="utf-8", timeout=12),
+                                          code, tperiod)
                 if not df.empty:
                     return df
             except Exception:
@@ -3010,15 +3058,22 @@ def find_impulse_waves(pivots):
     return best
 
 
-def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420):
-    """v7：取真實日線（Yahoo→Stooq 多源）→ ZigZag 擺動點 → 啟發式艾略特標浪。失敗回傳 ok=False。"""
+_WAVE_PERIOD_DAYS = {"1y": 252, "2y": 420, "5y": 1260, "10y": 2520, "max": 4000}
+
+
+def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420, period: str = "2y"):
+    """v14：取真實日線（Yahoo→騰訊→Stooq 多源）→ ZigZag 擺動點 → 艾略特守則驗證。
+    period 支援 1y/2y/5y/10y/max：長周期（5/10 年以上）會在完整數據上同步計算波浪，
+    而非只看近 2 年。失敗回傳 ok=False。days 參數保留向後兼容（period 優先）。"""
     out = {"ok": False, "pivots": [], "labels": [], "dates": [], "prices": [], "kinds": [],
-           "line_dates": [], "line_close": [], "src": None, "pct": pct, "hi52": None, "lo52": None}
+           "line_dates": [], "line_close": [], "src": None, "pct": pct,
+           "hi52": None, "lo52": None, "period": period}
     try:
-        df, src = get_price_history(symbol, "1d", "2y")
+        df, src = get_price_history(symbol, "1d", period if period in _WAVE_PERIOD_DAYS else "2y")
         if df is None or df.empty or len(df) < 30:
             return out
-        df = df.tail(days)
+        keep = _WAVE_PERIOD_DAYS.get(period, days)
+        df = df.tail(keep)
         highs = df["High"].values
         lows = df["Low"].values
         closes = df["Close"].values
@@ -3036,6 +3091,9 @@ def compute_wave_analysis(symbol: str, pct: float = 0.06, days: int = 420):
             "line_dates": [str(d)[:10] for d in idx],
             "line_close": [float(c) for c in closes],
             "src": src,
+            "n_bars": len(df),
+            "start_date": str(idx[0])[:10],
+            "end_date": str(idx[-1])[:10],
             "hi52": float(df["High"].tail(252).max()),
             "lo52": float(df["Low"].tail(252).min()),
         })
@@ -3063,6 +3121,27 @@ def _latest_real(series, cutoff=19):
         if isinstance(v, (int, float)):
             return v, j
     return None, None
+
+
+_CROSS_SCENARIO_LABELS = ["爆升（預期 >+15%）", "溫和上升", "中性區間", "溫和下跌", "爆跌（預期 <-15%）"]
+_CROSS_SCENARIO_CENTERS = [4.5, 1.8, 0.0, -1.8, -4.5]
+_CROSS_SCENARIO_SIGMA = 3.0
+
+
+def _cross_scenario_probs(total: float):
+    """把總分映射為五個情景的概率分佈（%，總和 100）。
+    採高斯權重、sigma 偏大使分佈分散：即使最強信號，單一情景峰值也壓在約 55% 內，
+    如實反映市場不確定性，不給「100% 爆升」這類誇張結論。"""
+    w = [math.exp(-((total - c) ** 2) / (2 * _CROSS_SCENARIO_SIGMA ** 2))
+         for c in _CROSS_SCENARIO_CENTERS]
+    s = sum(w)
+    return [round(x / s * 100, 1) for x in w]
+
+
+def _cross_expected_move(total: float):
+    """總分 → 未來約 12 個月預期幅度（%），有界映射、封頂 ±35%，避免誇張外推。
+    total ±3.5（爆升/跌門檻）約對應 ±21%，中性歸零。"""
+    return round(max(min(total * 6.0, 35.0), -35.0), 1)
 
 
 def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict = None,
@@ -3200,7 +3279,22 @@ def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict =
         verdict, direction = "🔴 偏空回撤風險", "down"
     else:
         verdict, direction = "⚪ 中性區間", "neutral"
-    return {"dims": dims, "total": total, "verdict": verdict, "direction": direction}
+    probs = _cross_scenario_probs(total)
+    scenario_rows = list(zip(_CROSS_SCENARIO_LABELS, probs))
+    expected_move = _cross_expected_move(total)
+    base_price = prof.get("price")
+    target_price = (round(base_price * (1 + expected_move / 100.0), 3)
+                    if isinstance(base_price, (int, float)) and base_price > 0 else None)
+    return {
+        "dims": dims, "total": total, "verdict": verdict, "direction": direction,
+        "scenarios": scenario_rows,
+        "prob_up": round(probs[0] + probs[1], 1),
+        "prob_neutral": probs[2],
+        "prob_down": round(probs[3] + probs[4], 1),
+        "prob_surge": probs[0], "prob_crash": probs[4],
+        "expected_move": expected_move, "target_price": target_price,
+        "base_price": base_price, "currency": prof.get("curr"),
+    }
 
 
 def cross_analysis_frame(ca: dict):
@@ -3209,6 +3303,32 @@ def cross_analysis_frame(ca: dict):
         {"分析維度": n, "子分數": s, "證據與交叉依據": ev, "數據可用": "是" if ok else "否（N/A）"}
         for n, s, ev, ok in ca["dims"]
     ])
+
+
+def render_cross_verdict(ca: dict):
+    """統一渲染六維交叉的程序化結論：定性方向、五情景概率、預期幅度與目標價。
+    所有百分比均由總分按固定映射計算，並保留批判性免責，不使用「保證/必升」等用語。"""
+    cur = ca.get("currency") or ""
+    st.markdown(f"#### {ca['verdict']}（六維總分 {ca['total']}）")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("上行概率（爆升＋溫和）", f"{ca['prob_up']}%")
+    c2.metric("中性概率", f"{ca['prob_neutral']}%")
+    c3.metric("下行概率（溫和＋爆跌）", f"{ca['prob_down']}%")
+    c4, c5, c6 = st.columns(3)
+    c4.metric("未來約 12 個月預期幅度", f"{ca['expected_move']:+.1f}%")
+    if ca.get("target_price") is not None:
+        c5.metric(f"對應目標價（{cur}）", f"{ca['target_price']}")
+    else:
+        c5.metric("對應目標價", "N/A")
+    c6.metric("爆升概率／爆跌概率", f"{ca['prob_surge']}% ／ {ca['prob_crash']}%")
+    st.dataframe(pd.DataFrame(ca["scenarios"], columns=["情景", "概率（%）"]),
+                 use_container_width=True, hide_index=True)
+    n_missing = sum(1 for _, _, _, ok in ca["dims"] if not ok)
+    st.caption(
+        "上述概率與幅度由六維子分數按固定、有界的程序映射得出（單一情景峰值封頂約 55%、"
+        "幅度封頂 ±35%），屬模型估計而非預測保證；市場存在突發政策、業績與流動性風險，實際結果可偏離。"
+        + (f"本次有 {n_missing} 個維度數據缺失、不參與計分，故結論確定性相應降低，"
+           "請補齊聯網或人工核對後再作決策。" if n_missing else ""))
 
 
 def compute_real_forecast(prof: dict, mom: dict):
@@ -3832,6 +3952,7 @@ with tabs[0]:
     with st.expander("🔗 當前標的六維交叉判斷（8P／估值／成長／動能／波浪／宏觀）", expanded=False):
         _ca = build_cross_analysis(selected_symbol, q_data)
         st.markdown(f"**綜合結論：{_ca['verdict']}（加權總分 {_ca['total']}）**")
+        render_cross_verdict(_ca)
         st.dataframe(cross_analysis_frame(_ca), use_container_width=True, hide_index=True)
         st.caption("批量表格的方向定性與此同一邏輯：各維度證據交叉，避免單一指標誤導；缺失維度不計分、不編造。")
     
@@ -4084,6 +4205,7 @@ with tabs[2]:
     # 六維交叉判斷：基本面高低位須與 8P、估值、動能、波浪、宏觀交叉驗證
     _ca_fund = build_cross_analysis(selected_symbol, q_data)
     st.markdown(f"##### 🔗 六維交叉判斷：{_ca_fund['verdict']}（加權總分 {_ca_fund['total']}）")
+    render_cross_verdict(_ca_fund)
     st.dataframe(cross_analysis_frame(_ca_fund), use_container_width=True, hide_index=True)
     st.caption("下方歷史倍數推算僅為其中一維；是否爆升/爆跌須與其餘五維交叉，避免單純由 PE 區間線性外推。")
     
@@ -4223,7 +4345,19 @@ with tabs[3]:
             "ZigZag 擺動閾值 %（越小越敏感、擺動點越多；越大越只看主要高低點）",
             min_value=3.0, max_value=15.0, value=6.0, step=0.5, key="zig_pct_slider"
         ) / 100.0
-    wave = compute_wave_analysis(selected_symbol, pct=zig_pct)
+    def _wave_period_requested():
+        # 用戶主動切換周期屬明確手動數據請求，掛 pending 使本次 rerun 開門一次（非自動/定時）
+        st.session_state[_PENDING_OPEN_KEY] = True
+
+    wave_period = st.radio(
+        "波浪數據周期（5 年/10 年以上的長期波浪會在完整數據上同步計算）",
+        ["1y", "2y", "5y", "10y", "max"], index=1, horizontal=True,
+        key="wave_period_radio", on_change=_wave_period_requested
+    )
+    wave = compute_wave_analysis(selected_symbol, pct=zig_pct, period=wave_period)
+    if wave.get("ok"):
+        st.caption(f"本周期涵蓋 **{wave.get('start_date')} 至 {wave.get('end_date')}**，"
+                   f"共 {wave.get('n_bars')} 個交易日（數據源：{wave.get('src')}）。")
 
     # v6：波浪理論「實際軌跡」改用真實月度收盤 + 真實 52 週高低點，不再硬編碼或線性內插
     mp = fetch_real_monthly_path(selected_symbol)
@@ -4472,6 +4606,7 @@ with tabs[4]:
     # 六維交叉判斷：入市結論須由 6 個分頁證據交叉，而非單一估值分數
     _ca_entry = build_cross_analysis(selected_symbol, q_data)
     st.markdown(f"##### 🔗 六維交叉入市判斷：{_ca_entry['verdict']}（加權總分 {_ca_entry['total']}）")
+    render_cross_verdict(_ca_entry)
     st.dataframe(cross_analysis_frame(_ca_entry), use_container_width=True, hide_index=True)
     st.caption("六維方向與下方估值評分、同行比較互相制衡；若方向與估值分數矛盾，以分歧本身作風險提示，不強行給單一結論。")
     
