@@ -841,6 +841,9 @@ def fetch_aastocks_quote(symbol: str):
         m_chg = re.search(r"([-+]?\d+(?:\.\d+)?)\s*\(([-+]?\d+(?:\.\d+)?)\s*%\)", b_text)
         chg = float(m_chg.group(1)) if m_chg else 0.0
         pct = float(m_chg.group(2)) if m_chg else 0.0
+        # AAStocks 括號內百分數不帶負號（負數由外層 neg 樣式表示），須與 chg 符號同步
+        if m_chg and chg < 0 < pct:
+            pct = -pct
         prev = round(p - chg, 3)
 
         # c 欄位為「最低-最高」字串（前小後大），例：391.800-402.600；對照參考圖波幅 384.00-390.80
@@ -1365,18 +1368,26 @@ def _run_with_timeout(fn, timeout=4.0, default=None):
     return box.get("v", default)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
 def fetch_realtime_market_tick(symbol: str):
-    """v9 並行競速報價：Yahoo/AAStocks/騰訊同時發，第一成功者勝出（deadline 3s）；
-    皆失敗再以 Stooq 日線收盤備援。港股成價一般延遲約 15 分鐘；Level 2 深度付費，本系統不提供。
-    快取 ttl 拉長至 600s，配合手動按鈕刷新，避免切股反覆重抓造成凍結。"""
+    """v14 報價源（同步順序備援，不再用短時限多線程競速）：
+      實測 Yahoo（yfinance 與直接 chart API）在雲端數據中心 IP 會被 403/限流，故依雲端實際可達性排序：
+      騰訊財經（港美股通用、0.3s 級）→ AAStocks（港股）→ yfinance（本地/非雲端最後手段）→ Stooq。
+      不裝 st.cache_data：避免把「失敗結果」快取後，即使開門也返回舊失敗。門控關閉立即回 base。
+      港股成價一般延遲約 15 分鐘；Level 2 深度付費，本系統不提供。"""
     base = {"live_ok": False, "bid": None, "ask": None, "bid_size": None,
             "ask_size": None, "quote_time": None, "delayed": None}
-    # v10：門控關閉時不啟動任何競速線程（含 worker_yahoo 內直接 yf.Ticker），立即回 base。
+    # v10：門控關閉時不啟動任何請求，立即回 base。
     if not _network_allowed():
         return base
 
-    # --- 即時源 1：Yahoo（yfinance；慢或被干擾時在獨立線程，不阻塞其他源）---
+    def _finalize(d):
+        if isinstance(d, dict) and d.get("live_ok") and d.get("price"):
+            for k, v in base.items():
+                d.setdefault(k, v)
+            return d
+        return None
+
+    # ③ yfinance worker（僅在未被限流的本地/非雲端環境有用）
     def worker_yahoo():
         r = dict(base)
         try:
@@ -1423,22 +1434,7 @@ def fetch_realtime_market_tick(symbol: str):
             pass
         return r
 
-    # --- 即時源 2/3：AAStocks、騰訊（獨立線程，成功即標準 dict）---
-    def worker_aastocks():
-        try:
-            d = fetch_aastocks_quote(symbol)
-            return d if (isinstance(d, dict) and d.get("live_ok") and d.get("price")) else None
-        except Exception:
-            return None
-
-    def worker_tencent():
-        try:
-            d = fetch_tencent_quote(symbol)
-            return d if (isinstance(d, dict) and d.get("live_ok") and d.get("price")) else None
-        except Exception:
-            return None
-
-    # --- 收盤備援：Stooq（僅當即時源全軍覆沒）---
+    # ④ Stooq 收盤備援 worker
     def worker_stooq():
         r = dict(base)
         try:
@@ -1457,16 +1453,35 @@ def fetch_realtime_market_tick(symbol: str):
             pass
         return r
 
-    # 第一級：三個即時源並行競速（3s）
-    winner = _race_quote([worker_yahoo, worker_aastocks, worker_tencent], deadline=3.0)
-    # 第二級：全失敗才動用 Stooq 收盤備援（4s）
-    if not winner:
-        winner = _race_quote([worker_stooq], deadline=4.0)
-    if isinstance(winner, dict) and winner.get("live_ok"):
-        for k, v in base.items():
-            winner.setdefault(k, v)
-        return winner
+    # ① 騰訊財經：雲端實測最穩、最快，港美股皆提供開市/前收/高低/升跌
+    try:
+        hit = _finalize(fetch_tencent_quote(symbol))
+        if hit:
+            return hit
+    except Exception:
+        pass
+
+    # ② AAStocks：港股即時/延遲報價
+    try:
+        hit = _finalize(fetch_aastocks_quote(symbol))
+        if hit:
+            return hit
+    except Exception:
+        pass
+
+    # ③ yfinance：僅在本地/非雲端（未被限流）環境有用，超時放寬至 8s
+    winner = _race_quote([worker_yahoo], deadline=8.0)
+    hit = _finalize(winner)
+    if hit:
+        return hit
+
+    # ④ Stooq 收盤備援（部分環境需 JS，失敗即作罷）
+    winner = _race_quote([worker_stooq], deadline=4.0)
+    hit = _finalize(winner)
+    if hit:
+        return hit
     return base
+
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -3050,9 +3065,11 @@ def _latest_real(series, cutoff=19):
     return None, None
 
 
-def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict = None):
+def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict = None,
+                         light: bool = False, macro_mom: dict = None):
     """六維交叉判斷：整合 8P 財報、估值、成長、技術動能、波浪結構、宏觀/風險，
     每維給子分數（-2..2）與證據，加權映射爆升/偏多/中性/偏空/爆跌。缺失維度如實標 N/A、不編造。
+    light=True（批量）：不主動抓日線算波浪，波浪維度如實 N/A；macro_mom 可傳入同市場指數避免重抓。
     回傳 dims[(名, 分數, 證據, 可用)]、total、verdict、direction。"""
     if mom is None:
         mom = fetch_real_momentum_snapshot(symbol)
@@ -3142,7 +3159,7 @@ def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict =
 
     # 維度 5：波浪結構
     s5 = 0.0; ev5 = []
-    if wave is None:
+    if wave is None and not light:
         wave = compute_wave_analysis(symbol)
     imp = wave.get("impulse") if wave else None
     if imp and imp.get("rules"):
@@ -3159,7 +3176,7 @@ def build_cross_analysis(symbol: str, prof: dict, mom: dict = None, wave: dict =
     # 維度 6：宏觀與風險
     s6 = 0.0; ev6 = []
     idx_sym = "^HSI" if prof.get("mkt") == "HK" else "^GSPC"
-    mm = fetch_real_momentum_snapshot(idx_sym)
+    mm = macro_mom if macro_mom is not None else fetch_real_momentum_snapshot(idx_sym)
     if mm.get("ok"):
         if mm.get("above_ma200") is True: s6 += 0.8; ev6.append("所屬市場指數站穩200日線（宏觀偏多）")
         elif mm.get("above_ma200") is False: s6 -= 0.8; ev6.append("所屬市場指數失守200日線（宏觀偏空）")
@@ -3859,10 +3876,15 @@ with tabs[0]:
         prof = get_or_create_asset_profile(sym, apply_micro_tick=False)
         mom = fetch_real_momentum_snapshot(sym)
         fc = compute_real_forecast(prof, mom)
-        return sym, prof, mom, fc
+        _mm = _macro_hk if prof.get("mkt") == "HK" else _macro_us
+        ca = build_cross_analysis(sym, prof, mom=mom, light=True, macro_mom=_mm)
+        return sym, prof, mom, fc, ca
 
     if run_real:
         open_manual_network()
+        # 同市場指數只抓一次，供所有個股宏觀維度複用，避免逐隻重複請求
+        _macro_hk = fetch_real_momentum_snapshot("^HSI")
+        _macro_us = fetch_real_momentum_snapshot("^GSPC")
         targets = _symbols[:max_rows]
         results = {}
         prog = st.progress(0.0, text=f"正以真實市場數據計算 0/{len(targets)} …")
@@ -3871,10 +3893,12 @@ with tabs[0]:
             futs = {ex.submit(_worker, s): s for s in targets}
             for fut in as_completed(futs):
                 try:
-                    sym, prof, mom, fc = fut.result()
-                    results[sym] = (prof, mom, fc)
+                    sym, prof, mom, fc, ca = fut.result()
+                    results[sym] = (prof, mom, fc, ca)
                 except Exception:
-                    results[futs[fut]] = (STOCK_DB[futs[fut]], {"ok": False}, {"ok": False})
+                    results[futs[fut]] = (STOCK_DB[futs[fut]], {"ok": False},
+                                          {"ok": False}, {"dims": [], "total": 0,
+                                                          "verdict": "❔ 計算失敗", "direction": "neutral"})
                 done += 1
                 prog.progress(done / len(targets), text=f"正以真實市場數據計算 {done}/{len(targets)} …")
         prog.empty()
@@ -3891,20 +3915,20 @@ with tabs[0]:
             for sym in _symbols:
                 if sym not in real_results:
                     continue
-                prof, mom, fc = real_results[sym]
+                prof, mom, fc, ca = real_results[sym]
                 p = prof["price"]
+                # 方向定性改由六維交叉結論提供（不再只看四維 fc）
+                dir_tag = ca.get("verdict", "❔ 數據不足")
+                sort_key = ca.get("total", 0)
                 if fc.get("ok"):
-                    dir_tag = fc["tag"]
                     range_str = f"{fc['lo_pct']:+d}% 至 {fc['hi_pct']:+d}%"
                     t_lo, t_hi = fc["t_lo"], fc["t_hi"]
-                    sort_key = fc["score"]
-                    analyst = f"[真實] RSI {fc['rsi']:.0f}｜52週分位 {fc['pos52']:.0f}%｜年化波動 {fc['vol_ann']:.0f}%｜" + "；".join(fc["reasons"][:3])
                 else:
-                    dir_tag = "❔ 真實數據不足"
                     range_str = "—"
-                    t_lo = t_hi = None
-                    sort_key = -999
-                    analyst = "Yahoo Finance 未能取得該標的完整真實數據，無法作模型推演。"
+                    t_lo, t_hi = None, None
+                _dim_txt = "｜".join(f"{n} {s:+.1f}" for n, s, _, _ok in ca.get("dims", []))
+                analyst = ("[六維交叉] " + _dim_txt +
+                           (f"｜年化波動 {fc['vol_ann']:.0f}%" if fc.get("ok") else "｜波幅數據不足"))
                 rows.append({
                     "股票代號": sym,
                     "公司名稱": f"{prof['name']} ({prof['en']})",
