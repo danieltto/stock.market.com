@@ -156,6 +156,7 @@ def inject_security_and_styles():
         .qa-big { font-size:34px; font-weight:800; line-height:1.05; white-space:nowrap; }
         .qa-big .qa-chg { font-size:18px; font-weight:800; margin-left:8px; }
         .qa-name { font-size:14px; color:#333; font-weight:700; margin-bottom:4px; }
+        .qa-underlying { font-size:13px; color:#1f6f43; font-weight:700; background:#eef6f0; border:1px solid #cfe3d6; border-radius:8px; padding:5px 9px; margin:2px 0 8px; }
         .qa-status { font-size:12.5px; color:#888; text-align:right; white-space:nowrap; padding-top:6px; }
         .qa-grid { display:grid; grid-template-columns:1fr auto 1fr auto; column-gap:14px; }
         .qa-lab { color:#666666; font-size:13.5px; padding:9px 2px; border-bottom:1px solid #f0f0f0; }
@@ -552,6 +553,8 @@ RAW_UNIVERSE = [
     ("ARKW", "ARKW", "ARK 下一代互聯網 ETF", "ARK Next Generation Internet ETF", "ETF", "USD", 92.0, 32.0, 4.5, 4.0, 0.0, 30.0, 3.0, 9.0, "主動科技主題 ETF | 與 ARKK 重疊高、波動大。"),
     ("UVXY", "UVXY", "ProShares 波動率多頭 ETF", "ProShares Ultra VIX Short-Term Futures", "ETF", "USD", 9.0, 1.0, 1.0, 1.0, 0.0, 10.0, 1.0, -6.0, "VIX 期貨多頭 | 長期因期貨升水衰減，僅短線恐慌對沖。"),
     ("UUP", "UUP", "Invesco 美元指數 ETF", "Invesco DB US Dollar Index Bullish", "ETF", "USD", 32.0, 1.0, 1.0, 1.0, 0.0, 8.0, 2.0, 3.0, "美元指數 ETF | 跟美元對一籃子貨幣，強美元壓制新興與商品。"),
+    ("USDU", "USDU", "WisdomTree 美元增強 ETF", "WisdomTree Bloomberg US Dollar Bullish", "ETF", "USD", 28.5, 1.0, 1.0, 1.0, 0.0, 8.0, 2.0, 3.0, "美匯 ETF | 追蹤美元對更多貨幣籃子，與 UUP 同向、籃子口徑略廣。"),
+    ("UDN", "UDN", "Invesco 美元指數反向 ETF", "Invesco DB US Dollar Index Bearish", "ETF", "USD", 19.0, 1.0, 1.0, 1.0, 0.0, 8.0, 2.0, -3.0, "美匯反向 ETF | 美元貶值時上升，與 UUP/USDU 對沖，弱美元利商品與新興。"),
     ("PPLT", "PPLT", "Aberdeen 實物鉑金 ETF", "Aberdeen Standard Physical Platinum", "ETF", "USD", 98.0, 1.0, 1.0, 1.0, 0.0, 10.0, 1.5, 7.0, "鉑金(白金) ETF | 跟實物鉑，汽車催化與工業需求、供應集中。"),
     ("PALL", "PALL", "Aberdeen 實物鈀金 ETF", "Aberdeen Standard Physical Palladium", "ETF", "USD", 95.0, 1.0, 1.0, 1.0, 0.0, 10.0, 0.6, 6.0, "鈀金 ETF | 跟實物鈀，汽油車催化劑需求、替代與電動化風險。"),
 
@@ -1076,7 +1079,8 @@ def tencent_quote_code(symbol: str):
         return _TENCENT_IDX[s][0], "index"
     if s.endswith(".HK"):
         digits = s[:-3]
-        if digits.isdigit() and (len(digits) <= 4 or (len(digits) == 5 and digits.startswith("0"))):
+        # 港股：主板（含 4 位補零）與 5 位窩輪/牛熊證（17674、54321 等）一併支持
+        if digits.isdigit():
             return "r_hk" + digits.zfill(5), "hk"
         return None, None
     if "." not in s and "=" not in s and s.isalnum() and any(c.isalpha() for c in s):
@@ -1091,7 +1095,8 @@ def tencent_kline_codes(symbol: str):
         return [_TENCENT_IDX[s][1]], "index"
     if s.endswith(".HK"):
         digits = s[:-3]
-        if digits.isdigit() and (len(digits) <= 4 or (len(digits) == 5 and digits.startswith("0"))):
+        # 港股 K 線同樣覆蓋 5 位窩輪/牛熊證
+        if digits.isdigit():
             return ["hk" + digits.zfill(5)], "hk"
         return [], None
     if "." not in s and "=" not in s and s.isalnum() and any(c.isalpha() for c in s):
@@ -1104,6 +1109,44 @@ def yf_to_tencent_period(interval: str):
     return {"15m": "m15", "30m": "m30", "45m": "m15",
             "60m": "m60", "1h": "m60", "2h": "m60", "3h": "m60", "4h": "m60",
             "1d": "day", "1wk": "week", "1mo": "month"}.get(interval)
+
+
+# 港股窩輪/牛熊證正股別名（騰訊以簡體回名，故簡體關鍵字為主並列繁體）。
+# 順序：具體/長名稱與指數在前，避免被「恒生」等通用詞搶匹配。
+_UNDERLYING_ALIASES = [
+    (["恒生科技", "恒生科指", "恒生科技指数"], "HSTECH.HK", "恒生科技指數"),
+    (["恒生中国企业", "恒生國企", "国企指数", "國指", "国企"], "^HSCE", "恒生中國企業指數"),
+    (["恒生指数", "恒生指數", "恒指", "恒生"], "^HSI", "恒生指數"),
+    (["腾讯", "騰訊"], "00700.HK", "騰訊控股"),
+    (["阿里巴巴", "阿里"], "09988.HK", "阿里巴巴"),
+    (["美团", "美團"], "03690.HK", "美團"),
+    (["小米"], "01810.HK", "小米集團"),
+    (["香港交易所", "港交所"], "00388.HK", "香港交易所"),
+    (["汇丰", "滙豐", "匯豐"], "00005.HK", "滙豐控股"),
+    (["建设银行", "建設銀行", "建行"], "00939.HK", "建設銀行"),
+    (["工商银行", "工商銀行", "工行"], "01398.HK", "工商銀行"),
+    (["中国银行", "中國銀行", "中行"], "03988.HK", "中國銀行"),
+    (["快手"], "01024.HK", "快手"),
+    (["建滔"], "00148.HK", "建滔集團"),
+    (["比亚迪", "比亞迪"], "01211.HK", "比亞迪股份"),
+    (["中芯国际", "中芯國際", "中芯"], "00981.HK", "中芯國際"),
+    (["友邦保险", "友邦保險", "友邦"], "01299.HK", "友邦保險"),
+    (["京东", "京東"], "09618.HK", "京東集團"),
+    (["网易", "網易"], "09999.HK", "網易"),
+    (["中国移动", "中國移動"], "00941.HK", "中國移動"),
+    (["中国海洋石油", "海洋石油", "中海油"], "00883.HK", "中國海洋石油"),
+]
+
+
+def resolve_underlying(name: str):
+    """從窩輪/牛熊證全名（如「腾讯摩利七四购A」）解析所屬正股；無匹配回 None。"""
+    if not name:
+        return None
+    t = str(name)
+    for keys, sym, label in _UNDERLYING_ALIASES:
+        if any(k and k in t for k in keys):
+            return {"symbol": sym, "label": label}
+    return None
 
 
 @st.cache_data(ttl=8, show_spinner=False)
@@ -1160,6 +1203,18 @@ def fetch_tencent_quote(symbol: str):
             "source": "騰訊財經",
             "currency": {"hk": "HKD", "us": "USD"}.get(mkt),
         })
+        # 窩輪/牛熊證：補真實名、類型（QZ-CALL/PUT/BULL/BEAR）、到期日與所屬正股
+        if mkt == "hk":
+            wname = f[1] if len(f) > 1 else None
+            wtype = f[63] if len(f) > 63 else None
+            if wname and ("QZ-" in str(wtype) or resolve_underlying(wname)):
+                out["warrant_name"] = wname
+                out["warrant_type"] = wtype
+                out["expiry"] = f[47] if len(f) > 47 else None
+                _u = resolve_underlying(wname)
+                if _u:
+                    out["underlying_symbol"] = _u["symbol"]
+                    out["underlying_label"] = _u["label"]
     except Exception:
         pass
     return out
@@ -3628,6 +3683,19 @@ def get_or_create_asset_profile(symbol: str, apply_micro_tick: bool = False):
     prof["delayed"] = live.get("delayed")
     prof["source"] = live.get("source") or ("Yahoo Finance" if live.get("live_ok") else None)
 
+    # 窩輪/牛熊證：真實名、類型、到期日與所屬正股（騰訊提供）
+    for _wk in ("warrant_name", "warrant_type", "expiry",
+                "underlying_symbol", "underlying_label"):
+        if live.get(_wk):
+            prof[_wk] = live[_wk]
+    if live.get("warrant_name"):
+        prof["name"] = live["warrant_name"]
+    if live.get("underlying_symbol"):
+        prof["underlying"] = {
+            "symbol": live["underlying_symbol"],
+            "label": live.get("underlying_label") or live["underlying_symbol"],
+        }
+
     if live.get("live_ok"):
         prof["price"] = live["price"]
         prof["change"] = live["change"]
@@ -3895,9 +3963,27 @@ def search_all_markets_fn(searchterm: str):
         if 11000 <= n_v <= 29999:
             hk_sym = norm_hk
             lbl = f"{n_v:05d} ({hk_sym}) | 港股窩輪 {n_v:05d} (認購/認沽證 Warrant) [窩輪]"
+            if _network_allowed():
+                try:
+                    tq = fetch_tencent_quote(hk_sym)
+                    if tq.get("live_ok") and tq.get("warrant_name"):
+                        _tail = (f"｜正股 {tq['underlying_label']}（{tq['underlying_symbol']}）"
+                                 if tq.get("underlying_label") else "")
+                        lbl = f"{n_v:05d} ({hk_sym}) | {tq['warrant_name']} [窩輪]{_tail}"
+                except Exception:
+                    pass
         elif 50000 <= n_v <= 69999:
             hk_sym = norm_hk
             lbl = f"{n_v:05d} ({hk_sym}) | 港股{'牛證' if n_v<60000 else '熊證'} {n_v:05d} (CBBC) [牛熊證]"
+            if _network_allowed():
+                try:
+                    tq = fetch_tencent_quote(hk_sym)
+                    if tq.get("live_ok") and tq.get("warrant_name"):
+                        _tail = (f"｜正股 {tq['underlying_label']}（{tq['underlying_symbol']}）"
+                                 if tq.get("underlying_label") else "")
+                        lbl = f"{n_v:05d} ({hk_sym}) | {tq['warrant_name']} [牛熊證]{_tail}"
+                except Exception:
+                    pass
         else:
             # 檢查 STOCK_DB 是否已有該正規化代號；若有則跳過動態生成，避免重複
             hk_sym = norm_hk
@@ -3981,7 +4067,11 @@ def render_quote_panel(profile: dict):
         st.info("📭 尚未載入此標的的最新報價（手動模式不會自動連線）。下方為本地／快取最後已知值，可能非最新；請按「🔄 更新報價」。")
 
     is_hk = profile.get("mkt") == "HK"
-    _dp = ".3f" if is_hk else ".2f"
+    _mkt = profile.get("mkt")
+    _px0 = profile.get("price")
+    # 港股相關（HK/窩輪/牛熊證）一律三位；任何低於 1 元的資產亦用三位，避免 0.051 被截成 0.05
+    _dp = (".3f" if (_mkt in ("HK", "WARRANT", "CBBC")
+                     or (isinstance(_px0, (int, float)) and _px0 < 1.0)) else ".2f")
     is_up = profile.get("change", 0) >= 0
     arrow_sym = "▲" if is_up else "▼"
     price_cls = "qa-up" if is_up else "qa-down"
@@ -4001,6 +4091,17 @@ def render_quote_panel(profile: dict):
     _px_html = (f'<span class="{price_cls}">{float(_px):{_dp}}</span>' if _px is not None
                 else '<span class="qa-na">N/A</span>')
 
+    # 所屬正股（窩輪/牛熊證）與到期日
+    _underlying = profile.get("underlying") or {}
+    if _underlying.get("label"):
+        _underlying_html = (
+            f'<div class="qa-underlying">🎯 所屬正股：{_underlying["label"]}'
+            f'（{_underlying.get("symbol", "")}）</div>')
+    else:
+        _underlying_html = ""
+    _expiry = profile.get("expiry")
+    _expiry_html = f'<span style="margin-left:10px;color:#666;font-weight:600;">到期日 {_expiry}</span>' if _expiry else ""
+
     if st.button("🔄 更新報價", key="refresh_quote_btn", use_container_width=True,
                  help="按一下即開門並清除報價快取，單次重新抓取最新真實成價"):
         st.session_state[_PENDING_OPEN_KEY] = True
@@ -4017,7 +4118,8 @@ def render_quote_panel(profile: dict):
     <div class="qa-card">
         <div class="qa-head">
             <div>
-                <div class="qa-name">{profile.get('code')} {profile.get('name')}（{profile.get('symbol')}）</div>
+                <div class="qa-name">{profile.get('code')} {profile.get('name')}（{profile.get('symbol')}）{_expiry_html}</div>
+                {_underlying_html}
                 <div class="qa-big {price_cls}">
                     {_px_html}
                     <span class="qa-chg">{arrow_sym} {abs(profile.get('change',0)):{_dp}} &nbsp;{abs(profile.get('pct',0)):.2f}%</span>
