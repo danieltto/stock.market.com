@@ -14,6 +14,13 @@ import re
 import math
 import urllib.request
 
+
+def _compact_html(s: str) -> str:
+    """徹底移除多行 HTML 各行列首縮進並丟棄純空白行。
+    用於 st.markdown：避免「縮進 ≥4 空格」被當成縮進代碼塊、或空插值留下的空白行切斷 HTML 塊，
+    確保任意標的（含動態窩輪）都正常渲染而非顯示源碼。"""
+    return "\n".join(ln.strip() for ln in str(s).split("\n") if ln.strip())
+
 try:
     from streamlit_searchbox import st_searchbox
     HAS_SEARCHBOX = True
@@ -73,7 +80,7 @@ def get_theme_chart_colors():
                 vol=None, rsi="#8e24aa", macd_dif="#1a73e8", macd_dea="#fa903e")
 
 def inject_security_and_styles():
-    st.markdown("""
+    st.markdown(_compact_html("""
         <style>
         #MainMenu {visibility: hidden !important;}
         header {visibility: hidden !important;}
@@ -237,7 +244,7 @@ def inject_security_and_styles():
         }
 
         </style>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
     
     components.html("""
         <script>
@@ -4114,7 +4121,7 @@ def render_quote_panel(profile: dict):
                 pass
         st.rerun()
 
-    st.markdown(f"""
+    st.markdown(_compact_html(f"""
     <div class="qa-card">
         <div class="qa-head">
             <div>
@@ -4138,7 +4145,7 @@ def render_quote_panel(profile: dict):
             <div class="qa-lab">前收</div>{_cell(profile.get('prev_close'))}
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 
 render_quote_panel(q_data_init)
@@ -4177,11 +4184,11 @@ def tab_refresh_button(key: str, extra_fns=None, label: str = "🔄 更新本分
 # ------------------------------------------
 with tabs[0]:
     st.subheader("⚖️ 香港及美國股市「潛力爆升股 vs 高危爆跌預警股」客觀批判篩選器 (110+ 核心標的)")
-    st.markdown("""
+    st.markdown(_compact_html("""
     **批判性量化模型原則（杜絕盲目樂觀與 AI 諂媚）**：
     * **絕非每隻股票都會爆升**：市值逾百億美元的大型股僅有少數具備「極端低估值修復」或「AI 算力業績非線性爆發」的股票能實現 +20% 至 +50% 升幅；大量成熟藍籌僅屬區間震盪；而估值處於極端泡沫（如 PE > 50x、PS > 30x）或面臨基本面惡化、關稅與加息衝擊的股票，則存在 **-15% 至 -45% 的高危爆跌（均值回歸）風險**。
     * **完整中文顯示與直行/橫行自由調校**：下方表格已啟用 **100% 自動換行完整顯示所有中文字**，你可展開表格上方的「📐 表格顯示設定」滑桿調校直行闊度與橫行高度，或直接用滑鼠拖曳任何表格儲存格邊框。
-    """)
+    """))
 
     # 六維交叉判斷示範：當前標的如何由 6 個分頁證據交叉得出爆升/爆跌/中性
     with st.expander("🔗 當前標的六維交叉判斷（8P／估值／成長／動能／波浪／宏觀）", expanded=False):
@@ -4214,13 +4221,13 @@ with tabs[0]:
     elif mkt_filter == "美國股市 (US)":
         _symbols = [s for s in _symbols if STOCK_DB[s]["mkt"] == "US"]
 
-    st.markdown("""
+    st.markdown(_compact_html("""
     **說明**：
     * 點擊下方 **「🔄 以真實市場數據重新計算」**，系統會即時逐隻抓取**真實財報**（PE/PS/PB、營收與盈利增長、ROE、淨利率、負債）及**真實歷史價格**（52 週位置、RSI、近 1/3/6 月真實回報、年化波動率），
       再以量化模型推演 1–6 個月方向與**統計波幅區間**。
     * **區間是以真實歷史波動率（±1σ）計算的客觀統計分佈，不是保證預測，更不是 AI 隨機生成的數字**；「爆升／爆跌」只是模型依當前真實估值與動能給出的傾向，須結合你自己的判斷。
     * 未點擊重新計算前，表格顯示的是內置**分析師靜態觀點**（標註「靜態」），僅作參考，並非即時市場數據。
-    """)
+    """))
 
     rc1, rc2 = st.columns([1, 1])
     with rc1:
@@ -4492,7 +4499,7 @@ with tabs[2]:
 
     col_f4, col_f5 = st.columns(2)
     with col_f4:
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>📌 從基本面全面分析今年（2026年）價格的高位和低位</h4>
             <ul>
@@ -4503,10 +4510,10 @@ with tabs[2]:
                 <li><strong>批判性基本面風險提示</strong>：{q_data['catalyst'].split('|')[-1].strip()}</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
     with col_f5:
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>📌 根據過往歷史高低位倍數，推算今年價格的高位和低位</h4>
             <p style="font-size:13.5px;">擷取 2010–2025 年歷史高低估值倍數中樞（8P 模型），套用至今年每股財務數據推算：</p>
@@ -4517,7 +4524,7 @@ with tabs[2]:
                 <li><strong>8P 多因子綜合加權結論</strong>：推算今年綜合高低位區間為 <strong>{_sf(model_low, ',.2f')} 至 {_sf(model_high, ',.2f')} {q_data['curr']}</strong>（過去52週實際高低位為 <strong>{_sf(q_data['w52_low'], ',.2f')} – {_sf(q_data['w52_high'], ',.2f')}</strong>）。</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
     def _mrange(a, b):
         return f" ({a:g}x-{b:g}x)" if isinstance(a, (int, float)) and isinstance(b, (int, float)) else ""
@@ -4802,7 +4809,7 @@ with tabs[3]:
         def _trend(v):
             if not isinstance(v, (int, float)): return "數據缺失"
             return f"{'上漲' if v >= 0 else '下跌'} {abs(v):.1f}%"
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>📅 近月真實走勢客觀回顧</h4>
             <ul>
@@ -4812,7 +4819,7 @@ with tabs[3]:
                 <li><strong>未來 2 個月動能推算（虛線，非預測）</strong>：以近 3 月真實動能年化外推，參考區間 <strong>{_proj_txt} {q_data['curr']}</strong>。實際走勢受宏觀、業績與資金面影響，務必自行判斷。</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
     with c_w7:
         # 基於真實均線/RSI/52週位置的客觀技術位置，不編造具體子浪序號
         above200 = mom_w.get("above_ma200"); above50 = mom_w.get("above_ma50")
@@ -4828,7 +4835,7 @@ with tabs[3]:
             else: _rsi_state = f"RSI {_rsi:.0f} 處中性區間"
         else:
             _rsi_state = "RSI 數據缺失"
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>📐 波浪 / 技術結構客觀定位（基於真實價格，非主觀數浪）</h4>
             <ul>
@@ -4838,7 +4845,7 @@ with tabs[3]:
                 <li style="color:#8a5a00;"><strong>批判性說明</strong>：艾略特波浪的子浪序號事後才可確認、主觀性高，本系統不為當前編造具體「(C)-5 末端」等斷言，僅呈現真實價格位置與動能供你自行判斷。</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
 # ------------------------------------------
 # 分頁 E：批判性入市判斷、估值評分與同行比較 (已移除問題編號，表格支援自由拉伸與完整中文)
@@ -4869,7 +4876,7 @@ with tabs[4]:
     
     c_e8, c_e9 = st.columns([3, 2])
     with c_e8:
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>⏱️ 目前是否適合買入，還是應等待一段時間後再入市？（批判性分析）</h4>
             <p style="font-size:15px; font-weight:700; color:{score_color};">📌 客觀決策結論：{q_data['action_plan']}</p>
@@ -4884,10 +4891,10 @@ with tabs[4]:
                 </li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
     with c_e9:
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>⭐ 過往與目前估值比較及批判性評分 (1–10分)</h4>
             <div style="font-size:30px; font-weight:800; color:{score_color}; margin:6px 0;">
@@ -4899,7 +4906,7 @@ with tabs[4]:
                 <li><strong>PE / PS / PB 歷史對標</strong>：當前預測 PE <strong>{_sf(q_data['fwd_pe'], '.1f', 'x')}</strong>、PS <strong>{_sf(q_data['ps'], '.2f', 'x')}</strong>、PB <strong>{_sf(q_data['pb'], '.2f', 'x')}</strong>（對照基本面合理 PE 區間為 {_sf(pe_lo_mult, '.1f', 'x')} – {_sf(pe_hi_mult, '.1f', 'x')}）。</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
     st.markdown("#### 🏆 與全球及中國同行深度比較、發展潛力與所處階段分析")
     peer_keys = ["00700.HK", "09988.HK", "00388.HK", "NVDA", "TSM", "AAPL", "PLTR", "TSLA"]
@@ -4965,7 +4972,7 @@ with tabs[5]:
         verdict, vc, _ = _bull_bear(m)
         with col:
             if m.get("ok"):
-                st.markdown(f"""
+                st.markdown(_compact_html(f"""
                 <div class="section-card" style="text-align:center;">
                     <div style="font-weight:800; font-size:15px; margin-bottom:4px;">{nm}</div>
                     <div style="font-size:22px; font-weight:800; color:{vc};">{_sf(m.get('price'), ',.0f')}</div>
@@ -4975,14 +4982,14 @@ with tabs[5]:
                     <div style="font-size:11.5px; color:#555;">1月 {_sf(m.get('r21'), '+.1f', '%')}｜3月 {_sf(m.get('r63'), '+.1f', '%')}｜6月 {_sf(m.get('r126'), '+.1f', '%')}</div>
                     <div style="font-size:10.5px; color:#999;">截至 {m.get('as_of') or 'N/A'}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
             else:
-                st.markdown(f"""
+                st.markdown(_compact_html(f"""
                 <div class="section-card" style="text-align:center;">
                     <div style="font-weight:800; font-size:14px;">{nm}</div>
                     <div style="font-size:13px; color:#888; margin-top:8px;">真實數據連線失敗</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
 
     def _card(m):
         if not m.get("ok"):
@@ -4998,7 +5005,7 @@ with tabs[5]:
     spx, ndx, dji, hsi = macro["^GSPC"], macro["^IXIC"], macro["^DJI"], macro["^HSI"]
     c_m1, c_m2 = st.columns(2)
     with c_m1:
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>🇺🇸 美國股市（真實數據診斷，非主觀唱多）</h4>
             <ul style="font-size:13px;">
@@ -5008,9 +5015,9 @@ with tabs[5]:
                 <li><strong>批判性提示</strong>：指數位於 52 週高分位（&gt;80%）且 RSI 偏高時，估值安全邊際低、回撤風險上升；個股分化大，指數走牛不代表所有股票皆可買入。</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
     with c_m2:
-        st.markdown(f"""
+        st.markdown(_compact_html(f"""
         <div class="section-card">
             <h4>🇭🇰 香港股市（真實數據診斷，非主觀唱多）</h4>
             <ul style="font-size:13px;">
@@ -5019,7 +5026,7 @@ with tabs[5]:
                 <li><strong>配置原則</strong>：僅依真實估值與趨勢分批，不依賴固定成交額或點位預設。</li>
             </ul>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
     df_macro_rows = []
     for nm, sym in macro_indices:
