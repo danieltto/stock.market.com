@@ -506,7 +506,75 @@ RAW_UNIVERSE = [
     ("61234.HK", "61234", "恒指瑞銀六乙熊A (恒指熊證 收回24500)", "UB#HSI RP2612A (HSI Bear CBBC)", "CBBC", "HKD", 0.065, 12.0, 1.0, 1.0, -20.0, 50.0, 0.5, -35.0, "🐻 恒指熊證 (Bear) | 掛鉤恒生指數，收回價24,500點(距離現價約544點)，行使價24,600點，實際槓桿約36.0x，街貨量35.6%(重貨區)。"),
     ("54321.HK", "54321", "騰訊法興七甲牛C (00700牛證 收回390)", "SG#TENCENT RC2701C (00700 Bull CBBC)", "CBBC", "HKD", 0.245, 12.0, 1.0, 1.0, 38.0, 50.0, 0.5, 85.0, "🐂 個股牛證 (Bull) | 掛鉤騰訊(00700)，收回價390.0港元(距離現價20.8港元，位於400港元鐵底下方)，行使價387.2港元，實際槓桿約16.5倍，街貨量9.8%。"),
     ("62700.HK", "62700", "騰訊高盛六乙熊A (00700熊證 收回445)", "GS#TENCENT RP2612A (00700 Bear CBBC)", "CBBC", "HKD", 0.380, 12.0, 1.0, 1.0, -30.0, 50.0, 0.5, -45.0, "🐻 個股熊證 (Bear) | 掛鉤騰訊(00700)，收回價445.0港元(距離現價34.2港元)，行使價447.8港元，實際槓桿約10.8倍，供看空或正股鎖倉對沖。"),
-    ("59988.HK", "59988", "阿里摩通七甲牛A (09988牛證 收回95)", "JP#ALIBABA RC2701A (09988 Bull CBBC)", "CBBC", "HKD", 0.135, 12.0, 1.0, 1.0, 40.0, 50.0, 0.5, 75.0, "🐂 個股牛證 (Bull) | 掛鉤阿里巴巴(09988)，收回價95.0港元(距離現價11.4港元)，行使價93.5港元，實際槓桿約7.9倍，街貨量16.4%。")
+    ("59988.HK", "59988", "阿里摩通七甲牛A (09988牛證 收回95)", "JP#ALIBABA RC2701A (09988 Bull CBBC)", "CBBC", "HKD", 0.135, 12.0, 1.0, 1.0, 40.0, 50.0, 0.5, 75.0, "🐂 個股牛證 (Bull) | 掛鉤阿里巴巴(09988)，收回價95.0港元(距離現價11.4港元)，行使價93.5港元，實際槓桿約7.9倍，街貨量16.4%。"),
+
+    # --- v14 擴展：全球標誌性 ETF（美股；寬基/行業/國際/債券/商品/股息/槓桿反向）---
+    ("VTI", "VTI", "Vanguard 全美股市 ETF", "Vanguard Total Stock Market ETF", "ETF", "USD", 285.0, 22.0, 3.1, 4.2, 0.0, 30.0, 420.0, 8.0, "寬基 ETF | 覆蓋美國大中小盤約 4,000 隻，分散度高、收費低，適合長期核心配置。"),
+    ("VTV", "VTV", "Vanguard 價值股 ETF", "Vanguard Value ETF", "ETF", "USD", 178.0, 16.0, 2.2, 2.4, 0.0, 30.0, 120.0, 7.0, "價值風格 ETF | 持低估值、高股息大型股，與成長股形成風格互補。"),
+    ("IWM", "IWM", "iShares 羅素2000 ETF", "iShares Russell 2000 ETF", "ETF", "USD", 225.0, 24.0, 1.4, 2.1, 0.0, 28.0, 70.0, 6.0, "小型股 ETF | 跟蹤羅素2000，對利率與內需景氣敏感、波動高於大盤。"),
+    ("DIA", "DIA", "SPDR 道瓊斯 ETF", "SPDR Dow Jones Industrial Average ETF", "ETF", "USD", 430.0, 20.0, 2.7, 5.0, 0.0, 38.0, 35.0, 6.0, "道指 ETF | 持 30 隻藍籌，防守性較強、波幅較低。"),
+    ("VEA", "VEA", "Vanguard 成熟市場 ETF", "Vanguard FTSE Developed Markets ETF", "ETF", "USD", 58.0, 14.0, 1.2, 1.6, 0.0, 26.0, 130.0, 6.0, "已發展市場(美國以外) ETF | 持日、歐、加等成熟市場，分散單一國家風險。"),
+    ("VWO", "VWO", "Vanguard 新興市場 ETF", "Vanguard FTSE Emerging Markets ETF", "ETF", "USD", 48.0, 13.0, 1.4, 1.7, 0.0, 24.0, 95.0, 7.0, "新興市場 ETF | 含中、印、台等，增長潛力高但政策與匯率風險較大。"),
+    ("EEM", "EEM", "iShares 新興市場 ETF", "iShares MSCI Emerging Markets ETF", "ETF", "USD", 45.0, 13.0, 1.4, 1.7, 0.0, 24.0, 60.0, 7.0, "新興市場 ETF | 流動性高，與 VWO 同類、收費較高。"),
+    ("FXI", "FXI", "iShares 中國大型股 ETF", "iShares China Large-Cap ETF", "ETF", "USD", 38.0, 11.0, 1.1, 1.2, 0.0, 22.0, 30.0, 8.0, "中國大盤 ETF | 持恒生中國企業指數成分，估值低、受政策與地緣影響大。"),
+    ("KWEB", "KWEB", "KraneShares 中國互聯網 ETF", "KraneShares CSI China Internet ETF", "ETF", "USD", 32.0, 17.0, 2.0, 2.2, 0.0, 24.0, 8.0, 9.0, "中概互聯網 ETF | 持騰訊、阿里、美團等，彈性高、監管風險集中。"),
+    ("MCHI", "MCHI", "iShares MSCI 中國 ETF", "iShares MSCI China ETF", "ETF", "USD", 52.0, 12.5, 1.2, 1.4, 0.0, 23.0, 12.0, 7.0, "中國寬基 ETF | 覆蓋 A/H/中概，分散於各行業。"),
+    ("XLF", "XLF", "SPDR 金融行業 ETF", "Financial Select Sector SPDR", "ETF", "USD", 48.0, 16.0, 2.6, 2.0, 0.0, 35.0, 45.0, 7.0, "金融板塊 ETF | 銀行、保險、券商，對利率曲線與景氣敏感。"),
+    ("XLE", "XLE", "SPDR 能源行業 ETF", "Energy Select Sector SPDR", "ETF", "USD", 92.0, 14.0, 1.1, 2.2, 0.0, 32.0, 40.0, 6.0, "能源板塊 ETF | 油氣龍頭，跟油價與供需周期，通脹對沖屬性。"),
+    ("XLK", "XLK", "SPDR 科技行業 ETF", "Technology Select Sector SPDR", "ETF", "USD", 235.0, 28.0, 7.0, 9.0, 0.0, 48.0, 70.0, 9.0, "科技板塊 ETF | 權重集中於蘋果、微軟等，AI 主線、估值不低。"),
+    ("XLV", "XLV", "SPDR 醫療保健 ETF", "Health Care Select Sector SPDR", "ETF", "USD", 145.0, 17.0, 1.8, 3.5, 0.0, 30.0, 42.0, 6.0, "醫療板塊 ETF | 藥企、器械，防守性強、受藥價政策影響。"),
+    ("XLY", "XLY", "SPDR 可選消費 ETF", "Consumer Discretionary Select SPDR", "ETF", "USD", 185.0, 25.0, 2.8, 6.0, 0.0, 32.0, 22.0, 8.0, "可選消費 ETF | 亞馬遜、特斯拉權重高，景氣與消費信心敏感。"),
+    ("XLP", "XLP", "SPDR 必需消費 ETF", "Consumer Staples Select SPDR", "ETF", "USD", 82.0, 19.0, 1.6, 4.0, 0.0, 28.0, 18.0, 5.0, "必需消費 ETF | 食品、日用品，需求穩定、典型防守板塊。"),
+    ("XLI", "XLI", "SPDR 工業行業 ETF", "Industrial Select Sector SPDR", "ETF", "USD", 125.0, 19.0, 2.0, 3.2, 0.0, 30.0, 20.0, 7.0, "工業板塊 ETF | 製造、運輸、國防，受資本開支周期帶動。"),
+    ("XLB", "XLB", "SPDR 原材料行業 ETF", "Materials Select Sector SPDR", "ETF", "USD", 82.0, 18.0, 1.6, 2.6, 0.0, 28.0, 8.0, 6.0, "原材料板塊 ETF | 化工、礦業，跟商品價格與製造景氣。"),
+    ("XLU", "XLU", "SPDR 公用事業 ETF", "Utilities Select Sector SPDR", "ETF", "USD", 78.0, 17.0, 1.8, 2.0, 0.0, 26.0, 8.0, 5.0, "公用事業 ETF | 高股息、低波動，利率敏感的防守板塊。"),
+    ("SMH", "SMH", "VanEck 半導體 ETF", "VanEck Semiconductor ETF", "ETF", "USD", 280.0, 30.0, 8.5, 8.0, 0.0, 50.0, 25.0, 10.0, "半導體 ETF | 台積、輝達、博通，AI 算力高 Beta、波動大。"),
+    ("IBB", "IBB", "iShares 生物科技 ETF", "iShares Biotechnology ETF", "ETF", "USD", 135.0, 20.0, 4.0, 3.5, 0.0, 30.0, 30.0, 7.0, "生物科技 ETF | 大型藥企，受藥品審批與臨床數據影響。"),
+    ("XBI", "XBI", "SPDR 生物科技 ETF(等權)", "SPDR S&P Biotech ETF", "ETF", "USD", 82.0, 22.0, 4.0, 3.0, 0.0, 28.0, 8.0, 8.0, "等權生物科技 ETF | 偏小盤、臨床催化、波動高於 IBB。"),
+    ("BND", "BND", "Vanguard 全美債券 ETF", "Vanguard Total Bond Market ETF", "ETF", "USD", 72.0, 1.0, 1.0, 1.0, 0.0, 10.0, 120.0, 4.0, "綜合債券 ETF | 政府+企業投資級債，股債配置的防守端。"),
+    ("AGG", "AGG", "iShares 核心債券 ETF", "iShares Core U.S. Aggregate Bond ETF", "ETF", "USD", 95.0, 1.0, 1.0, 1.0, 0.0, 10.0, 100.0, 4.0, "投資級綜合債 ETF | 與 BND 同類，分散利率與信用風險。"),
+    ("LQD", "LQD", "iShares 投資級企業債 ETF", "iShares iBoxx Investment Grade Corp Bond", "ETF", "USD", 108.0, 1.0, 1.0, 1.0, 0.0, 12.0, 40.0, 5.0, "投資級公司債 ETF | 收益率高於國債、信用風險溫和。"),
+    ("HYG", "HYG", "iShares 高收益債 ETF", "iShares iBoxx High Yield Corp Bond", "ETF", "USD", 78.0, 1.0, 1.0, 1.0, 0.0, 14.0, 18.0, 6.0, "高收益(垃圾)債 ETF | 票息高、景氣差時違約與價格風險上升。"),
+    ("SLV", "SLV", "iShares 白銀 ETF", "iShares Silver Trust", "ETF", "USD", 28.5, 1.0, 1.0, 1.0, 0.0, 12.0, 14.0, 8.0, "白銀 ETF | 跟蹤現貨銀價，工業+貴金屬雙屬性、波動大於黃金。"),
+    ("GDX", "GDX", "VanEck 金礦股 ETF", "VanEck Gold Miners ETF", "ETF", "USD", 48.0, 18.0, 2.2, 2.4, 0.0, 32.0, 14.0, 9.0, "金礦股 ETF | 金價的槓桿化演繹，beta 高、受成本與產量影響。"),
+    ("USO", "USO", "美國原油基金 ETF", "United States Oil Fund", "ETF", "USD", 78.0, 1.0, 1.0, 1.0, 0.0, 10.0, 4.0, 6.0, "原油 ETF | 持有 WTI 期貨，含展期損益、非長期持有工具。"),
+    ("UNG", "UNG", "美國天然氣基金 ETF", "United States Natural Gas Fund", "ETF", "USD", 6.5, 1.0, 1.0, 1.0, 0.0, 10.0, 1.5, 7.0, "天然氣 ETF | 跟天然氣期貨，季節性與展期成本高、波動極大。"),
+    ("SCHD", "SCHD", "Schwab 美國股息股 ETF", "Schwab US Dividend Equity ETF", "ETF", "USD", 78.0, 16.0, 2.4, 3.0, 0.0, 30.0, 60.0, 7.0, "股息增長 ETF | 選高質素、持續派息股，兼顧收益與成長。"),
+    ("VIG", "VIG", "Vanguard 股息增長 ETF", "Vanguard Dividend Appreciation ETF", "ETF", "USD", 190.0, 20.0, 2.8, 4.0, 0.0, 32.0, 80.0, 6.0, "股息增長 ETF | 持連續增派息公司，質素偏藍籌。"),
+    ("DVY", "DVY", "iShares 高股息 ETF", "iShares Select Dividend ETF", "ETF", "USD", 125.0, 15.0, 1.6, 1.8, 0.0, 30.0, 20.0, 7.0, "高股息 ETF | 收益率較高、含金融與公用，價值傾向。"),
+    ("VNQ", "VNQ", "Vanguard 房地產 ETF", "Vanguard Real Estate ETF", "ETF", "USD", 95.0, 22.0, 6.0, 1.8, 0.0, 28.0, 35.0, 7.0, "REITs ETF | 商業地產收租，高股息、對利率高度敏感。"),
+    ("TQQQ", "TQQQ", "ProShares 納指3倍做多", "ProShares UltraPro QQQ (3x)", "ETF", "USD", 85.0, 1.0, 1.0, 1.0, 0.0, 10.0, 20.0, 12.0, "3 倍做多納指 | 波動衰減劇烈，僅短線、不宜長期持有。"),
+    ("SQQQ", "SQQQ", "ProShares 納指3倍做空", "ProShares UltraPro Short QQQ (-3x)", "ETF", "USD", 12.0, 1.0, 1.0, 1.0, 0.0, 10.0, 12.0, -8.0, "3 倍反向納指 | 對沖或短線做空，長期持有衰減明顯。"),
+    ("UPRO", "UPRO", "ProShares 標普3倍做多", "ProShares UltraPro S&P500 (3x)", "ETF", "USD", 75.0, 1.0, 1.0, 1.0, 0.0, 10.0, 18.0, 12.0, "3 倍做多標普 | 高彈性、波動衰減，風險極高。"),
+    ("SPXS", "SPXS", "ProShares 標普3倍做空", "ProShares UltraPro Short S&P500 (-3x)", "ETF", "USD", 10.0, 1.0, 1.0, 1.0, 0.0, 10.0, 10.0, -8.0, "3 倍反向標普 | 短線對沖工具，長期衰減。"),
+    ("SH", "SH", "ProShares 標普1倍做空", "ProShares Short S&P500 (-1x)", "ETF", "USD", 14.0, 1.0, 1.0, 1.0, 0.0, 10.0, 3.0, -5.0, "單倍反向標普 | 簡單做空/對沖，無槓桿。"),
+    ("ARKK", "ARKK", "ARK 創新主動 ETF", "ARK Innovation ETF", "ETF", "USD", 68.0, 35.0, 5.0, 4.5, 0.0, 30.0, 8.0, 9.0, "主動型顛覆創新 ETF | 高成長、高估值、高波動，主觀選股。"),
+    ("ARKW", "ARKW", "ARK 下一代互聯網 ETF", "ARK Next Generation Internet ETF", "ETF", "USD", 92.0, 32.0, 4.5, 4.0, 0.0, 30.0, 3.0, 9.0, "主動科技主題 ETF | 與 ARKK 重疊高、波動大。"),
+    ("UVXY", "UVXY", "ProShares 波動率多頭 ETF", "ProShares Ultra VIX Short-Term Futures", "ETF", "USD", 9.0, 1.0, 1.0, 1.0, 0.0, 10.0, 1.0, -6.0, "VIX 期貨多頭 | 長期因期貨升水衰減，僅短線恐慌對沖。"),
+    ("UUP", "UUP", "Invesco 美元指數 ETF", "Invesco DB US Dollar Index Bullish", "ETF", "USD", 32.0, 1.0, 1.0, 1.0, 0.0, 8.0, 2.0, 3.0, "美元指數 ETF | 跟美元對一籃子貨幣，強美元壓制新興與商品。"),
+    ("PPLT", "PPLT", "Aberdeen 實物鉑金 ETF", "Aberdeen Standard Physical Platinum", "ETF", "USD", 98.0, 1.0, 1.0, 1.0, 0.0, 10.0, 1.5, 7.0, "鉑金(白金) ETF | 跟實物鉑，汽車催化與工業需求、供應集中。"),
+    ("PALL", "PALL", "Aberdeen 實物鈀金 ETF", "Aberdeen Standard Physical Palladium", "ETF", "USD", 95.0, 1.0, 1.0, 1.0, 0.0, 10.0, 0.6, 6.0, "鈀金 ETF | 跟實物鈀，汽油車催化劑需求、替代與電動化風險。"),
+
+    # --- v14 擴展：港股 ETF（寬基/主題/債券/槓桿反向）---
+    ("03067.HK", "03067", "安碩恒生科技 ETF", "iShares Hang Seng Tech ETF", "ETF", "HKD", 4.8, 18.0, 2.1, 2.4, 0.0, 30.0, 8.0, 9.0, "港股恒生科技 ETF | 跟科指，與 03033 同類、追蹤誤差有別。"),
+    ("03115.HK", "03115", "iShares 安碩核心恒指 ETF", "iShares Core Hang Seng Index ETF", "ETF", "HKD", 8.2, 10.5, 1.3, 1.1, 0.0, 30.0, 3.0, 7.0, "港股恒指 ETF | 低收費寬基，長期配置港股核心。"),
+    ("03145.HK", "03145", "南方東英中證移動通訊 ETF", "CSOP CSI Mobile Communication ETF", "ETF", "HKD", 6.5, 16.0, 2.0, 2.0, 0.0, 28.0, 0.8, 7.0, "主題 ETF | 聚焦電訊與移動互聯，板塊集中。"),
+    ("03032.HK", "03032", "恒生投資恒生科技 ETF", "Hang Seng Tech Index ETF", "ETF", "HKD", 7.8, 18.0, 2.1, 2.4, 0.0, 30.0, 1.0, 9.0, "恒生科技 ETF | 與 03033/03067 同類競品。"),
+    ("03088.HK", "03088", "恒生投資港股通精選 ETF", "Hang Seng Stock Connect ETF", "ETF", "HKD", 9.5, 12.0, 1.5, 1.4, 0.0, 28.0, 0.6, 7.0, "港股通主題 ETF | 覆蓋可經滬深港通買賣的標的。"),
+    ("07552.HK", "07552", "FI二南方恒生科技 (2倍做空)", "CSOP Hang Seng Tech (-2x)", "ETF", "HKD", 6.2, 1.0, 1.0, 1.0, 0.0, 10.0, 0.8, -8.0, "2 倍反向恒生科技 | 短線對沖，波動衰減、不宜長持。"),
+    ("07568.HK", "07568", "FL二南方恒生科技 (2倍做多)", "CSOP Hang Seng Tech (2x)", "ETF", "HKD", 7.5, 1.0, 1.0, 1.0, 0.0, 10.0, 1.0, 10.0, "2 倍做多恒生科技 | 高彈性短線工具，長期衰減。"),
+
+    # --- v14 擴展：全球主要市場指數 ---
+    ("^N225", "N225", "日本日經225指數", "Nikkei 225 Index", "INDEX", "USD", 38500.0, 18.0, 1.4, 1.6, 8.0, 30.0, 0.0, 7.0, "日本股指 | 企業治理改革與弱日圓帶動，估值修復、受匯率影響。"),
+    ("^FTSE", "FTSE", "英國富時100指數", "FTSE 100 Index", "INDEX", "USD", 8200.0, 12.0, 1.2, 1.5, 4.0, 28.0, 0.0, 6.0, "英國股指 | 高股息、跨國企業佔多，偏價值與防守。"),
+    ("^GDAXI", "GDAXI", "德國 DAX 指數", "German DAX Index", "INDEX", "USD", 19500.0, 14.0, 1.3, 1.7, 5.0, 30.0, 0.0, 6.0, "德國股指 | 製造與出口龍頭，受能源成本與歐洲央行政策影響。"),
+    ("^FCHI", "FCHI", "法國 CAC40 指數", "CAC 40 Index", "INDEX", "USD", 7400.0, 14.0, 1.3, 1.6, 5.0, 29.0, 0.0, 6.0, "法國股指 | 奢侈品與工業權重高，景氣與消費敏感。"),
+    ("000001.SS", "SSE", "上海證券綜合指數", "Shanghai Composite Index", "INDEX", "CNY", 3350.0, 13.0, 1.4, 1.5, 6.0, 28.0, 0.0, 6.0, "上證綜指 | A 股風向，受政策面與資金面主導。"),
+    ("399001.SZ", "SZSE", "深圳證券成份指數", "Shenzhen Component Index", "INDEX", "CNY", 10800.0, 22.0, 2.6, 2.8, 8.0, 30.0, 0.0, 7.0, "深證成指 | 成長與製造、科技股佔比高，彈性大於上證。"),
+
+    # --- v14 擴展：貴金屬期貨（白金/鈀）補齊 ---
+    ("PL=F", "PL=F", "NYMEX 鉑金期貨", "Platinum Futures", "FUTURES", "USD", 980.0, 1.0, 1.0, 1.0, 0.0, 18.0, 50.0, 7.0, "鉑金期貨 | 跟 PPLT 現貨方向，工業與首飾需求。"),
+    ("PA=F", "PA=F", "NYMEX 鈀金期貨", "Palladium Futures", "FUTURES", "USD", 950.0, 1.0, 1.0, 1.0, 0.0, 20.0, 30.0, 6.0, "鈀金期貨 | 供應集中、價格波動大，電動化長期壓力。")
 ]
 
 def compute_critical_score(fwd_pe: float, ps: float, pb: float, rev_g: float, gm: float, exp_ret: float, mkt: str) -> tuple:
@@ -3728,6 +3796,63 @@ def format_option_label(sym: str, code: str, name: str, en: str, mkt: str) -> st
     }.get(mkt, mkt)
     return f"{code} ({sym}) | {name} — {en} [{mkt_badge}]"
 
+def _smartbox_to_symbol(mkt: str, code: str):
+    """騰訊 smartbox 市場/代號 → 應用內部 symbol。
+    us：voo.am→VOO；hk：02800→02800.HK；sh/sz：A 股保留 sh518880 形式。"""
+    mkt = str(mkt).lower()
+    code = str(code)
+    if mkt == "us":
+        t = code.split(".")[0]
+        return t.upper() if t else None
+    if mkt == "hk":
+        t = code.split(".")[0]
+        if not t:
+            return None
+        return (t.zfill(5) if t.isdigit() else t.upper()) + ".HK"
+    if mkt in ("sh", "sz"):
+        return mkt + code
+    return None
+
+
+def _unescape_smartbox(s: str):
+    """smartbox 中文名以 \\uXXXX 轉義返回，轉回真實漢字；失敗保留原字。"""
+    try:
+        return str(s).encode("latin1", errors="ignore").decode("unicode_escape")
+    except Exception:
+        return s
+
+
+def fetch_tencent_smartbox(q: str, limit: int = 12):
+    """騰訊 smartbox 動態建議：覆蓋美股/港股/A 股的股票與 ETF，補齊靜態清單未列的任意標的。
+    門控關閉時快速返回空；回傳 (label, symbol) 列表。"""
+    out = []
+    try:
+        if not _network_allowed() or not q or not str(q).strip():
+            return out
+        url = f"https://smartbox.gtimg.cn/s3/?t=all&q={urllib.parse.quote(str(q).strip())}"
+        raw = _http_get_text(url, encoding="gbk", timeout=10)
+        m = re.search(r'v_hint="(.*?)"', raw, flags=re.S)
+        if not m:
+            return out
+        for item in m.group(1).split("^"):
+            f = item.split("~")
+            if len(f) < 5:
+                continue
+            mkt, code, cn, en, qtype = f[0], f[1], f[2], f[3], f[4]
+            sym = _smartbox_to_symbol(mkt, code)
+            if not sym or sym in [x[1] for x in out]:
+                continue
+            cn = _unescape_smartbox(cn)
+            tag = {"us": "美股", "hk": "港股", "sh": "A股(滬)", "sz": "A股(深)"}.get(mkt, mkt)
+            label = f"{code.split('.')[0]} ({sym}) | {cn} — {en} [{tag}·{qtype}]"
+            out.append((label, sym))
+            if len(out) >= limit:
+                break
+    except Exception:
+        pass
+    return out
+
+
 def search_all_markets_fn(searchterm: str):
     default_list = [
         (format_option_label(i["symbol"], i["code"], i["name"], i["en"], i["mkt"]), i["symbol"])
@@ -3785,7 +3910,15 @@ def search_all_markets_fn(searchterm: str):
         if hk_sym and hk_sym not in [m[1] for m in matched]:
             matched.insert(0, (lbl, hk_sym))
             
-    # 4. Yahoo Search 全市場即時補齊（v9：線程超時，最壞 3s）
+    # 4. 騰訊 smartbox 動態補齊（美股/港股/A股 ETF 與股票，雲端可達；門開時生效）
+    try:
+        for lbl, sym in fetch_tencent_smartbox(q):
+            if sym not in [m[1] for m in matched]:
+                matched.append((lbl, sym))
+    except Exception:
+        pass
+
+    # 5. Yahoo Search 全市場即時補齊（v9：線程超時，最壞 3s；雲端限流時通常無效，僅本地補充）
     def _do_search_all():
         if hasattr(yf, "Search") and len(q_up) >= 2 and len(matched) < 6:
             return yf.Search(q, max_results=5)
@@ -3810,7 +3943,7 @@ if HAS_SEARCHBOX:
     selected_symbol = st_searchbox(
         search_all_markets_fn,
         placeholder="輸入股票號碼、納斯達克指數、道斯指數、標普500指數、恒指、黃金、窩輪...",
-        label="🔍 全市場萬用檢索 (支援所有港美股、窩輪、牛熊證、ETF、黃金、期貨、期指、美國所有指數)",
+        label="🔍 全市場萬用檢索",
         default="00700.HK",
         default_searchterm="00700 (00700.HK) | 騰訊控股 — Tencent Holdings [港股]",
         edit_after_submit="option",
@@ -3820,7 +3953,7 @@ if HAS_SEARCHBOX:
 else:
     opts = {format_option_label(i["symbol"], i["code"], i["name"], i["en"], i["mkt"]): i["symbol"]
             for i in MASTER_CATALOG}
-    sel_l = st.selectbox("🔍 全市場萬用檢索 (輸入編號或指數名稱即時過濾)", list(opts.keys()), index=20)
+    sel_l = st.selectbox("🔍 全市場萬用檢索", list(opts.keys()), index=20)
     selected_symbol = opts[sel_l]
 
 if not selected_symbol:
@@ -4059,6 +4192,12 @@ with tabs[0]:
                     "真實PS/PB": f"{prof['ps']:.2f}x / {prof['pb']:.2f}x" if isinstance(prof.get('ps'), (int, float)) else "數據缺失",
                     "真實營收增長/ROE": f"{prof['rev_growth']:+.1f}% / {prof['roe']:.1f}%" if isinstance(prof.get('rev_growth'), (int, float)) and isinstance(prof.get('roe'), (int, float)) else "數據缺失",
                     "方向定性(模型)": dir_tag,
+                    "12月預期幅度/目標價": (
+                        f"{ca['expected_move']:+.1f}% / {ca['target_price']}"
+                        if ca.get("target_price") is not None
+                        else f"{ca['expected_move']:+.1f}% / N/A"),
+                    "上行/中性/下行概率": (
+                        f"{ca['prob_up']}% / {ca['prob_neutral']}% / {ca['prob_down']}%"),
                     "1-6月客觀波幅區間": range_str,
                     "模型目標區間": f"{prof['curr']} {t_lo:,.1f} – {t_hi:,.1f}" if t_lo is not None else "—",
                     "模型分數": sort_key,
@@ -4091,7 +4230,10 @@ with tabs[0]:
                     "當前現價": f"{p:,.2f} {prof['curr']}",
                     "真實遠期PE": _sf(prof['fwd_pe'], ".1f", "x"), "真實PS/PB": f"{_sf(prof['ps'], '.2f', 'x')} / {_sf(prof['pb'], '.2f', 'x')}",
                     "真實營收增長/ROE": f"{prof['rev_growth']:+.1f}% / {prof['roe']:.1f}%",
-                    "方向定性(模型)": dir_tag, "1-6月客觀波幅區間": range_str,
+                    "方向定性(模型)": dir_tag,
+                    "12月預期幅度/目標價": f"{exp_r:+.1f}% / {round(p*(1+exp_r/100),2)}",
+                    "上行/中性/下行概率": "靜態視圖·請連線計算",
+                    "1-6月客觀波幅區間": range_str,
                     "模型目標區間": f"{prof['curr']} {t_lo:,.1f} – {t_hi:,.1f}",
                     "模型分數": exp_r, "真實數據日期": "未連線(靜態)",
                     "真實依據與風險剖析": "[靜態觀點] " + prof["catalyst"].split("|")[-1].strip()
