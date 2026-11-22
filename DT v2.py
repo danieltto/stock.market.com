@@ -1079,6 +1079,151 @@ def _http_get_text(url: str, encoding: str = "utf-8", timeout: int = 10):
         return resp.read().decode(encoding, errors="ignore")
 
 
+# ============================================================
+# 全球新聞 / 宏觀 / 地緣 / 行業牽連分析（入市分頁專用）
+# 數據源：CNBC（NBCUniversal）與 MarketWatch（Dow Jones）公開 RSS，屬具公信力財經平台。
+# 誠實局限：Bloomberg/WSJ/Reuters 付費牯全文在雲端無法抓取，Google News/Yahoo 於本機 IP 被擋，
+# 故分析基於「可達 RSS 標題/摘要/來源/時間」＋結構化財報，絕不冒充讀過付費全文或編造新聞。
+# ============================================================
+_GLOBAL_NEWS_FEEDS = [
+    ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114"),
+    ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362"),
+    ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839135"),
+    ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines"),
+]
+
+# 面向關鍵詞（機械匹配，命中即歸該面向；同一標題可屬多面向）
+_NEWS_FACET_RULES = [
+    ("🌐 地緣政治", ["iran", "israel", "saudi", "russia", "ukraine", "tariff", "sanction",
+                  "war", "geopolit", "customs", "關稅", "制裁", "戰", "衝突", "貿易", "中東"]),
+    ("📉 經濟與利率", ["fed", "rate", "inflation", "jobless", "recession", "gdp",
+                  "treasury", "yield", "cpi", "利率", "加息", "減息", "通脹", "就業", "衰退", "失業"]),
+    ("🏛 市場大環境", ["s&p", "nasdaq", "dow", "correction", "sell-off", "selloff",
+                  "rally", "index", "wall street", "恒指", "恒生", "熊市", "牛市", "回撤", "指數"]),
+]
+
+# 行業關鍵詞（用於行業牽連面向）
+_INDUSTRY_RULES = [
+    ("科技/半導體/AI", ["ai", "chip", "semiconductor", "tech", "software", "cloud", "quantum",
+                  "artificial intelligence", "半導體", "芯片", "科技", "軟件", "雲", "人工智能"]),
+    ("金融/銀行", ["bank", "financial", "insurance", "exchange", "credit", "銀行", "金融", "保險", "交易所"]),
+    ("消費/零售", ["retail", "consumer", "sales", "restaurant", "glp-1", "零售", "消費", "餐飲"]),
+    ("能源/商品", ["oil", "energy", "gold", "crude", "opec", "natural gas", "能源", "原油", "黃金", "石油"]),
+    ("汽車/EV", ["ev", "electric vehicle", "automaker", "car", "tesla", "汽車", "電動", "車企"]),
+]
+
+
+@st.cache_data(ttl=3 * 3600, show_spinner=False)
+def fetch_global_news():
+    """聚合多個公開 RSS，回傳去重後新聞（標題/來源/日期/連結）；門控關閉或失敗回 ok=False。"""
+    out = {"ok": False, "items": []}
+    if not _network_allowed():
+        return out
+    import xml.etree.ElementTree as ET
+    seen, items = set(), []
+    for source, url in _GLOBAL_NEWS_FEEDS:
+        try:
+            root = ET.fromstring(_http_get_text(url, timeout=10))
+            for it in root.findall(".//item"):
+                title = (it.findtext("title") or "").strip()
+                if not title or title in seen:
+                    continue
+                seen.add(title)
+                items.append({"title": title, "source": source,
+                             "date": (it.findtext("pubDate") or "").strip()[:16],
+                             "link": (it.findtext("link") or "").strip()})
+        except Exception:
+            continue
+    out["items"] = items
+    out["ok"] = bool(items)
+    return out
+
+
+def _company_keywords(profile: dict):
+    """構造公司關鍵詞（英文小寫詞＋中文核心名），用於在新聞標題中識別個股相關報道。"""
+    en, cn = set(), set()
+    code = str(profile.get("code") or "").lower()
+    if code and code.isalnum():
+        en.add(code)
+    sym0 = str(profile.get("symbol", "")).split(".")[0].lower()
+    if sym0 and sym0.isalpha():
+        en.add(sym0)
+    en_name = str(profile.get("en") or "")
+    for w in re.split(r"[^A-Za-z0-9]+", en_name):
+        if len(w) >= 4 and w.lower() not in ("inc", "ltd", "group", "holdings", "corp", "limited"):
+            en.add(w.lower())
+    nm = str(profile.get("name") or "")
+    for suf in ["集團", "控股", "公司", "股份", "（", "(", "W", "S", "SW"]:
+        nm = nm.replace(suf, "")
+    nm = nm.strip("- ")
+    if nm:
+        cn.add(nm)
+    return {"en": [w for w in en if w], "cn": [w for w in cn if w]}
+
+
+def _match_facet(title: str, keys):
+    low = title.lower()
+    return any((k in low) if k.isascii() else (k in title) for k in keys)
+
+
+def render_news_macro_panel(profile: dict):
+    """入市分頁：全球新聞＋經濟＋地緣＋行業牽連＋市場環境的結構化分析（追加，不改原有格式）。"""
+    st.markdown("#### 🌍 全球新聞、宏觀經濟、地緣政治與行業牽連分析")
+    news = fetch_global_news()
+    items = news.get("items", [])
+    if not items:
+        st.info("📰 全球新聞尚未載入（離線或本次未開門）。不顯示任何編造新聞，請按「更新本分頁數據」後重試。")
+        return
+
+    cw = _company_keywords(profile)
+    related = [x for x in items
+               if _match_facet(x["title"], cw["en"]) or any(k in x["title"] for k in cw["cn"])]
+
+    def _li(rows, limit=5):
+        rows = rows[:limit]
+        if not rows:
+            return '<li style="color:#888;">近期可達新聞中無直接命中條目（N/A，不補充）。</li>'
+        return "".join(
+            f'<li><a href="{html.escape(x["link"], quote=True)}" target="_blank">'
+            f'{html.escape(x["title"])}</a>'
+            f'<span style="color:#999;font-size:11px;"> · {x["source"]} · {x["date"]}</span></li>'
+            for x in rows)
+
+    # 各面向分組
+    facet_blocks = []
+    for fname, keys in _NEWS_FACET_RULES:
+        rows = [x for x in items if _match_facet(x["title"], keys)]
+        facet_blocks.append(f"<h4>{fname}</h4><ul style='font-size:12.5px;'>{_li(rows)}</ul>")
+    # 行業牽連：列出各行業命中，提示與該標的的潛在關聯
+    ind_blocks = []
+    for iname, keys in _INDUSTRY_RULES:
+        rows = [x for x in items if _match_facet(x["title"], keys)]
+        if rows:
+            ind_blocks.append(f"<h4>🔗 {iname}（行業牽連）</h4><ul style='font-size:12.5px;'>{_li(rows,4)}</ul>")
+
+    st.markdown(_compact_html(f"""
+    <div class="section-card">
+        <h4>📌 與「{profile.get('name')}」直接相關的新聞報道</h4>
+        <ul style="font-size:13px;">{_li(related, 6)}</ul>
+    </div>
+    """), unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(_compact_html('<div class="section-card">' + "".join(facet_blocks[:2]) + "</div>"),
+                    unsafe_allow_html=True)
+    with c2:
+        st.markdown(_compact_html('<div class="section-card">' + facet_blocks[2]
+                    + "".join(ind_blocks) + "</div>"), unsafe_allow_html=True)
+
+    st.caption("資料來源：CNBC、MarketWatch 公開 RSS（含其轉引之官方/電訊內容），以標題與摘要為準。"
+               "分類為關鍵詞機械匹配、非人工深讀；Bloomberg/WSJ/Reuters 付費牆全文未能取得，"
+               "故本區只反映可驗證的公開資訊，並須與上方六維交叉、估值與動能證據一併判斷，不單據新聞標題下結論。")
+
+
 def tencent_quote_code(symbol: str):
     """Yahoo 代號 → (騰訊報價代號, 市場 hk/us/index)；不支援回傳 (None, None)。"""
     s = str(symbol).strip().upper()
@@ -4161,8 +4306,7 @@ tabs = st.tabs([
     "2006–2028E 財務與 8P 分析全表",
     "基本面與歷史高低位推算",
     "全年走勢與波浪理論分析",
-    "批判性入市判斷、估值評分與同行比較",
-    "港美股市牛熊宏觀診斷"
+    "批判性入市判斷、估值評分與同行比較"
 ])
 
 def tab_refresh_button(key: str, extra_fns=None, label: str = "🔄 更新本分頁數據"):
@@ -4852,7 +4996,11 @@ with tabs[3]:
 # ------------------------------------------
 with tabs[4]:
     st.subheader(f"⚖️ {q_data['code']} {q_data['name']} — 批判性入市判斷、客觀估值評分與同行比較")
-    tab_refresh_button("refresh_tab_entry", [fetch_real_fundamentals, fetch_real_momentum_snapshot])
+    tab_refresh_button("refresh_tab_entry", [fetch_real_fundamentals, fetch_real_momentum_snapshot,
+                                             fetch_global_news])
+
+    # 全球新聞／宏觀／地緣／行業牽連（追加分析，格式獨立、不影響原有內容）
+    render_news_macro_panel(q_data)
 
     # 六維交叉判斷：入市結論須由 6 個分頁證據交叉，而非單一估值分數
     _ca_entry = build_cross_analysis(selected_symbol, q_data)
@@ -4931,118 +5079,4 @@ with tabs[4]:
         })
     df_peers = pd.DataFrame(peer_rows)
     render_resizable_table(df_peers, key_prefix="peers_main_tbl", default_col_w=100, default_text_w=420, default_row_h=55)
-
-# ------------------------------------------
-# 分頁 F：港美股市牛熊宏觀診斷 (已移除問題編號)
-# ------------------------------------------
-with tabs[5]:
-    st.subheader("🌍 香港和美國目前或今年（2026年）是否已進入牛市或熊市？")
-    tab_refresh_button("refresh_tab_macro", [fetch_real_momentum_snapshot])
-
-    # v6：牛熊判定完全由真實指數數據驅動，不再寫死結論與點位
-    macro_indices = [("🇺🇸 標普500", "^GSPC"), ("🇺🇸 納斯達克", "^IXIC"),
-                     ("🇺🇸 道瓊斯", "^DJI"), ("🇭🇰 恒生指數", "^HSI")]
-    macro = {sym: fetch_real_momentum_snapshot(sym) for _, sym in macro_indices}
-
-    def _bull_bear(m):
-        if not m.get("ok"):
-            return "數據缺失", "#888888", "—"
-        p, hi, lo = m.get("price"), m.get("hi52"), m.get("lo52")
-        if not all(isinstance(x, (int, float)) for x in (p, hi, lo)) or hi <= lo:
-            return "數據不足", "#888888", "—"
-        dd = (p / hi - 1) * 100.0
-        bounce = (p / lo - 1) * 100.0
-        if dd <= -20:
-            return "技術熊市（自52週高點回撤逾20%）", "#d93025", f"{dd:.1f}%"
-        if bounce >= 20 and m.get("above_ma200"):
-            return "技術牛市（自低點反彈逾20%且站穩200日線）", "#188038", f"+{bounce:.1f}%"
-        if m.get("above_ma200"):
-            return "中長線偏多（修正/整固中）", "#f57c00", f"{dd:.1f}%"
-        return "中長線偏弱（200日線下方）", "#b06000", f"{dd:.1f}%"
-
-    any_ok = any(m.get("ok") for m in macro.values())
-    if any_ok:
-        st.info("📡 下列牛熊判定依 **Yahoo Finance 真實指數日線** 計算：技術性牛熊分界以「自 52 週高點回撤 ≥20% 為熊市、自 52 週低點反彈 ≥20% 且站穩 200 日線為牛市」，其餘為修正/整固。數據會隨交易日自動更新。")
-    else:
-        st.warning("⚠️ 目前暫時無法連線，宏觀指數真實數據缺失（離線狀態），不顯示任何編造點位或結論。請稍後重試。")
-
-    cols = st.columns(4)
-    for col, (nm, sym) in zip(cols, macro_indices):
-        m = macro[sym]
-        verdict, vc, _ = _bull_bear(m)
-        with col:
-            if m.get("ok"):
-                st.markdown(_compact_html(f"""
-                <div class="section-card" style="text-align:center;">
-                    <div style="font-weight:800; font-size:15px; margin-bottom:4px;">{nm}</div>
-                    <div style="font-size:22px; font-weight:800; color:{vc};">{_sf(m.get('price'), ',.0f')}</div>
-                    <div style="font-size:12px; font-weight:700; color:{vc}; margin:4px 0;">{verdict}</div>
-                    <div style="font-size:11.5px; color:#555;">52週 {_sf(m.get('lo52'), ',.0f')} – {_sf(m.get('hi52'), ',.0f')}</div>
-                    <div style="font-size:11.5px; color:#555;">位置 {_sf(m.get('pos52'), ',.0f')}% 分位｜RSI {_sf(m.get('rsi'), ',.0f')}</div>
-                    <div style="font-size:11.5px; color:#555;">1月 {_sf(m.get('r21'), '+.1f', '%')}｜3月 {_sf(m.get('r63'), '+.1f', '%')}｜6月 {_sf(m.get('r126'), '+.1f', '%')}</div>
-                    <div style="font-size:10.5px; color:#999;">截至 {m.get('as_of') or 'N/A'}</div>
-                </div>
-                """), unsafe_allow_html=True)
-            else:
-                st.markdown(_compact_html(f"""
-                <div class="section-card" style="text-align:center;">
-                    <div style="font-weight:800; font-size:14px;">{nm}</div>
-                    <div style="font-size:13px; color:#888; margin-top:8px;">真實數據連線失敗</div>
-                </div>
-                """), unsafe_allow_html=True)
-
-    def _card(m):
-        if not m.get("ok"):
-            return "真實數據缺失，無法給出結論（不以舊點位或主觀敘述填充）。"
-        v, _, _ = _bull_bear(m)
-        p, hi, lo = m.get("price"), m.get("hi52"), m.get("lo52")
-        if not all(isinstance(x, (int, float)) for x in (p, hi, lo)) or hi <= lo:
-            return "真實數據不足（52 週高低點缺失），無法計算牛熊位置（不以不完整數據填充）。"
-        return (f"現價 {p:,.0f}，52 週區間 {lo:,.0f}–{hi:,.0f}（第 {_sf(m.get('pos52'), ',.0f')}% 分位），"
-                f"自高點 {(p/hi-1)*100:+.1f}%、自低點 {(p/lo-1)*100:+.1f}%；"
-                f"200 日線{'上方' if m.get('above_ma200') else '下方'}，RSI {_sf(m.get('rsi'), ',.0f')}。客觀定性：{v}。")
-
-    spx, ndx, dji, hsi = macro["^GSPC"], macro["^IXIC"], macro["^DJI"], macro["^HSI"]
-    c_m1, c_m2 = st.columns(2)
-    with c_m1:
-        st.markdown(_compact_html(f"""
-        <div class="section-card">
-            <h4>🇺🇸 美國股市（真實數據診斷，非主觀唱多）</h4>
-            <ul style="font-size:13px;">
-                <li><strong>標普500</strong>：{_card(spx)}</li>
-                <li><strong>納斯達克</strong>：{_card(ndx)}</li>
-                <li><strong>道瓊斯</strong>：{_card(dji)}</li>
-                <li><strong>批判性提示</strong>：指數位於 52 週高分位（&gt;80%）且 RSI 偏高時，估值安全邊際低、回撤風險上升；個股分化大，指數走牛不代表所有股票皆可買入。</li>
-            </ul>
-        </div>
-        """), unsafe_allow_html=True)
-    with c_m2:
-        st.markdown(_compact_html(f"""
-        <div class="section-card">
-            <h4>🇭🇰 香港股市（真實數據診斷，非主觀唱多）</h4>
-            <ul style="font-size:13px;">
-                <li><strong>恒生指數</strong>：{_card(hsi)}</li>
-                <li><strong>批判性提示</strong>：港股以恒指 200 日線與 52 週位置作客觀依據；若跌破 200 日線且自高點回撤擴大，應視為趨弱，而非沿用「慢牛」固定結論。</li>
-                <li><strong>配置原則</strong>：僅依真實估值與趨勢分批，不依賴固定成交額或點位預設。</li>
-            </ul>
-        </div>
-        """), unsafe_allow_html=True)
-
-    df_macro_rows = []
-    for nm, sym in macro_indices:
-        m = macro[sym]
-        v, _, _ = _bull_bear(m)
-        df_macro_rows.append({
-            "指數": nm,
-            "真實現價": _sf(m.get("price"), ",.2f") if m.get("ok") else "N/A",
-            "52週區間": f"{_sf(m.get('lo52'), ',.0f')} – {_sf(m.get('hi52'), ',.0f')}" if m.get("ok") else "N/A",
-            "52週分位": _sf(m.get("pos52"), ".0f", "%") if m.get("ok") else "N/A",
-            "近1月/3月/6月": (f"{_sf(m.get('r21'), '+.1f', '%')} / {_sf(m.get('r63'), '+.1f', '%')} / {_sf(m.get('r126'), '+.1f', '%')}" if m.get("ok") else "N/A"),
-            "RSI14": _sf(m.get("rsi"), ".0f") if m.get("ok") else "N/A",
-            "200日線": ("上方" if m.get("above_ma200") else "下方") if m.get("ok") else "N/A",
-            "數據驅動牛熊定性": v,
-            "數據日期": m.get("as_of", "—")
-        })
-    render_resizable_table(pd.DataFrame(df_macro_rows), key_prefix="macro_tbl",
-                           default_col_w=110, default_text_w=300, default_row_h=48)
 #(註：內容由 AI 生成)
