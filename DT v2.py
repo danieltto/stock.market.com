@@ -1121,78 +1121,110 @@ _INDUSTRY_RULES = [
 _COMPANY_EXPOSURE = {
     "00700.HK": {"short": "騰訊", "aliases": ["tencent", "tcehy", "0700", "700", "騰訊", "腾讯"],
                  "industries": ["科技/半導體/AI"],
+                 "biz": ["game", "gaming", "video game", "wechat", "advertising", "cloud", "fintech",
+                         "payment", "遊戲", "微信", "廣告", "雲"],
                  "sens": ["rate", "china_macro", "semis", "ad", "hk_liquidity", "financing"]},
     "09988.HK": {"short": "阿里巴巴", "aliases": ["alibaba", "baba", "9988", "阿里", "阿里巴巴"],
                  "industries": ["科技/半導體/AI", "消費/零售"],
+                 "biz": ["e-commerce", "ecommerce", "cloud", "taobao", "tmall", "logistics", "payment",
+                         "電商", "雲", "淘寶"],
                  "sens": ["rate", "china_macro", "semis", "ad", "tariff", "hk_liquidity"]},
     "03690.HK": {"short": "美團", "aliases": ["meituan", "mpngy", "3690", "美團", "美团"],
                  "industries": ["消費/零售"],
+                 "biz": ["food delivery", "delivery", "local services", "ride-hailing", "instant retail",
+                         "外賣", "本地"],
                  "sens": ["china_macro", "rate", "ad", "hk_liquidity"]},
     "01810.HK": {"short": "小米", "aliases": ["xiaomi", "xiacy", "1810", "小米"],
                  "industries": ["科技/半導體/AI", "汽車/EV"],
+                 "biz": ["smartphone", "handset", "ev", "su7", "shipment", "iot", "electric vehicle",
+                         "手機", "出貨", "電動"],
                  "sens": ["semis", "china_macro", "tariff", "rate", "financing"]},
     "01211.HK": {"short": "比亞迪", "aliases": ["byd", "byddy", "1211", "比亞迪", "比亚迪"],
                  "industries": ["汽車/EV", "能源/商品"],
+                 "biz": ["ev", "electric vehicle", "battery", "hybrid", "automaker",
+                         "電動", "電池", "車"],
                  "sens": ["commodity", "china_macro", "tariff", "rate"]},
     "00388.HK": {"short": "港交所", "aliases": ["hkex", "388", "港交所", "交易所"],
                  "industries": ["金融/銀行"],
+                 "biz": ["ipo", "listing", "turnover", "trading volume", "stock connect", "clearing",
+                         "exchange", "上市", "成交", "互聯互通"],
                  "sens": ["rate", "hk_liquidity", "financing", "fx"]},
     "00005.HK": {"short": "匯豐", "aliases": ["hsbc", "005", "5", "匯豐", "汇丰"],
                  "industries": ["金融/銀行"],
+                 "biz": ["bank", "lending", "deposit", "dividend", "capital", "銀行", "貸款", "股息"],
                  "sens": ["rate", "fx", "financing", "commodity"]},
     "02318.HK": {"short": "平安", "aliases": ["ping an", "pingan", "2318", "平安"],
                  "industries": ["金融/銀行"],
+                 "biz": ["insurance", "insurer", "banking", "保險", "銀行"],
                  "sens": ["rate", "china_macro", "fx"]},
     "00941.HK": {"short": "中移動", "aliases": ["china mobile", "941", "中國移動", "中国移动", "中移动"],
                  "industries": ["科技/半導體/AI"],
+                 "biz": ["telecom", "5g", "mobile subscriber", "電信", "用戶"],
                  "sens": ["rate", "china_macro", "semis"]},
     "09618.HK": {"short": "京東", "aliases": ["jd.com", "jd", "9618", "京東", "京东"],
                  "industries": ["消費/零售", "科技/半導體/AI"],
+                 "biz": ["e-commerce", "ecommerce", "retail", "logistics", "delivery",
+                         "電商", "零售", "物流"],
                  "sens": ["china_macro", "tariff", "rate", "ad"]},
     "00001.HK": {"short": "長和", "aliases": ["ck hutchison", "hutchison", "001", "1", "長和", "长和"],
                  "industries": ["金融/銀行"],
+                 "biz": ["ports", "infrastructure", "telecom", "港口", "基建"],
                  "sens": ["rate", "fx", "commodity"]},
     "AAPL": {"short": "蘋果", "aliases": ["apple", "aapl", "蘋果", "苹果"],
              "industries": ["科技/半導體/AI"],
+             "biz": ["iphone", "mac", "app store", "services", "smartphone", "手機", "服務"],
              "sens": ["semis", "tariff", "china_macro", "rate", "commodity"]},
     "MSFT": {"short": "微軟", "aliases": ["microsoft", "msft", "微軟", "微软"],
              "industries": ["科技/半導體/AI"],
+             "biz": ["azure", "cloud", "windows", "office", "copilot", "雲"],
              "sens": ["rate", "semis", "financing", "ad"]},
     "NVDA": {"short": "輝達", "aliases": ["nvidia", "nvda", "輝達", "辉达", "英偉達", "英伟达"],
              "industries": ["科技/半導體/AI"],
+             "biz": ["gpu", "chip", "data center", "semiconductor", "芯片", "數據中心"],
              "sens": ["semis", "tariff", "china_macro", "rate", "financing"]},
     "AMD": {"short": "超微半導體", "aliases": ["advanced micro", "amd", "超微"],
             "industries": ["科技/半導體/AI"],
+            "biz": ["cpu", "gpu", "chip", "semiconductor", "芯片"],
             "sens": ["semis", "tariff", "rate"]},
     "AVGO": {"short": "博通", "aliases": ["broadcom", "avgo", "博通"],
              "industries": ["科技/半導體/AI"],
+             "biz": ["chip", "semiconductor", "software", "vmware", "芯片"],
              "sens": ["semis", "tariff", "rate", "financing"]},
     "GOOGL": {"short": "谷歌", "aliases": ["alphabet", "google", "googl", "goog", "谷歌"],
               "industries": ["科技/半導體/AI"],
+              "biz": ["search", "advertising", "youtube", "cloud", "廣告", "雲"],
               "sens": ["ad", "rate", "semis", "china_macro", "financing"]},
     "AMZN": {"short": "亞馬遜", "aliases": ["amazon", "amzn", "亞馬遜", "亚马逊"],
              "industries": ["消費/零售", "科技/半導體/AI"],
+             "biz": ["e-commerce", "ecommerce", "aws", "cloud", "retail", "logistics", "雲", "電商"],
              "sens": ["china_macro", "tariff", "rate", "ad", "semis"]},
     "META": {"short": "Meta", "aliases": ["meta platforms", "meta", "meta"],
              "industries": ["科技/半導體/AI"],
+             "biz": ["social", "advertising", "instagram", "whatsapp", "廣告"],
              "sens": ["ad", "rate", "semis", "financing"]},
     "TSLA": {"short": "特斯拉", "aliases": ["tesla", "tsla", "特斯拉"],
              "industries": ["汽車/EV", "科技/半導體/AI"],
+             "biz": ["ev", "electric vehicle", "battery", "automaker", "autonomous", "電動", "電池"],
              "sens": ["rate", "tariff", "china_macro", "financing", "commodity"]},
     "ORCL": {"short": "甲骨文", "aliases": ["oracle", "orcl", "甲骨文"],
              "industries": ["科技/半導體/AI"],
+             "biz": ["database", "cloud", "erp", "雲", "數據庫"],
              "sens": ["rate", "semis", "financing"]},
     "CRM": {"short": "賽富時", "aliases": ["salesforce", "crm", "賽富時", "赛富时"],
             "industries": ["科技/半導體/AI"],
+            "biz": ["crm", "cloud", "software", "slack", "雲"],
             "sens": ["rate", "financing", "ad"]},
     "NFLX": {"short": "網飛", "aliases": ["netflix", "nflx", "網飛", "网飞"],
              "industries": ["消費/零售", "科技/半導體/AI"],
+             "biz": ["streaming", "subscriber", "content", "訂閱", "流媒體"],
              "sens": ["rate", "china_macro"]},
     "JPM": {"short": "摩根大通", "aliases": ["jpmorgan", "jpm", "摩根大通"],
             "industries": ["金融/銀行"],
+            "biz": ["bank", "lending", "trading", "investment bank", "銀行"],
             "sens": ["rate", "fx", "financing"]},
     "XOM": {"short": "埃克森美孚", "aliases": ["exxon", "exxonmobil", "xom", "埃克森"],
             "industries": ["能源/商品"],
+            "biz": ["oil", "gas", "energy", "refining", "原油", "能源"],
             "sens": ["commodity", "rate", "fx"]},
 }
 
@@ -1289,8 +1321,14 @@ def _resolve_exposure(profile: dict):
     sens = ["rate"]
     if profile.get("mkt") == "HK":
         sens += ["hk_liquidity", "china_macro"]
+    biz_keys = set()
+    for iname in inds:
+        for nm, keys in _INDUSTRY_RULES:
+            if nm == iname:
+                biz_keys.update(keys)
     return {"short": nm or code or sym, "aliases": [a for a in aliases if a],
-            "industries": inds, "sens": sens, "inferred": True}
+            "industries": inds, "biz": [b for b in biz_keys if b],
+            "sens": sens, "inferred": True}
 
 
 def _news_polarity(title: str):
@@ -1304,25 +1342,29 @@ def _news_polarity(title: str):
 
 def analyze_news_for_stock(profile: dict, items: list):
     """把全市場新聞轉譯為針對當前股票的結構化分析：相關性分級、面向分組、加權情緒分與 -2..2 子分數。
-    直接相關權重 3、行業 2、宏觀 1；每條新聞只計一次，全部結果可追溯到真實標題，缺失不補。"""
+    分級權重：直接（名字）3 ＞ 公司業務主題 2.5 ＞ 行業 2 ＞ 宏觀 1；每條新聞只計一次，可追溯到真實標題，缺失不補。"""
     exp = _resolve_exposure(profile)
     ind_keys = set()
     for iname in exp["industries"]:
         for nm, keys in _INDUSTRY_RULES:
             if nm == iname:
                 ind_keys.update(keys)
-    direct, ind_rows = [], []
+    biz_keys = set(exp.get("biz") or [])
+    direct, biz_rows, ind_rows = [], [], []
     groups = {fn: [] for fn, _ in _NEWS_FACET_RULES}
     wsum, wtot = 0.0, 0.0
 
     for x in items:
         t, low = x["title"], x["title"].lower()
         d_hit = any((a in low) if a.isascii() else (a in t) for a in exp["aliases"])
+        biz_hit = any((k in low) if k.isascii() else (k in t) for k in biz_keys)
         i_hit = any((k in low) if k.isascii() else (k in t) for k in ind_keys)
         pol, bull, bear = _news_polarity(t)
         rec = dict(x, pol=pol, bull=bull, bear=bear)
         if d_hit:
             direct.append(rec); w = 3.0
+        elif biz_hit:
+            biz_rows.append(rec); w = 2.5
         elif i_hit:
             ind_rows.append(rec); w = 2.0
         else:
@@ -1341,10 +1383,14 @@ def analyze_news_for_stock(profile: dict, items: list):
         for r in groups[fn]:
             uniq.setdefault(r["title"], r)
         groups[fn] = list(uniq.values())
-    d_uniq = {}
-    for r in direct:
-        d_uniq.setdefault(r["title"], r)
-    direct = list(d_uniq.values())
+
+    def _dedup(rows):
+        u = {}
+        for r in rows:
+            u.setdefault(r["title"], r)
+        return list(u.values())
+
+    direct, biz_rows, ind_rows = _dedup(direct), _dedup(biz_rows), _dedup(ind_rows)
 
     score_raw = (wsum / wtot) if wtot else 0.0
     sub_score = round(max(min(score_raw * 2, 2), -2), 2)
@@ -1355,8 +1401,8 @@ def analyze_news_for_stock(profile: dict, items: list):
         lean = "新聞面偏空"
     else:
         lean = "新聞面中性／訊號分歧"
-    return {"exp": exp, "direct": direct, "industry_rows": ind_rows, "groups": groups,
-            "score_raw": round(score_raw, 3), "sub_score": sub_score,
+    return {"exp": exp, "direct": direct, "biz_rows": biz_rows, "industry_rows": ind_rows,
+            "groups": groups, "score_raw": round(score_raw, 3), "sub_score": sub_score,
             "sentiment": sentiment, "lean": lean, "n_used": int(wtot), "n_direct": len(direct)}
 
 
@@ -1390,7 +1436,7 @@ def render_news_macro_panel(profile: dict):
     items = fetch_global_news().get("items", [])
     if not items:
         st.info("📰 全球新聞尚未載入（離線或本次未開門）。不顯示任何編造新聞，請按「更新本分頁數據」後重試。")
-        return
+        return None
 
     a = analyze_news_for_stock(profile, items)
     exp = a["exp"]
@@ -1447,6 +1493,26 @@ def render_news_macro_panel(profile: dict):
     <ul style="font-size:13px;">{_li(a['direct'], 6)}</ul></div>
     """), unsafe_allow_html=True)
 
+    # 公司業務近況：命中該公司具體業務主題（產品/服務/業務線），比泛行業更貼近其營收
+    biz = a["biz_rows"]
+    if biz:
+        bps_pol = sum(r["pol"] for r in biz)
+        bp = 1 if bps_pol > 0 else (-1 if bps_pol < 0 else 0)
+        if bp > 0:
+            biz_note = (f"這些報道直接對應「{short}」的業務線（產品、服務或出貨），若屬實可支撐其營收與定價，"
+                        "是較貼近基本面的正面訊號；仍需財報數字驗證，不能只憑標題認定。")
+        elif bp < 0:
+            biz_note = (f"這些報道直接對應「{short}」的業務線，反映需求、競爭或成本壓力，可能傳導至近期營收與毛利，"
+                        "屬須正視的營運層面利空。")
+        else:
+            biz_note = (f"報道與「{short}」業務相關但方向不明，對營收的淨影響尚難判定，應留待下次財報或官方數據確認。")
+        st.markdown(_compact_html(f"""
+        <div class="section-card"><h4>🏢 近期「{short}」公司業務近況（業務主題相關）</h4>
+        <div style="font-size:12px;color:#666;background:rgba(127,127,127,.08);padding:8px;
+        border-radius:8px;margin-bottom:6px;">🧭 業務關聯：{biz_note}</div>
+        <ul style="font-size:12.5px;">{_li(biz, 6)}</ul></div>
+        """), unsafe_allow_html=True)
+
     def _facet_card(fn, rows):
         ps = sum(r["pol"] for r in rows)
         p = 1 if ps > 0 else (-1 if ps < 0 else 0)
@@ -1484,6 +1550,36 @@ def render_news_macro_panel(profile: dict):
                "極性與分類為關鍵詞機械匹配、非人工深讀，可能誤判（如「record low」「rate cut」等語境）；"
                "Bloomberg/WSJ/Reuters 付費牆全文未能取得。本面板只反映可驗證公開資訊，"
                "須與下方六維交叉、估值與動能證據一併判斷，不單據新聞標題決定買入。")
+    return a
+
+
+def build_integrated_verdict(profile: dict, news_a, cross_a: dict):
+    """整合所有評分：以六維交叉總分為骨架（已含財報/估值/成長/動能/波浪/宏觀），
+    新聞情緒（含公司業務近況）只作有限的確認/背離調整（±0.8 分），避免與六維宏觀重複計算。
+    回傳基準分、新聞調整、整合分（1–10）、總結結論與各來源分數；屬程序化加權、非預測保證。"""
+    total = float(cross_a.get("total", 0.0))
+    base = float(np.clip(5.0 + total * (4.0 / 6.0), 2.0, 9.0))
+    if news_a is not None:
+        news_adj = float(np.clip(news_a.get("score_raw", 0.0) * 0.8, -0.8, 0.8))
+        news_sent = news_a.get("sentiment")
+    else:
+        news_adj, news_sent = 0.0, None
+    integrated = round(float(np.clip(base + news_adj, 1.0, 9.5)), 1)
+
+    if integrated >= 7.5:
+        concl = "多數維度一致偏多，可考慮分批吸納（仍須控制倉位與止損）"
+    elif integrated >= 6.0:
+        concl = "略偏正面但賠率一般，宜小倉試探或等待回調"
+    elif integrated >= 4.5:
+        concl = "訊號分歧、中性觀望，買入與否回歸估值與基本面"
+    elif integrated >= 3.5:
+        concl = "偏空訊號較多，暫不宜買入，持倉者宜收緊風控"
+    else:
+        concl = "多維一致偏空，建議回避或逢高減持"
+    return {"base": round(base, 2), "news_adj": round(news_adj, 2),
+            "integrated": integrated, "conclusion": concl,
+            "news_sentiment": news_sent, "cross_total": total,
+            "critical_score": profile.get("score")}
 
 
 def tencent_quote_code(symbol: str):
@@ -5261,8 +5357,8 @@ with tabs[4]:
     tab_refresh_button("refresh_tab_entry", [fetch_real_fundamentals, fetch_real_momentum_snapshot,
                                              fetch_global_news])
 
-    # 全球新聞／宏觀／地緣／行業牽連（追加分析，格式獨立、不影響原有內容）
-    render_news_macro_panel(q_data)
+    # 全球新聞／宏觀／地緣／行業牽連／公司業務近況（返回分析結果供底部整合；離線回 None）
+    _news_a = render_news_macro_panel(q_data)
 
     # 六維交叉判斷：入市結論須由 6 個分頁證據交叉，而非單一估值分數
     _ca_entry = build_cross_analysis(selected_symbol, q_data)
@@ -5341,4 +5437,40 @@ with tabs[4]:
         })
     df_peers = pd.DataFrame(peer_rows)
     render_resizable_table(df_peers, key_prefix="peers_main_tbl", default_col_w=100, default_text_w=420, default_row_h=55)
+
+    # ===== 整合評分總結：匯總公司業務近況、新聞情緒、六維交叉與批判性評分 =====
+    st.markdown("#### 🧭 綜合評分總結（整合所有分析）")
+    _iv = build_integrated_verdict(q_data, _news_a, _ca_entry)
+    _iv_color = "#188038" if _iv["integrated"] >= 7 else ("#f57c00" if _iv["integrated"] >= 4.5 else "#d93025")
+
+    def _cell(v, suffix="", na="N/A"):
+        return f"{v}{suffix}" if v is not None else na
+
+    st.markdown(_compact_html(f"""
+    <div class="section-card" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+      <div style="text-align:center;min-width:110px;">
+        <div style="font-size:40px;font-weight:800;color:{_iv_color};line-height:1;">{_iv['integrated']}</div>
+        <div style="font-size:11px;color:#999;">綜合評分（1–10）</div>
+      </div>
+      <div style="flex:1;min-width:280px;">
+        <div style="font-size:15px;font-weight:700;color:{_iv_color};">{_iv['conclusion']}</div>
+        <table style="width:100%;font-size:12.5px;border-collapse:collapse;margin-top:10px;">
+          <tr style="color:#888;">
+            <td style="padding:3px 0;">六維交叉總分（-6..6）</td>
+            <td style="text-align:right;">{_cell(_iv['cross_total'])}</td>
+            <td style="padding-left:18px;color:#888;">新聞情緒分（0–100）</td>
+            <td style="text-align:right;">{_cell(_iv['news_sentiment'])}</td>
+          </tr>
+          <tr style="color:#888;">
+            <td style="padding:3px 0;">估值批判性評分（1–10）</td>
+            <td style="text-align:right;">{_cell(_iv['critical_score'])}</td>
+            <td style="padding-left:18px;color:#888;">新聞面調整（±0.8 封頂）</td>
+            <td style="text-align:right;">{_iv['news_adj']:+.2f}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    """), unsafe_allow_html=True)
+    st.caption("綜合評分以六維交叉為骨架，新聞（含公司業務近況）僅作 ±0.8 的有限調整，避免與六維宏觀重複計分；"
+               "分數為程序化、有界的加權結果，非預測或收益保證。各維度若數據缺失即如實 N/A，不補值、不編造。")
 #(註：內容由 AI 生成)
